@@ -1,0 +1,47 @@
+# Secrets
+.env
+.env.*
+*.env
+!.env.example
+secrets.json
+*.key
+*.pem
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtualenvs
+.venv/
+venv/
+env/
+ENV/
+
+# Caches & build
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+build/
+dist/
+
+# Generated reports / local artifacts
+output/
+*.txt.local
+*.log
+*.tmp
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
