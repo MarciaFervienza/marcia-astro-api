@@ -7,13 +7,15 @@ Endpoints:
     POST /generate-report  — accepts chart JSON, returns the full report
 """
 
-import os
+import base64
 import logging
+import os
 import traceback
 
 from flask import Flask, request, jsonify
 
 import report_generator as rg
+import pdf_generator as pg
 
 # ============================================================
 # CONFIG
@@ -82,6 +84,10 @@ def generate_report_endpoint():
     limit = body.pop("limit", None)
     no_fio = bool(body.pop("no_fio", False))
 
+    # PDF-only metadata fields (free-form strings shown on the cover)
+    birth_date = body.pop("birth_date", "") or ""
+    birth_place = body.pop("birth_place", "") or ""
+
     # Validate required fields up front (clearer 400 than a deep stack later)
     for required in ("gender", "points", "ascendant", "aspects"):
         if required not in body:
@@ -109,9 +115,26 @@ def generate_report_endpoint():
             "trace": traceback.format_exc() if app.debug else None,
         }), 500
 
+    # Render the branded PDF. Failures here should NOT poison the response —
+    # the markdown report still has full value on its own.
+    pdf_b64 = None
+    pdf_error = None
+    try:
+        pdf_bytes = pg.generate_pdf(
+            report_text=result["report"],
+            client_name=result["name"],
+            birth_date=birth_date,
+            birth_place=birth_place,
+        )
+        pdf_b64 = base64.b64encode(pdf_bytes).decode("ascii")
+    except Exception as e:
+        logger.exception("generate_pdf failed")
+        pdf_error = str(e)
+
     return jsonify({
         "status": "success",
         "report": result["report"],
+        "pdf_base64": pdf_b64,
         "meta": {
             "name": result["name"],
             "gender": result["gender"],
@@ -122,6 +145,8 @@ def generate_report_endpoint():
                 {k: v for k, v in c.items() if k != "trace"}
                 for c in result["cleanup_changes"]
             ],
+            "pdf_bytes": len(pdf_b64) * 3 // 4 if pdf_b64 else 0,
+            "pdf_error": pdf_error,
         },
     }), 200
 
