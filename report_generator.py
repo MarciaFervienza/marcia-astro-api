@@ -83,6 +83,67 @@ PLANET_LABEL_PT = {
     "ceres": "Ceres", "vesta": "Vesta", "juno": "Juno", "pallas": "Palas",
 }
 
+# ============================================================
+# IN-SIGN ASPECT DETECTION
+# ============================================================
+# An "in-sign" aspect is one where the two planets' signs naturally form that
+# aspect by zodiac geometry — independent of orb. Conjunctions are in-sign
+# when both planets are in the same sign; oppositions when their signs are 6
+# steps apart; etc. We use this to filter the chart's full aspect list down
+# to the geometrically clean ones shown in the PDF's aspects table.
+IN_SIGN_ASPECTS = {
+    "conjunction": 0,
+    "opposition": 6,
+    "trine": 4,
+    "square": 3,
+    "sextile": 2,
+}
+
+SIGN_ORDER = [
+    "aries", "taurus", "gemini", "cancer", "leo", "virgo",
+    "libra", "scorpio", "sagittarius", "capricorn", "aquarius", "pisces",
+]
+
+
+def is_in_sign_aspect(planet_a_sign: str, planet_b_sign: str, aspect_type: str) -> bool:
+    """Return True if the two signs naturally correspond to the given aspect type."""
+    if aspect_type not in IN_SIGN_ASPECTS:
+        return False
+    sa = (planet_a_sign or "").strip().lower()
+    sb = (planet_b_sign or "").strip().lower()
+    if sa not in SIGN_ORDER or sb not in SIGN_ORDER:
+        return False
+    ia = SIGN_ORDER.index(sa)
+    ib = SIGN_ORDER.index(sb)
+    raw = abs(ia - ib)
+    # Wheel distance: take the shorter of the two directions
+    distance = min(raw, 12 - raw)
+    return distance == IN_SIGN_ASPECTS[aspect_type]
+
+
+def get_in_sign_aspects(aspects: list, points: dict = None) -> list:
+    """Filter aspects to only major in-sign aspects.
+
+    Each input aspect dict should have planet_a, planet_b, type. The signs can
+    either be embedded as planet_a_sign / planet_b_sign on the aspect, or looked
+    up via `points` ({planet_key: {sign: 'aries', ...}, ...}).
+    """
+    out = []
+    points = points or {}
+    for a in aspects or []:
+        sa = a.get("planet_a_sign")
+        sb = a.get("planet_b_sign")
+        if not sa:
+            sa = (points.get(a.get("planet_a"), {}) or {}).get("sign")
+        if not sb:
+            sb = (points.get(a.get("planet_b"), {}) or {}).get("sign")
+        if not sa or not sb:
+            continue
+        if is_in_sign_aspect(sa, sb, a.get("type", "")):
+            out.append(a)
+    return out
+
+
 SIGN_OPPOSITE_PT = {
     "Áries": "Libra", "Libra": "Áries",
     "Touro": "Escorpião", "Escorpião": "Touro",

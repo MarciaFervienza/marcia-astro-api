@@ -12,6 +12,7 @@ import logging
 import os
 import traceback
 
+import requests
 from flask import Flask, request, jsonify
 
 import report_generator as rg
@@ -24,6 +25,12 @@ DEFAULT_PORT = int(os.environ.get("PORT", "8000"))
 
 # Optional: cap how big a chart body we accept (defensive)
 MAX_BODY_BYTES = int(os.environ.get("MAX_BODY_BYTES", str(256 * 1024)))  # 256 KB
+
+# AstroAPI for fetching the chart wheel SVG. Both are optional — if not set,
+# the PDF still renders correctly without a chart wheel.
+ASTROAPI_BASE_URL = os.environ.get("ASTROAPI_BASE_URL", "https://api.astroapi.cloud")
+ASTROAPI_CHART_PATH = os.environ.get("ASTROAPI_CHART_PATH", "/v1/natal/charts")
+ASTROAPI_TIMEOUT = float(os.environ.get("ASTROAPI_TIMEOUT", "30"))
 
 # ============================================================
 # APP
@@ -42,6 +49,49 @@ def _missing_required_keys():
         if not os.environ.get(k):
             missing.append(k)
     return missing
+
+
+def _fetch_chart_svg_url(chart: dict):
+    # Returns (svg_url, error_message) as a tuple.
+    """
+    Call AstroAPI to get the chart wheel SVG URL for the given chart.
+
+    Returns (svg_url, error_message). On success: (url, ""). On failure: ("", reason).
+    Never raises — designed so a failure here downgrades gracefully to a PDF
+    without the wheel rather than failing the whole request.
+    """
+    astroapi_key = os.environ.get("ASTROAPI_KEY", "").strip()
+    if not astroapi_key:
+        return "", "ASTROAPI_KEY not configured"
+
+    url = ASTROAPI_BASE_URL.rstrip("/") + "/" + ASTROAPI_CHART_PATH.lstrip("/")
+    headers = {
+        "Authorization": f"Bearer {astroapi_key}",
+        "Content-Type": "application/json",
+    }
+    try:
+        resp = requests.post(url, json=chart, headers=headers, timeout=ASTROAPI_TIMEOUT)
+    except Exception as e:
+        return "", f"AstroAPI request failed: {e}"
+
+    if resp.status_code != 200:
+        return "", f"AstroAPI returned HTTP {resp.status_code}"
+
+    try:
+        data = resp.json()
+    except Exception:
+        return "", "AstroAPI response was not valid JSON"
+
+    # AstroAPI shapes vary by endpoint version; try common fields.
+    for key in ("svg_url", "chart_url", "chart_svg_url", "url"):
+        if isinstance(data.get(key), str) and data[key].strip():
+            return data[key].strip(), ""
+    # Some endpoints return SVG inline
+    for key in ("svg", "chart_svg"):
+        if isinstance(data.get(key), str) and data[key].lstrip().startswith(("<?xml", "<svg")):
+            return data[key], ""
+
+    return "", f"AstroAPI response had no chart URL (keys: {list(data.keys())[:6]})"
 
 
 @app.route("/health", methods=["GET"])
@@ -115,6 +165,11 @@ def generate_report_endpoint():
             "trace": traceback.format_exc() if app.debug else None,
         }), 500
 
+    # Fetch the chart-wheel SVG URL from AstroAPI (best-effort).
+    # `body` at this point still contains the chart fields (gender, points, etc.)
+    # so we can pass it directly.
+    chart_svg_url, svg_error = _fetch_chart_svg_url(body)
+
     # Render the branded PDF. Failures here should NOT poison the response —
     # the markdown report still has full value on its own.
     pdf_b64 = None
@@ -125,6 +180,9 @@ def generate_report_endpoint():
             client_name=result["name"],
             birth_date=birth_date,
             birth_place=birth_place,
+            chart_svg_url=chart_svg_url,
+            aspects=body.get("aspects", []),
+            points=body.get("points", {}),
         )
         pdf_b64 = base64.b64encode(pdf_bytes).decode("ascii")
     except Exception as e:
@@ -147,6 +205,8 @@ def generate_report_endpoint():
             ],
             "pdf_bytes": len(pdf_b64) * 3 // 4 if pdf_b64 else 0,
             "pdf_error": pdf_error,
+            "chart_svg_fetched": bool(chart_svg_url),
+            "chart_svg_error": svg_error or None,
         },
     }), 200
 
