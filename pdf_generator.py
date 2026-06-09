@@ -104,8 +104,8 @@ except ImportError:
 
 logger = logging.getLogger("pdf-generator")
 
-# requests + svglib are needed only when a chart SVG URL is provided; import
-# them lazily inside the helpers so the PDF can still render without them.
+# requests is imported lazily inside the chart-image fetcher so this module
+# remains importable even in environments where it isn't installed.
 
 # ============================================================
 # DESIGN TOKENS
@@ -255,68 +255,89 @@ def _draw_footer(canv, doc):
 
 
 # ============================================================
-# CHART PAGE — SVG fetch + parse + aspects table
+# CHART PAGE — PNG image fetch + aspects table
 # ============================================================
-def _looks_like_svg(blob: bytes) -> bool:
-    """Cheap heuristic to tell SVG bytes from accidentally-fetched HTML."""
-    head = blob[:512].lstrip().lower()
-    return head.startswith(b"<?xml") or head.startswith(b"<svg")
+def _looks_like_raster_image(blob: bytes) -> bool:
+    """True for PNG/JPEG/GIF byte signatures. Used to reject HTML error
+    pages or SVG content that AstroAPI might return on a wrong endpoint."""
+    if not blob or len(blob) < 8:
+        return False
+    # PNG: 89 50 4E 47 0D 0A 1A 0A
+    if blob[:8] == b"\x89PNG\r\n\x1a\n":
+        return True
+    # JPEG: FF D8 FF
+    if blob[:3] == b"\xff\xd8\xff":
+        return True
+    # GIF: GIF87a or GIF89a
+    if blob[:6] in (b"GIF87a", b"GIF89a"):
+        return True
+    return False
 
 
-def _fetch_svg(url_or_inline: str, timeout: float = 15.0) -> Optional[bytes]:
-    """Return SVG content as bytes, or None on any failure.
+def _fetch_chart_image(url: str, timeout: float = 15.0) -> Optional[bytes]:
+    """Fetch a chart image (PNG or JPEG) from a URL.
 
-    Accepts either an https URL to fetch from or a raw SVG/XML string.
+    Returns the raw image bytes on success, or None on any failure. We
+    explicitly check the byte signature so an SVG URL accidentally passed
+    here doesn't pollute the PDF with garbled content — if AstroAPI only
+    returned SVG, this returns None and the chart page falls back to
+    showing just the aspects table.
+
+    NOTE: we deliberately do NOT depend on svglib / cairosvg / pycairo.
+    The chart image must be a raster format (PNG/JPEG/GIF) that ReportLab's
+    Image flowable can embed directly.
     """
-    if not url_or_inline:
+    if not url or not url.strip():
         return None
-    s = url_or_inline.strip()
-    if not s:
-        return None
-    # If it's already inline SVG/XML, use it directly
+    s = url.strip()
+    # Reject inline SVG markup — we don't render SVG anymore
     if s.startswith("<?xml") or s.startswith("<svg"):
-        return s.encode("utf-8")
-    # Otherwise treat as URL
+        logger.warning("inline SVG passed to _fetch_chart_image — PNG required, skipping wheel")
+        return None
     try:
-        import requests  # lazy import
+        import requests  # lazy import (in requirements.txt, but import-safe)
     except ImportError:
-        logger.warning("requests not installed; skipping SVG fetch")
+        logger.warning("requests not installed; skipping chart image")
         return None
     try:
         r = requests.get(s, timeout=timeout)
     except Exception as e:
-        logger.warning("SVG fetch failed for %s: %s", s, e)
+        logger.warning("chart image fetch failed for %s: %s", s, e)
         return None
     if r.status_code != 200 or not r.content:
-        logger.warning("SVG fetch returned %s for %s", r.status_code, s)
+        logger.warning("chart image fetch returned HTTP %s for %s", r.status_code, s)
         return None
-    if not _looks_like_svg(r.content):
-        logger.warning("URL %s did not return SVG content", s)
+    if not _looks_like_raster_image(r.content):
+        logger.warning(
+            "URL %s did not return raster image (got %d bytes, first 16: %r) — "
+            "AstroAPI may only have an SVG variant for this chart; falling back "
+            "to aspects-table-only chart page.",
+            s, len(r.content), r.content[:16],
+        )
         return None
     return r.content
 
 
-def _svg_to_drawing(svg_bytes: bytes, target_width_pts: float):
-    """Convert SVG bytes to a scaled reportlab Drawing. Returns None on failure."""
+def _chart_image_flowable(image_bytes: bytes, target_width_pts: float,
+                          target_height_pts: float):
+    """Build an Image flowable from raw PNG/JPEG bytes, scaled to fit a
+    target bounding box while preserving aspect ratio. Returns None on failure."""
     try:
-        from svglib.svglib import svg2rlg  # lazy import (Railway-safe pure-Python)
-    except ImportError:
-        logger.warning("svglib not installed; skipping chart wheel")
-        return None
-    try:
-        drawing = svg2rlg(io.BytesIO(svg_bytes))
+        img = Image(io.BytesIO(image_bytes))
     except Exception as e:
-        logger.warning("svg2rlg failed: %s", e)
+        logger.warning("ReportLab could not load chart image bytes: %s", e)
         return None
-    if drawing is None or not drawing.width:
+    try:
+        iw, ih = float(img.imageWidth), float(img.imageHeight)
+    except Exception:
         return None
-    # Uniform scale by width
-    scale = target_width_pts / float(drawing.width)
-    drawing.scale(scale, scale)
-    drawing.width = drawing.width * scale
-    drawing.height = drawing.height * scale
-    drawing.hAlign = "CENTER"
-    return drawing
+    if iw <= 0 or ih <= 0:
+        return None
+    ratio = min(target_width_pts / iw, target_height_pts / ih)
+    img.drawWidth = iw * ratio
+    img.drawHeight = ih * ratio
+    img.hAlign = "CENTER"
+    return img
 
 
 def _aspects_table(in_sign_aspects: list, styles):
@@ -369,28 +390,31 @@ def _aspects_table(in_sign_aspects: list, styles):
 
 
 def _chart_page_flowables(
-    chart_svg_url: str,
+    chart_image_url: str,
     aspects: list,
     points: dict,
     styles,
 ):
-    """Build the second-page flowables: chart wheel + in-sign aspects table + footnote."""
+    """Build the second-page flowables: chart wheel image + in-sign aspects
+    table + footnote."""
     flow = []
 
-    # 1) Chart wheel (best-effort — degrades gracefully if fetch / parse fails)
-    target_w_pts = (PAGE_W - 2 * SIDE_MARGIN) * 0.92  # ~92% of frame width
-    target_h_pts = (PAGE_H - TOP_MARGIN - BOTTOM_MARGIN) * 0.55  # don't exceed half the frame
+    # 1) Chart wheel (best-effort — degrades gracefully if fetch fails or
+    # AstroAPI only has SVG for this chart).
+    # Cap to a fixed 11 cm square. Chart wheels are square; 11 cm leaves
+    # enough vertical room for a 12-row aspects table plus the footnote on
+    # the same page (the frame is ~25.5 cm tall, so this keeps the chart
+    # page from spilling onto a second sheet).
+    target_w_pts = 11 * cm
+    target_h_pts = 11 * cm
 
-    svg_bytes = _fetch_svg(chart_svg_url) if chart_svg_url else None
-    drawing = _svg_to_drawing(svg_bytes, target_width_pts=target_w_pts) if svg_bytes else None
-    if drawing is not None:
-        # Constrain height if too tall
-        if drawing.height > target_h_pts:
-            extra_scale = target_h_pts / drawing.height
-            drawing.scale(extra_scale, extra_scale)
-            drawing.width *= extra_scale
-            drawing.height *= extra_scale
-        flow.append(drawing)
+    image_bytes = _fetch_chart_image(chart_image_url) if chart_image_url else None
+    img = (
+        _chart_image_flowable(image_bytes, target_w_pts, target_h_pts)
+        if image_bytes else None
+    )
+    if img is not None:
+        flow.append(img)
     else:
         # No wheel — keep some breathing room so the table doesn't jump to the top
         flow.append(Spacer(1, 0.6 * cm))
@@ -493,26 +517,40 @@ def generate_pdf(
     client_name: str,
     birth_date: str = "",
     birth_place: str = "",
-    chart_svg_url: str = "",
+    chart_image_url: str = "",
     aspects: list = None,
     points: dict = None,
+    chart_svg_url: str = "",  # backwards-compatible alias, deprecated
 ) -> bytes:
     """
     Render the natal report into a branded PDF.
 
     Args:
-        report_text    — full markdown report from generate_report().
-        client_name    — name to show on the cover.
-        birth_date     — birth date string (free-form, shown on cover).
-        birth_place    — birth place string (free-form, shown on cover).
-        chart_svg_url  — optional URL to fetch the chart wheel SVG, OR inline SVG markup.
-        aspects        — optional full aspects list (filtered internally to in-sign aspects).
-        points         — optional planet positions dict, used to look up signs when the
-                         aspects don't carry planet_a_sign / planet_b_sign explicitly.
+        report_text       — full markdown report from generate_report().
+        client_name       — name to show on the cover.
+        birth_date        — birth date string (free-form, shown on cover).
+        birth_place       — birth place string (free-form, shown on cover).
+        chart_image_url   — optional URL to a PNG (or JPEG/GIF) of the chart wheel.
+                            ReportLab embeds the image directly — no SVG rendering,
+                            no svglib / cairosvg dependency. If only SVG is available
+                            upstream, leave this empty and the chart page falls back
+                            to the aspects table alone.
+        aspects           — optional full aspects list (filtered internally to in-sign
+                            aspects).
+        points            — optional planet positions dict, used to look up signs when
+                            the aspects don't carry planet_a_sign / planet_b_sign
+                            explicitly.
+        chart_svg_url     — deprecated alias accepted for backwards compatibility.
+                            If passed (and chart_image_url is empty), it's used as the
+                            image URL — but raster signature validation will then
+                            reject SVG content and skip the wheel.
 
     Returns:
         PDF document as bytes.
     """
+    # Backwards-compat alias
+    if not chart_image_url and chart_svg_url:
+        chart_image_url = chart_svg_url
     buf = io.BytesIO()
     styles = _styles()
 
@@ -548,8 +586,8 @@ def generate_pdf(
     story.extend(_cover_flowables(client_name, birth_date, birth_place, styles))
 
     # Chart page — only add it if we have something to show
-    if chart_svg_url or aspects:
-        story.extend(_chart_page_flowables(chart_svg_url, aspects or [], points or {}, styles))
+    if chart_image_url or aspects:
+        story.extend(_chart_page_flowables(chart_image_url, aspects or [], points or {}, styles))
 
     for title, paragraphs in _parse_sections(report_text):
         story.extend(_section_flowables(title, paragraphs, styles))
