@@ -16,6 +16,7 @@ Usage:
 """
 
 import argparse
+import concurrent.futures
 import json
 import os
 import re
@@ -305,12 +306,25 @@ def aspects_for_section_filtered(section_name: str, chart: dict, exclude_describ
     """Return the section's prioritized, deduped aspect list, optionally
     excluding aspects already described in prior sections.
 
+    Idempotency: if this section's filtered list is already in
+    `_section_aspect_audit` from a prior call in the same run, return that
+    cached result instead of recomputing. This is essential for the parallel
+    execution path — the pre-compute phase in `generate_report()` populates
+    audit entries for every section sequentially (so cross-section dedup is
+    deterministic), and then threads calling this function during parallel
+    Claude generation must see those pre-computed lists, NOT recompute against
+    a fully-populated `described_aspect_themes` set (which would return empty).
+
     SPECIAL CASE — the Lua section always receives the full list of aspects
     involving Lua, regardless of whether other sections have already mentioned
     them. Lua aspects are Tier 1 and deserve dedicated treatment in the
     Lua section. All other dedup rules (angles, IMPOSSIBLE_ASPECTS, mirrors,
     Tier-4 orb threshold) still apply.
     """
+    # Return cached result if already computed in this run
+    if section_name in _section_aspect_audit:
+        return _section_aspect_audit[section_name]
+
     keys = _planets_for_section(section_name, chart)
     raw = []
     seen_raw = set()
@@ -1272,6 +1286,32 @@ CONTEXT_DEPENDENCIES = {
 
 
 # ============================================================
+# PARALLEL EXECUTION CONFIG
+# ============================================================
+# Which sections depend on which others. Dependent sections wait for their
+# prereqs to finish (and receive the prereq texts as context) before they
+# run their own Claude call. All sections not listed here have no
+# dependencies and run as soon as a worker is available.
+#
+# Must be kept in sync with CONTEXT_DEPENDENCIES above — the deps listed
+# here are the same prior-section names that CONTEXT_DEPENDENCIES uses to
+# look up the context instruction text. SECTION_DEPENDENCIES is the
+# topological view (scheduler input); CONTEXT_DEPENDENCIES is the prompt
+# wiring view (text input).
+SECTION_DEPENDENCIES = {
+    "urano":       ["lua", "casa_4"],   # needs Lua + Casa 4 context
+    "venus_marte": ["lua"],             # needs Lua context
+    # all other sections have no dependencies
+}
+
+# Cap concurrent Claude API calls. 6 fits comfortably within Anthropic's
+# per-minute rate limits for the Sonnet tier we're using, while giving
+# meaningful parallelism (16 sections / 6 workers ≈ 3 sequential rounds
+# instead of 16 sequential calls). Override via env var if needed.
+PARALLEL_MAX_WORKERS = int(os.environ.get("PARALLEL_MAX_WORKERS", "6"))
+
+
+# ============================================================
 # PUBLIC API: generate_report(chart_dict, ...)
 # ============================================================
 def generate_report(
@@ -1335,32 +1375,74 @@ def generate_report(
 
     full_report = f"# Mapa Natal — {name}\n\n"
     section_texts: dict = {}
+    section_lookup = {s["name"]: s for s in sections}
     start = time.time()
 
+    # ---- PRE-COMPUTE PHASE (sequential, fast) ----
+    # Walk sections in canonical order to populate per-section aspect dedup
+    # state. No LLM calls — just chart-data filtering. After this loop,
+    # every section's _section_aspect_audit entry reflects the same dedup
+    # behavior it would have had under sequential generation. The parallel
+    # phase below can then safely call aspects_for_section_filtered() from
+    # multiple threads — it short-circuits to the cached result.
     for sec in sections:
-        log(f"\n--- {sec['title']} ---", flush=True)
+        aspects_for_section_filtered(sec["name"], chart)
+        for a in _section_aspect_audit.get(sec["name"], []):
+            described_aspect_themes.add(_aspect_dedup_key(a))
+
+    # ---- PARALLEL CLAUDE PHASE ----
+    log(f"\n--- Generating {len(sections)} sections in parallel (max {PARALLEL_MAX_WORKERS} workers) ---", flush=True)
+    parallel_start = time.time()
+    futures: dict = {}
+
+    def _run_section(sec):
+        """Executor task: wait for dependencies, build context, call Claude."""
+        deps = SECTION_DEPENDENCIES.get(sec["name"], [])
+        # Filter deps to those actually present in this run (handles --only / --limit)
+        deps = [d for d in deps if d in section_lookup]
+
         section_context = None
         context_instruction = None
-        if sec["name"] in CONTEXT_DEPENDENCIES:
-            prior_spec, ctx_instr = CONTEXT_DEPENDENCIES[sec["name"]]
-            prior_names = [prior_spec] if isinstance(prior_spec, str) else list(prior_spec)
-            available = [n for n in prior_names if n in section_texts]
-            if available:
-                combined = []
-                for n in available:
-                    title = next((s["title"] for s in sections if s["name"] == n), n)
-                    combined.append(f"### {title}\n\n{section_texts[n]}")
-                section_context = "\n\n".join(combined)
-                context_instruction = ctx_instr
-                log(f"    + passing {available} as context", flush=True)
+        if deps:
+            dep_texts = []
+            for dep_name in deps:
+                # Block until each dependency's section text is ready.
+                # In a ThreadPoolExecutor, Future.result() releases the GIL
+                # while waiting, so this doesn't starve other workers.
+                dep_text = futures[dep_name].result()
+                dep_title = section_lookup[dep_name]["title"]
+                dep_texts.append(f"### {dep_title}\n\n{dep_text}")
+            section_context = "\n\n".join(dep_texts)
+            # Pull the prompt-wiring instruction from CONTEXT_DEPENDENCIES.
+            if sec["name"] in CONTEXT_DEPENDENCIES:
+                _, context_instruction = CONTEXT_DEPENDENCIES[sec["name"]]
+
         text, _chunks = generate_section(
             sec, chart, name, gender,
             section_context=section_context,
             context_instruction=context_instruction,
         )
-        section_texts[sec["name"]] = text
-        full_report += f"\n## {sec['title']}\n\n{text}\n"
-        log(f"    {len(text.split())} words", flush=True)
+        log(f"  ✓ {sec['title']}  ({len(text.split())} words)", flush=True)
+        return text
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=PARALLEL_MAX_WORKERS) as executor:
+        # Submit every section at once. Dependent sections block on their
+        # prereqs' futures internally; the executor's worker pool naturally
+        # caps concurrency.
+        for sec in sections:
+            futures[sec["name"]] = executor.submit(_run_section, sec)
+        # Drain results — if any task raised, this re-raises here.
+        for sec in sections:
+            section_texts[sec["name"]] = futures[sec["name"]].result()
+
+    parallel_elapsed = time.time() - parallel_start
+    log(f"\nParallel section phase complete in {parallel_elapsed:.1f}s", flush=True)
+
+    # ---- ASSEMBLE IN CANONICAL ORDER ----
+    # Output ordering follows the `sections` list, not the parallel
+    # completion order, so the report reads identically to a sequential run.
+    for sec in sections:
+        full_report += f"\n## {sec['title']}\n\n{section_texts[sec['name']]}\n"
 
     if not skip_fio:
         log(f"\n--- Fio Condutor ---", flush=True)
