@@ -81,9 +81,17 @@ def _fetch_chart_image_url(chart: dict):
         return "", f"chart payload missing required fields for AstroAPI PNG: {missing}"
 
     url = ASTROAPI_BASE_URL.rstrip("/") + "/" + ASTROAPI_CHART_PATH.lstrip("/")
+    # AstroAPI checks Referer/Origin against the key's allow-list. Set them
+    # to the Railway service's public hostname so the call clears the policy.
+    # Both headers can be overridden via env vars in case the Railway domain
+    # changes or a custom domain is added.
+    referer = os.environ.get("ASTROAPI_REFERER", "https://web-production-6c77f.up.railway.app")
+    origin = os.environ.get("ASTROAPI_ORIGIN", referer)
     headers = {
         "X-Api-Key": astroapi_key,
         "Content-Type": "application/json",
+        "Referer": referer,
+        "Origin": origin,
     }
     payload = {
         "datetime": chart.get("datetime"),
