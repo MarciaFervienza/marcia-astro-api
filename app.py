@@ -26,13 +26,53 @@ DEFAULT_PORT = int(os.environ.get("PORT", "8000"))
 # Optional: cap how big a chart body we accept (defensive)
 MAX_BODY_BYTES = int(os.environ.get("MAX_BODY_BYTES", str(256 * 1024)))  # 256 KB
 
-# AstroAPI for fetching the chart wheel SVG. Both are optional — if not set,
-# the PDF still renders correctly without a chart wheel.
-ASTROAPI_BASE_URL = os.environ.get("ASTROAPI_BASE_URL", "https://api.astroapi.cloud")
-ASTROAPI_CHART_PATH = os.environ.get("ASTROAPI_CHART_PATH", "/api/chart2/natal.png")
-ASTROAPI_TIMEOUT = float(os.environ.get("ASTROAPI_TIMEOUT", "30"))
-ASTROAPI_CHART_WIDTH = int(os.environ.get("ASTROAPI_CHART_WIDTH", "800"))
-ASTROAPI_CHART_HEIGHT = int(os.environ.get("ASTROAPI_CHART_HEIGHT", "800"))
+# Kerykeion chart-wheel configuration. The chart wheel is generated locally
+# from Swiss Ephemeris — no external API call, no network dependency, no key
+# rotation. The two lists below mirror Marcia's interpretive set exactly:
+# the 10 classical planets + Chiron, Mean Lilith, Mean North Lunar Node,
+# and the four major asteroids (Ceres, Pallas, Juno, Vesta). Aspects are
+# limited to the 5 Ptolemaic ones — no quintile, no semi-aspects, no
+# quincunx — matching the report's text-level filtering.
+ACTIVE_POINTS = [
+    "Sun", "Moon", "Mercury", "Venus", "Mars", "Jupiter", "Saturn",
+    "Uranus", "Neptune", "Pluto",
+    "Chiron", "Mean_Lilith", "Mean_North_Lunar_Node",
+    "Ceres", "Pallas", "Juno", "Vesta",
+    # Angular axes — needed so the Asc/MC marks appear on the wheel.
+    # Without them the wheel still renders the house cusps correctly
+    # (those come from the houses_system), but the labelled Asc and MC
+    # arrowheads on the outer ring are absent.
+    "Ascendant", "Medium_Coeli",
+]
+ACTIVE_ASPECTS = [
+    {"name": "conjunction", "orb": 10},
+    {"name": "opposition",  "orb": 10},
+    {"name": "trine",       "orb":  8},
+    {"name": "sextile",     "orb":  6},
+    {"name": "square",      "orb":  5},
+]
+# Aspect-line color palette — passed to ChartDrawer's `aspects_settings`.
+# Conjunction = neutral grey (it's a fusion, not a tension or harmony).
+# Sextile = green and trine = blue — both harmonious aspects, visually
+# distinct from each other. Square + opposition = brand red — both are
+# tension aspects, and red ties the wheel back to the section titles in
+# the rest of the PDF. The inactive aspects must remain in the list so
+# Kerykeion's settings model is complete; they're never drawn because
+# they're not in ACTIVE_ASPECTS above.
+ASPECT_COLORS = [
+    {"degree":   0, "name": "conjunction",    "is_major": True,  "color": "#9E9E9E"},
+    {"degree":  60, "name": "sextile",        "is_major": True,  "color": "#2E7D32"},
+    {"degree":  90, "name": "square",         "is_major": True,  "color": "#E03C31"},
+    {"degree": 120, "name": "trine",          "is_major": True,  "color": "#1976D2"},
+    {"degree": 180, "name": "opposition",     "is_major": True,  "color": "#E03C31"},
+    {"degree":  30, "name": "semi-sextile",   "is_major": False, "color": "#999999"},
+    {"degree":  45, "name": "semi-square",    "is_major": False, "color": "#999999"},
+    {"degree":  72, "name": "quintile",       "is_major": False, "color": "#999999"},
+    {"degree": 135, "name": "sesquiquadrate", "is_major": False, "color": "#999999"},
+    {"degree": 144, "name": "biquintile",     "is_major": False, "color": "#999999"},
+    {"degree": 150, "name": "quincunx",       "is_major": False, "color": "#999999"},
+]
+CHART_STYLE = os.environ.get("CHART_STYLE", "modern")  # 'modern' or 'classic'
 
 # ============================================================
 # APP
@@ -53,105 +93,128 @@ def _missing_required_keys():
     return missing
 
 
-def _fetch_chart_image_url(chart_data: dict) -> tuple:
+def _generate_chart_svg(chart_data: dict) -> tuple:
     """
-    Call AstroAPI's natal-chart PNG endpoint and persist the returned PNG to
-    a tempfile.
+    Generate a natal-chart SVG locally via Kerykeion (Swiss Ephemeris).
 
-    AstroAPI's /api/chart2/natal.png is a GET endpoint that takes the birth
-    inputs as query parameters (NOT a POST body) and returns the rendered
-    chart PNG bytes directly in the response body. Auth is via X-Api-Key,
-    and the key is allow-listed by Referer/Origin, so those headers must be
-    set to the Railway service's public hostname.
+    No external API call, no network dependency, no auth. The chart is
+    computed and rendered in-process in ~1–2s. The SVG is written to a
+    fresh tempdir (one per request) so concurrent requests don't collide.
 
-    Returns (path, error_message). On success: (local_path, None). On
-    failure: (None, reason). Never raises — failure here just means the PDF
-    renders without the chart wheel.
+    Configuration:
+      - active_points = ACTIVE_POINTS (17 bodies — Marcia's interpretive set)
+      - active_aspects = ACTIVE_ASPECTS (5 Ptolemaic only, matching the
+        report's text-level filtering)
+      - style = CHART_STYLE env var ('modern' or 'classic')
+      - online=False — we don't query GeoNames; lat/lng/tz are authoritative
 
-    The chart2 endpoint accepts a `theme` parameter ("minimal" gives the
-    cleanest look for embedding in a printed PDF). If the active AstroAPI
-    plan doesn't include chart2, fall back to `chart/image.png` (same
-    query params, no theme parameter) by overriding ASTROAPI_CHART_PATH on
-    Railway.
+    Returns (svg_path, error_message). On success: (path_to_svg_file, None).
+    On failure: (None, reason). Never raises — failure here just means the
+    PDF renders without the chart wheel.
     """
-    astroapi_key = os.environ.get("ASTROAPI_KEY", "").strip()
-    if not astroapi_key:
-        return None, "ASTROAPI_KEY not configured"
+    try:
+        from kerykeion import AstrologicalSubjectFactory
+        from kerykeion.chart_data_factory import ChartDataFactory
+        from kerykeion.charts.chart_drawer import ChartDrawer
+    except ImportError as e:
+        return None, f"kerykeion not installed: {e}"
 
-    dt = chart_data.get("datetime", "")
+    dt_str = chart_data.get("datetime", "")
     lat = chart_data.get("latitude")
     lon = chart_data.get("longitude")
     tz = chart_data.get("timezone", "")
+    name = chart_data.get("name", "Cliente") or "Cliente"
+    # Optional birth_city — when provided, Kerykeion uses it as the location
+    # label on the wheel. Without it, reverse-geocoding may return a wrong
+    # nearby city (e.g. "Greenwich, GB" for Rio coordinates). When Wix sends
+    # real client data this field will be populated from the form.
+    city = (chart_data.get("birth_city") or "").strip() or None
 
-    if not all([dt, lat is not None, lon is not None, tz]):
+    if not all([dt_str, lat is not None, lon is not None, tz]):
         return None, "Missing required fields: datetime, latitude, longitude, timezone"
 
-    params = {
-        "width": ASTROAPI_CHART_WIDTH,
-        "height": ASTROAPI_CHART_HEIGHT,
-        "dateTime": dt,
-        "location.latitude": lat,
-        "location.longitude": lon,
-        "location.timezone": tz,
-        "theme": "classic",
-    }
-
-    # AstroAPI expects `points` as a repeated query parameter
-    # (?points=sun&points=moon&...), not a comma-separated string. Marcia's
-    # full set of interpreted bodies: 10 classical planets, Chiron, mean
-    # lunar apogee (Lilith), mean lunar node, and the four major asteroids.
-    points_list = [
-        "sun", "moon", "mercury", "venus", "mars", "jupiter", "saturn",
-        "uranus", "neptune", "pluto", "chiron", "meanApogee", "meanNode",
-        "ceres", "pallas", "juno", "vesta",
-    ]
-
-    url = ASTROAPI_BASE_URL.rstrip("/") + "/" + ASTROAPI_CHART_PATH.lstrip("/")
-    referer = os.environ.get("ASTROAPI_REFERER", "https://web-production-6c77f.up.railway.app")
-    origin = os.environ.get("ASTROAPI_ORIGIN", referer)
-    headers = {
-        "X-Api-Key": astroapi_key,
-        "Referer": referer,
-        "Origin": origin,
-    }
+    try:
+        from datetime import datetime
+        dt = datetime.fromisoformat(dt_str)
+    except Exception as e:
+        return None, f"could not parse datetime '{dt_str}': {e}"
 
     try:
-        resp = requests.get(
-            url,
-            params=list(params.items()) + [("points", p) for p in points_list],
-            headers=headers,
-            timeout=ASTROAPI_TIMEOUT,
+        subject = AstrologicalSubjectFactory.from_birth_data(
+            name,
+            dt.year, dt.month, dt.day, dt.hour, dt.minute,
+            lat=lat, lng=lon, tz_str=tz,
+            city=city,
+            online=False,
+            active_points=ACTIVE_POINTS,
         )
     except Exception as e:
-        return None, f"AstroAPI request failed: {e}"
+        return None, f"AstrologicalSubject build failed: {e}"
 
-    if resp.status_code != 200:
-        # Try to surface AstroAPI's error message body if it returned text/JSON
-        try:
-            err = resp.json()
-            msg = err.get("message") or err.get("error") or err
-            return None, f"AstroAPI returned HTTP {resp.status_code}: {msg}"
-        except Exception:
-            return None, f"AstroAPI returned HTTP {resp.status_code}: {(resp.text or '')[:200]}"
-
-    # Validate the response really is a PNG before persisting
-    if not resp.content or not resp.content.startswith(b"\x89PNG"):
-        ctype = (resp.headers.get("content-type") or "?")
-        return None, (
-            f"AstroAPI response is not a valid PNG (content-type={ctype}, "
-            f"first 8 bytes={resp.content[:8]!r})"
+    try:
+        kerykeion_chart_data = ChartDataFactory.create_natal_chart_data(
+            subject,
+            active_points=ACTIVE_POINTS,
+            active_aspects=ACTIVE_ASPECTS,
         )
+        # aspects_settings overrides Kerykeion's default CSS-variable colors
+        # with Marcia's palette (sextile=green, trine=blue, square+opp=red,
+        # conjunction=grey).
+        chart = ChartDrawer(
+            chart_data=kerykeion_chart_data,
+            aspects_settings=ASPECT_COLORS,
+        )
+    except Exception as e:
+        return None, f"chart data/drawer build failed: {e}"
 
-    # Persist to a tempfile so pdf_generator can read it as a local path.
-    # The /generate-report handler unlinks it after the PDF is built.
     import tempfile
+    out_dir = tempfile.mkdtemp(prefix="kerykeion_")
+    filename = "natal_wheel"
     try:
-        tmp = tempfile.NamedTemporaryFile(prefix="astrochart_", suffix=".png", delete=False)
-        tmp.write(resp.content)
-        tmp.close()
+        # Wheel-only output (no surrounding data panel or aspect grid — our
+        # own aspects table renders below in pdf_generator).
+        # remove_css_variables=True inlines actual color values instead of
+        # emitting `var(--kerykeion-chart-color-sun)` etc. This is critical
+        # because svglib 1.5.x doesn't resolve CSS custom properties — it
+        # would silently fall back to default (black) for every glyph and
+        # aspect line, destroying the colored aesthetic.
+        chart.save_wheel_only_svg_file(
+            output_path=out_dir,
+            filename=filename,
+            style=CHART_STYLE if CHART_STYLE in ("modern", "classic") else "modern",
+            remove_css_variables=True,
+        )
     except Exception as e:
-        return None, f"could not save PNG to tempfile: {e}"
-    return tmp.name, None
+        return None, f"save_wheel_only_svg_file failed: {e}"
+
+    svg_path = os.path.join(out_dir, f"{filename}.svg")
+    if not os.path.exists(svg_path):
+        return None, f"SVG file not found at {svg_path}"
+
+    # Post-process: strip aspect-icon overlays. Kerykeion's wheel-only mode
+    # ignores its own `show_aspect_icons=False` flag and always overlays a
+    # small symbol (△ for trine, □ for square, etc.) in the middle of each
+    # aspect line via `<use xlink:href='#orbN' ... />` elements pointing to
+    # symbol defs (#orb0/#orb60/#orb90/#orb120/#orb180). The colored line
+    # alone is sufficient — drop the overlays. Scoped to #orbN only, never
+    # touches planet or sign glyphs (those use names like #Sun, #Aries).
+    import re
+    try:
+        with open(svg_path, "r", encoding="utf-8") as f:
+            svg_text = f.read()
+        svg_text = re.sub(
+            r"<use\b[^>]*\bxlink:href=['\"]#orb\d+['\"][^>]*/>",
+            "",
+            svg_text,
+        )
+        with open(svg_path, "w", encoding="utf-8") as f:
+            f.write(svg_text)
+    except Exception:
+        # Strip is cosmetic — if it fails, the SVG is still valid, just with
+        # the aspect-icon overlays present. Don't fail the request for this.
+        pass
+
+    return svg_path, None
 
 
 @app.route("/health", methods=["GET"])
@@ -225,10 +288,11 @@ def generate_report_endpoint():
             "trace": traceback.format_exc() if app.debug else None,
         }), 500
 
-    # Fetch the chart-wheel PNG from AstroAPI (best-effort). The result is a
-    # local tempfile path that pdf_generator's _fetch_chart_image() will read
-    # directly. We clean it up after the PDF is built regardless of outcome.
-    chart_image_url, image_error = _fetch_chart_image_url(body)
+    # Generate the chart-wheel SVG locally via Kerykeion (best-effort). The
+    # result is a path to an SVG file in a fresh per-request tempdir.
+    # pdf_generator's _fetch_chart_image() handles .svg paths via svglib.
+    # We rmtree the tempdir after the PDF is built regardless of outcome.
+    chart_svg_path, chart_error = _generate_chart_svg(body)
 
     # Render the branded PDF. Failures here should NOT poison the response —
     # the markdown report still has full value on its own.
@@ -240,7 +304,7 @@ def generate_report_endpoint():
             client_name=result["name"],
             birth_date=birth_date,
             birth_place=birth_place,
-            chart_image_url=chart_image_url,
+            chart_image_url=chart_svg_path,
             aspects=body.get("aspects", []),
             points=body.get("points", {}),
         )
@@ -249,12 +313,15 @@ def generate_report_endpoint():
         logger.exception("generate_pdf failed")
         pdf_error = str(e)
     finally:
-        # Clean up the AstroAPI PNG tempfile so we don't leak it under /tmp.
-        if chart_image_url and chart_image_url.startswith("/") and os.path.exists(chart_image_url):
-            try:
-                os.unlink(chart_image_url)
-            except Exception:
-                pass
+        # Clean up the per-request Kerykeion tempdir so we don't leak under /tmp.
+        if chart_svg_path:
+            tmp_dir = os.path.dirname(chart_svg_path)
+            if tmp_dir and os.path.basename(tmp_dir).startswith("kerykeion_") and os.path.isdir(tmp_dir):
+                import shutil
+                try:
+                    shutil.rmtree(tmp_dir, ignore_errors=True)
+                except Exception:
+                    pass
 
     return jsonify({
         "status": "success",
@@ -272,8 +339,9 @@ def generate_report_endpoint():
             ],
             "pdf_bytes": len(pdf_b64) * 3 // 4 if pdf_b64 else 0,
             "pdf_error": pdf_error,
-            "chart_image_fetched": bool(chart_image_url),
-            "chart_image_error": image_error or None,
+            "chart_svg_generated": bool(chart_svg_path),
+            "chart_svg_error": chart_error or None,
+            "chart_style": CHART_STYLE,
         },
     }), 200
 

@@ -274,37 +274,54 @@ def _looks_like_raster_image(blob: bytes) -> bool:
     return False
 
 
-def _fetch_chart_image(url: str, timeout: float = 15.0) -> Optional[bytes]:
-    """Fetch a chart image (PNG or JPEG) from a URL.
+def _fetch_chart_image(url: str, timeout: float = 15.0):
+    """Load a chart wheel into a ReportLab-compatible flowable input.
 
-    Returns the raw image bytes on success, or None on any failure. We
-    explicitly check the byte signature so an SVG URL accidentally passed
-    here doesn't pollute the PDF with garbled content — if AstroAPI only
-    returned SVG, this returns None and the chart page falls back to
-    showing just the aspects table.
+    Returns one of:
+      - a ReportLab `Drawing` object (when the input is a local .svg path —
+        produced by Kerykeion in app.py and rendered via svglib),
+      - raw image bytes (when the input is a raster URL or local PNG/JPEG),
+      - None on any failure.
 
-    NOTE: we deliberately do NOT depend on svglib / cairosvg / pycairo.
-    The chart image must be a raster format (PNG/JPEG/GIF) that ReportLab's
-    Image flowable can embed directly.
+    Local SVG path is the primary code path in production. The raster
+    branches remain for backwards-compatibility and out-of-band testing.
     """
     if not url or not url.strip():
         return None
     s = url.strip()
-    # Reject inline SVG markup — we don't render SVG anymore
+
+    # Reject inline SVG markup — must be a path or URL
     if s.startswith("<?xml") or s.startswith("<svg"):
-        logger.warning("inline SVG passed to _fetch_chart_image — PNG required, skipping wheel")
+        logger.warning("inline SVG markup passed to _fetch_chart_image — need a file path, skipping wheel")
         return None
 
-    # NEW: local file path (absolute or user-relative) — read directly from
-    # disk. This is the path used by app.py after it persists the AstroAPI
-    # PNG response to a tempfile.
+    # Local file path (absolute or user-relative)
     if s.startswith("/") or s.startswith("~"):
-        try:
-            from pathlib import Path
-            p = Path(s).expanduser()
-            if not p.exists():
-                logger.warning("local chart image not found: %s", p)
+        from pathlib import Path
+        p = Path(s).expanduser()
+        if not p.exists():
+            logger.warning("local chart image not found: %s", p)
+            return None
+
+        # SVG → load via svglib into a ReportLab Drawing flowable
+        if p.suffix.lower() == ".svg":
+            try:
+                from svglib.svglib import svg2rlg
+            except ImportError as e:
+                logger.warning("svglib not installed; cannot render SVG chart wheel: %s", e)
                 return None
+            try:
+                drawing = svg2rlg(str(p))
+            except Exception as e:
+                logger.warning("svglib failed to parse %s: %s", p, e)
+                return None
+            if drawing is None:
+                logger.warning("svglib returned None for %s", p)
+                return None
+            return drawing
+
+        # Raster path — read bytes
+        try:
             content = p.read_bytes()
         except Exception as e:
             logger.warning("could not read local chart image %s: %s", s, e)
@@ -314,6 +331,7 @@ def _fetch_chart_image(url: str, timeout: float = 15.0) -> Optional[bytes]:
             return None
         return content
 
+    # Remote URL — only raster supported
     try:
         import requests  # lazy import (in requirements.txt, but import-safe)
     except ImportError:
@@ -329,21 +347,47 @@ def _fetch_chart_image(url: str, timeout: float = 15.0) -> Optional[bytes]:
         return None
     if not _looks_like_raster_image(r.content):
         logger.warning(
-            "URL %s did not return raster image (got %d bytes, first 16: %r) — "
-            "AstroAPI may only have an SVG variant for this chart; falling back "
-            "to aspects-table-only chart page.",
+            "URL %s did not return raster image (got %d bytes, first 16: %r); "
+            "falling back to aspects-table-only chart page.",
             s, len(r.content), r.content[:16],
         )
         return None
     return r.content
 
 
-def _chart_image_flowable(image_bytes: bytes, target_width_pts: float,
+def _chart_image_flowable(chart_image, target_width_pts: float,
                           target_height_pts: float):
-    """Build an Image flowable from raw PNG/JPEG bytes, scaled to fit a
-    target bounding box while preserving aspect ratio. Returns None on failure."""
+    """Wrap a chart image (either a svglib Drawing or raster bytes) into a
+    Platypus flowable scaled to fit the target bounding box while preserving
+    aspect ratio. Returns None on failure."""
+    if chart_image is None:
+        return None
+
+    # svglib Drawing branch — duck-typed by the .width attribute (Drawing
+    # objects expose .width / .height as floats; bytes / bytearray do not).
+    if hasattr(chart_image, "width") and hasattr(chart_image, "height") \
+            and not isinstance(chart_image, (bytes, bytearray, memoryview)):
+        drawing = chart_image
+        try:
+            dw, dh = float(drawing.width), float(drawing.height)
+        except Exception:
+            return None
+        if dw <= 0 or dh <= 0:
+            return None
+        scale = min(target_width_pts / dw, target_height_pts / dh)
+        try:
+            drawing.scale(scale, scale)
+            drawing.width = dw * scale
+            drawing.height = dh * scale
+            drawing.hAlign = "CENTER"
+        except Exception as e:
+            logger.warning("could not scale SVG drawing: %s", e)
+            return None
+        return drawing
+
+    # Raster bytes branch (PNG/JPEG/GIF)
     try:
-        img = Image(io.BytesIO(image_bytes))
+        img = Image(io.BytesIO(chart_image))
     except Exception as e:
         logger.warning("ReportLab could not load chart image bytes: %s", e)
         return None
@@ -428,10 +472,12 @@ def _chart_page_flowables(
     target_w_pts = 11 * cm
     target_h_pts = 11 * cm
 
-    image_bytes = _fetch_chart_image(chart_image_url) if chart_image_url else None
+    # _fetch_chart_image returns either a svglib Drawing (.svg path) or raw
+    # raster bytes (PNG/JPEG URL or path). _chart_image_flowable handles both.
+    chart_image = _fetch_chart_image(chart_image_url) if chart_image_url else None
     img = (
-        _chart_image_flowable(image_bytes, target_w_pts, target_h_pts)
-        if image_bytes else None
+        _chart_image_flowable(chart_image, target_w_pts, target_h_pts)
+        if chart_image is not None else None
     )
     if img is not None:
         flow.append(img)
@@ -550,11 +596,14 @@ def generate_pdf(
         client_name       — name to show on the cover.
         birth_date        — birth date string (free-form, shown on cover).
         birth_place       — birth place string (free-form, shown on cover).
-        chart_image_url   — optional URL to a PNG (or JPEG/GIF) of the chart wheel.
-                            ReportLab embeds the image directly — no SVG rendering,
-                            no svglib / cairosvg dependency. If only SVG is available
-                            upstream, leave this empty and the chart page falls back
-                            to the aspects table alone.
+        chart_image_url   — optional input for the chart wheel. Accepts:
+                              * a local .svg path (rendered via svglib into a
+                                ReportLab Drawing — the production code path,
+                                fed by Kerykeion in app.py),
+                              * a local PNG/JPEG/GIF path,
+                              * a remote http(s) URL pointing to a raster image.
+                            If empty or fails to load, the chart page falls
+                            back to showing just the aspects table.
         aspects           — optional full aspects list (filtered internally to in-sign
                             aspects).
         points            — optional planet positions dict, used to look up signs when
