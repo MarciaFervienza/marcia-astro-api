@@ -299,17 +299,35 @@ def send_report_email(to_email: str, client_name: str, pdf_bytes: bytes,
         filename=filename,
     )
 
+    # IPv4-only resolution + connect. Railway containers typically have no
+    # outbound IPv6 egress, so when Python's socket.getaddrinfo returns the
+    # AAAA record first (modern OS default), smtplib tries IPv6 and the
+    # kernel responds with ENETUNREACH (Errno 101). Resolve the A record
+    # ourselves and connect to it directly. _host is then restored to the
+    # hostname so STARTTLS still does proper SNI / cert verification against
+    # smtp.gmail.com (otherwise it'd try to validate the cert against the IP).
+    import socket
     try:
-        with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as smtp:
-            smtp.ehlo()
-            smtp.starttls()
-            smtp.ehlo()
-            smtp.login(GMAIL_USER, GMAIL_APP_PASSWORD)
-            smtp.send_message(msg)
+        ipv4 = socket.getaddrinfo("smtp.gmail.com", 587, socket.AF_INET)[0][4][0]
+    except socket.gaierror as e:
+        return f"DNS resolution failed for smtp.gmail.com: {e}"
+
+    try:
+        smtp = smtplib.SMTP(timeout=30)
+        smtp.connect(ipv4, 587)
+        smtp._host = "smtp.gmail.com"  # for TLS SNI / cert verification
+        smtp.ehlo()
+        smtp.starttls()
+        smtp.ehlo()
+        smtp.login(GMAIL_USER, GMAIL_APP_PASSWORD)
+        smtp.send_message(msg)
+        smtp.quit()
     except smtplib.SMTPAuthenticationError as e:
         return f"Gmail SMTP auth failed (check GMAIL_APP_PASSWORD): {e}"
     except smtplib.SMTPException as e:
         return f"Gmail SMTP error: {e}"
+    except OSError as e:
+        return f"network error connecting to Gmail (errno {e.errno}): {e}"
     except Exception as e:
         return f"email send failed: {e}"
     return True
