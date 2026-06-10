@@ -321,6 +321,20 @@ def health():
     return jsonify({"status": "ok"}), 200
 
 
+@app.route("/env-check", methods=["GET"])
+def env_check():
+    """Diagnostic: report whether email-related env vars are visible to the
+    running process. Returns booleans + lengths only — never the secret
+    values themselves — so this is safe to leave exposed."""
+    return jsonify({
+        "GMAIL_USER_set": bool(os.environ.get("GMAIL_USER")),
+        "GMAIL_USER_length": len(os.environ.get("GMAIL_USER", "")),
+        "GMAIL_APP_PASSWORD_set": bool(os.environ.get("GMAIL_APP_PASSWORD")),
+        "GMAIL_APP_PASSWORD_length": len(os.environ.get("GMAIL_APP_PASSWORD", "")),
+        "EMAIL_FROM_NAME": os.environ.get("EMAIL_FROM_NAME", "(default)"),
+    }), 200
+
+
 @app.route("/generate-report", methods=["POST"])
 def generate_report_endpoint():
     """Accept chart JSON, generate the report, return as JSON.
