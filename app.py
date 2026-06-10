@@ -29,8 +29,10 @@ MAX_BODY_BYTES = int(os.environ.get("MAX_BODY_BYTES", str(256 * 1024)))  # 256 K
 # AstroAPI for fetching the chart wheel SVG. Both are optional — if not set,
 # the PDF still renders correctly without a chart wheel.
 ASTROAPI_BASE_URL = os.environ.get("ASTROAPI_BASE_URL", "https://api.astroapi.cloud")
-ASTROAPI_CHART_PATH = os.environ.get("ASTROAPI_CHART_PATH", "/v1/natal/charts")
+ASTROAPI_CHART_PATH = os.environ.get("ASTROAPI_CHART_PATH", "/api/chart/natal/png")
 ASTROAPI_TIMEOUT = float(os.environ.get("ASTROAPI_TIMEOUT", "30"))
+ASTROAPI_CHART_WIDTH = int(os.environ.get("ASTROAPI_CHART_WIDTH", "800"))
+ASTROAPI_CHART_HEIGHT = int(os.environ.get("ASTROAPI_CHART_HEIGHT", "800"))
 
 # ============================================================
 # APP
@@ -53,69 +55,74 @@ def _missing_required_keys():
 
 def _fetch_chart_image_url(chart: dict):
     """
-    Call AstroAPI to get a raster (PNG/JPEG) URL for the chart wheel.
+    Call AstroAPI's natal-PNG endpoint and persist the returned PNG to a
+    tempfile.
 
-    We deliberately ask for PNG so the PDF embedder can use it directly —
-    no svglib / cairosvg / pycairo needed. AstroAPI variants differ; this
-    helper tries the documented PNG variants in order of preference and
-    falls back to whatever URL the server returned that points to a
-    raster (URLs ending in .png or .jpg are accepted as a final fallback).
+    AstroAPI's /api/chart/natal/png endpoint returns the chart wheel image
+    bytes DIRECTLY in the response body (not a JSON envelope with a URL
+    inside). Auth is via the X-Api-Key header. The endpoint expects the
+    raw chart inputs (datetime, lat/lon, timezone) — NOT the computed-points
+    structure used by the rest of our pipeline. The Wix caller is responsible
+    for forwarding those raw fields alongside the computed chart.
 
-    Returns (image_url, error_message). On success: (url, ""). On failure: ("", reason).
-    Never raises — a failure here downgrades gracefully to a PDF without
-    the wheel, so the report still ships.
+    Returns (path, error_message). On success: (local_path, "") — the path
+    points at a tempfile that pdf_generator's _fetch_chart_image() can read
+    directly. On failure: ("", reason). Never raises — failure here just
+    means the PDF renders without the chart wheel.
     """
     astroapi_key = os.environ.get("ASTROAPI_KEY", "").strip()
     if not astroapi_key:
         return "", "ASTROAPI_KEY not configured"
 
+    # AstroAPI's PNG renderer needs the raw birth inputs, not derived points.
+    required = ("datetime", "latitude", "longitude", "timezone")
+    missing = [f for f in required if chart.get(f) in (None, "")]
+    if missing:
+        return "", f"chart payload missing required fields for AstroAPI PNG: {missing}"
+
     url = ASTROAPI_BASE_URL.rstrip("/") + "/" + ASTROAPI_CHART_PATH.lstrip("/")
     headers = {
-        "Authorization": f"Bearer {astroapi_key}",
+        "X-Api-Key": astroapi_key,
         "Content-Type": "application/json",
     }
-    # Ask for PNG explicitly. Different AstroAPI shapes support different
-    # hints; we set them all and let the server pick what it understands.
-    payload = dict(chart)
-    payload.setdefault("format", "png")
-    payload.setdefault("image_format", "png")
-    payload.setdefault("output_format", "png")
+    payload = {
+        "datetime": chart.get("datetime"),
+        "latitude": chart.get("latitude"),
+        "longitude": chart.get("longitude"),
+        "timezone": chart.get("timezone"),
+        "width": ASTROAPI_CHART_WIDTH,
+        "height": ASTROAPI_CHART_HEIGHT,
+    }
     try:
         resp = requests.post(url, json=payload, headers=headers, timeout=ASTROAPI_TIMEOUT)
     except Exception as e:
         return "", f"AstroAPI request failed: {e}"
 
     if resp.status_code != 200:
-        return "", f"AstroAPI returned HTTP {resp.status_code}"
+        # Try to surface AstroAPI's error message if it returned JSON
+        try:
+            err = resp.json()
+            msg = err.get("message") or err.get("error") or err
+        except Exception:
+            msg = (resp.text or "")[:200]
+        return "", f"AstroAPI returned HTTP {resp.status_code}: {msg}"
 
+    # Response body should be a PNG. Validate before writing.
+    body = resp.content
+    if not body or len(body) < 8 or not body[:8].startswith(b"\x89PNG\r\n\x1a\n"):
+        ctype = (resp.headers.get("content-type") or "?")
+        return "", f"AstroAPI response did not look like PNG (content-type={ctype}, first 8 bytes={body[:8]!r})"
+
+    # Persist to a tempfile so pdf_generator can read it as a local path.
+    # The caller is responsible for cleaning up after the PDF is built.
+    import tempfile
     try:
-        data = resp.json()
-    except Exception:
-        return "", "AstroAPI response was not valid JSON"
-
-    # PNG-specific keys first (preferred)
-    for key in ("png_url", "chart_png_url", "image_url", "chart_image_url"):
-        v = data.get(key)
-        if isinstance(v, str) and v.strip():
-            return v.strip(), ""
-
-    # Generic URL keys — accept only if the URL looks like a raster
-    for key in ("chart_url", "url"):
-        v = data.get(key)
-        if isinstance(v, str) and v.strip():
-            low = v.strip().lower().split("?", 1)[0]
-            if low.endswith((".png", ".jpg", ".jpeg", ".gif")):
-                return v.strip(), ""
-
-    # SVG-only response: not usable for our PNG-only embedder
-    has_svg = any(
-        isinstance(data.get(k), str) and data[k].strip()
-        for k in ("svg_url", "chart_svg_url", "svg", "chart_svg")
-    )
-    if has_svg:
-        return "", "AstroAPI returned only SVG; PDF will show aspects table without wheel"
-
-    return "", f"AstroAPI response had no chart image URL (keys: {list(data.keys())[:6]})"
+        fd, path = tempfile.mkstemp(prefix="astrochart_", suffix=".png")
+        with os.fdopen(fd, "wb") as f:
+            f.write(body)
+    except Exception as e:
+        return "", f"could not save PNG to tempfile: {e}"
+    return path, ""
 
 
 @app.route("/health", methods=["GET"])
@@ -189,9 +196,9 @@ def generate_report_endpoint():
             "trace": traceback.format_exc() if app.debug else None,
         }), 500
 
-    # Fetch the chart-wheel PNG URL from AstroAPI (best-effort).
-    # `body` at this point still contains the chart fields (gender, points, etc.)
-    # so we can pass it directly.
+    # Fetch the chart-wheel PNG from AstroAPI (best-effort). The result is a
+    # local tempfile path that pdf_generator's _fetch_chart_image() will read
+    # directly. We clean it up after the PDF is built regardless of outcome.
     chart_image_url, image_error = _fetch_chart_image_url(body)
 
     # Render the branded PDF. Failures here should NOT poison the response —
@@ -212,6 +219,13 @@ def generate_report_endpoint():
     except Exception as e:
         logger.exception("generate_pdf failed")
         pdf_error = str(e)
+    finally:
+        # Clean up the AstroAPI PNG tempfile so we don't leak it under /tmp.
+        if chart_image_url and chart_image_url.startswith("/") and os.path.exists(chart_image_url):
+            try:
+                os.unlink(chart_image_url)
+            except Exception:
+                pass
 
     return jsonify({
         "status": "success",

@@ -294,6 +294,26 @@ def _fetch_chart_image(url: str, timeout: float = 15.0) -> Optional[bytes]:
     if s.startswith("<?xml") or s.startswith("<svg"):
         logger.warning("inline SVG passed to _fetch_chart_image — PNG required, skipping wheel")
         return None
+
+    # NEW: local file path (absolute or user-relative) — read directly from
+    # disk. This is the path used by app.py after it persists the AstroAPI
+    # PNG response to a tempfile.
+    if s.startswith("/") or s.startswith("~"):
+        try:
+            from pathlib import Path
+            p = Path(s).expanduser()
+            if not p.exists():
+                logger.warning("local chart image not found: %s", p)
+                return None
+            content = p.read_bytes()
+        except Exception as e:
+            logger.warning("could not read local chart image %s: %s", s, e)
+            return None
+        if not _looks_like_raster_image(content):
+            logger.warning("local file %s is not a raster image", s)
+            return None
+        return content
+
     try:
         import requests  # lazy import (in requirements.txt, but import-safe)
     except ImportError:
