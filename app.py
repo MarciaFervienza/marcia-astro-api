@@ -270,7 +270,7 @@ def send_report_email(to_email: str, client_name: str, pdf_bytes: bytes,
 
     Returns True on successful send, or a short error string on failure.
     Never raises — failure is signalled via the return value so the caller
-    (a background thread) can simply log it.
+    can simply put the message in the response meta.
     """
     if not GMAIL_USER or not GMAIL_APP_PASSWORD:
         return "Gmail credentials not configured (GMAIL_USER / GMAIL_APP_PASSWORD)"
@@ -313,19 +313,6 @@ def send_report_email(to_email: str, client_name: str, pdf_bytes: bytes,
     except Exception as e:
         return f"email send failed: {e}"
     return True
-
-
-def _send_report_email_async(to_email: str, client_name: str, pdf_bytes: bytes,
-                             birth_date: str, birth_place: str):
-    """Fire-and-forget wrapper used by the endpoint's background thread.
-    Logs the outcome — the HTTP response has already been returned by the
-    time this runs, so there's nowhere else to surface it.
-    """
-    result = send_report_email(to_email, client_name, pdf_bytes, birth_date, birth_place)
-    if result is True:
-        logger.info("email sent to %s", to_email)
-    else:
-        logger.warning("email to %s failed: %s", to_email, result)
 
 
 @app.route("/health", methods=["GET"])
@@ -408,6 +395,7 @@ def generate_report_endpoint():
     # Render the branded PDF. Failures here should NOT poison the response —
     # the markdown report still has full value on its own.
     pdf_b64 = None
+    pdf_bytes = None  # kept around for the email path so we don't round-trip via base64
     pdf_error = None
     try:
         pdf_bytes = pg.generate_pdf(
@@ -434,31 +422,43 @@ def generate_report_endpoint():
                 except Exception:
                     pass
 
-    # Email the PDF in a background thread so the HTTP response can return
-    # immediately. NOTE: because the send runs *after* the response is sent,
-    # email_sent here means "send was dispatched", not "Gmail accepted it" —
-    # the actual SMTP outcome is logged server-side via _send_report_email_async.
+    # Email the PDF synchronously before returning the response. Adds ~2-3s
+    # (Gmail SMTP handshake + send) to the total response time, well within
+    # Railway's edge timeout. The earlier background-thread implementation
+    # caused worker crashes under gunicorn --preload + --threads, likely a
+    # fork/SSL state interaction; inline send is simpler and rock-solid,
+    # and lets meta.email_sent reflect actual SMTP outcome (true = Gmail
+    # accepted) rather than just "dispatched".
     email_sent = False
     email_error = None
     recipient = (body.get("email") or "").strip()
     if recipient:
-        if pdf_b64 is None:  # pdf generation failed → nothing to attach
+        if pdf_bytes is None:  # pdf generation failed → nothing to attach
             email_error = "pdf generation failed; nothing to email"
         elif not GMAIL_USER or not GMAIL_APP_PASSWORD:
             email_error = "Gmail credentials not configured on server"
         elif "@" not in recipient:
             email_error = f"invalid recipient email: {recipient!r}"
         else:
-            import threading
-            # Decode once so the thread doesn't have to redo the base64 work.
-            pdf_bytes_for_email = base64.b64decode(pdf_b64) if pdf_b64 else b""
-            t = threading.Thread(
-                target=_send_report_email_async,
-                args=(recipient, result["name"], pdf_bytes_for_email, birth_date, birth_place),
-                daemon=True,
-            )
-            t.start()
-            email_sent = True
+            try:
+                send_result = send_report_email(
+                    to_email=recipient,
+                    client_name=result["name"],
+                    pdf_bytes=pdf_bytes,
+                    birth_date=birth_date,
+                    birth_place=birth_place,
+                )
+            except Exception as e:
+                # send_report_email is built to never raise, but belt-and-
+                # suspenders so a bug here can't 500 the whole report.
+                logger.exception("send_report_email raised unexpectedly")
+                send_result = f"unexpected error: {e}"
+            if send_result is True:
+                email_sent = True
+                logger.info("email sent to %s", recipient)
+            else:
+                email_error = send_result
+                logger.warning("email to %s failed: %s", recipient, send_result)
 
     return jsonify({
         "status": "success",
