@@ -74,6 +74,31 @@ ASPECT_COLORS = [
 ]
 CHART_STYLE = os.environ.get("CHART_STYLE", "modern")  # 'modern' or 'classic'
 
+# Gmail SMTP for emailing the PDF to the client. All three are optional —
+# when GMAIL_USER and GMAIL_APP_PASSWORD are both set on Railway, and the
+# request body contains an `email` field, the PDF is mailed in the
+# background after the HTTP response is returned. If credentials are
+# unset or the request omits `email`, no email is attempted and the
+# response is unaffected.
+GMAIL_USER = os.environ.get("GMAIL_USER", "")
+GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "")
+EMAIL_FROM_NAME = os.environ.get("EMAIL_FROM_NAME", "Márcia Fervienza Astrologia")
+EMAIL_SUBJECT = "Seu Relatório de Mapa Natal — Márcia Fervienza"
+EMAIL_BODY_TEMPLATE = """Olá, {client_name}!
+
+Seu Relatório de Mapa Natal está pronto e segue em anexo.
+
+Este relatório foi elaborado a partir de anos de consultas reais e do meu \
+framework psicológico integrado à Astrologia. Espero que ele traga clareza, \
+reconhecimento e profundidade para a sua jornada de autoconhecimento.
+
+Leia com calma, mais de uma vez se necessário. Cada seção foi escrita para você.
+
+Com carinho,
+Márcia Fervienza
+marciafervienza.com
+"""
+
 # ============================================================
 # APP
 # ============================================================
@@ -217,6 +242,92 @@ def _generate_chart_svg(chart_data: dict) -> tuple:
     return svg_path, None
 
 
+def _sanitize_for_filename(s: str) -> str:
+    """Reduce an arbitrary client name to a filename-safe token. Drops
+    accents/diacritics, replaces whitespace with underscores, and strips
+    anything not alphanumeric/dash/underscore. Empty input → 'Cliente'."""
+    import unicodedata, re
+    if not s or not s.strip():
+        return "Cliente"
+    norm = unicodedata.normalize("NFKD", s).encode("ascii", "ignore").decode("ascii")
+    norm = re.sub(r"\s+", "_", norm.strip())
+    norm = re.sub(r"[^A-Za-z0-9_\-]", "", norm)
+    return norm or "Cliente"
+
+
+def send_report_email(to_email: str, client_name: str, pdf_bytes: bytes,
+                      birth_date: str = "", birth_place: str = ""):
+    """Email the natal-report PDF to the client via Gmail SMTP.
+
+    Args:
+        to_email     — recipient address (validated upstream by the caller)
+        client_name  — used in the Portuguese greeting and the attachment
+                       filename
+        pdf_bytes    — raw PDF bytes to attach
+        birth_date   — currently unused but kept in signature for future
+                       use (e.g., adding to the body or a custom subject)
+        birth_place  — same
+
+    Returns True on successful send, or a short error string on failure.
+    Never raises — failure is signalled via the return value so the caller
+    (a background thread) can simply log it.
+    """
+    if not GMAIL_USER or not GMAIL_APP_PASSWORD:
+        return "Gmail credentials not configured (GMAIL_USER / GMAIL_APP_PASSWORD)"
+    if not to_email or "@" not in to_email:
+        return f"invalid recipient: {to_email!r}"
+    if not pdf_bytes:
+        return "no PDF bytes to attach"
+
+    # Use the EmailMessage API (Python 3.6+) — handles MIME headers,
+    # encoding, and attachments correctly without the legacy boilerplate.
+    import smtplib
+    from email.message import EmailMessage
+    from email.utils import formataddr
+
+    msg = EmailMessage()
+    msg["From"] = formataddr((EMAIL_FROM_NAME, GMAIL_USER))
+    msg["To"] = to_email
+    msg["Subject"] = EMAIL_SUBJECT
+    msg.set_content(EMAIL_BODY_TEMPLATE.format(client_name=client_name or "Cliente"))
+
+    filename = f"Mapa_Natal_{_sanitize_for_filename(client_name)}.pdf"
+    msg.add_attachment(
+        pdf_bytes,
+        maintype="application",
+        subtype="pdf",
+        filename=filename,
+    )
+
+    try:
+        with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as smtp:
+            smtp.ehlo()
+            smtp.starttls()
+            smtp.ehlo()
+            smtp.login(GMAIL_USER, GMAIL_APP_PASSWORD)
+            smtp.send_message(msg)
+    except smtplib.SMTPAuthenticationError as e:
+        return f"Gmail SMTP auth failed (check GMAIL_APP_PASSWORD): {e}"
+    except smtplib.SMTPException as e:
+        return f"Gmail SMTP error: {e}"
+    except Exception as e:
+        return f"email send failed: {e}"
+    return True
+
+
+def _send_report_email_async(to_email: str, client_name: str, pdf_bytes: bytes,
+                             birth_date: str, birth_place: str):
+    """Fire-and-forget wrapper used by the endpoint's background thread.
+    Logs the outcome — the HTTP response has already been returned by the
+    time this runs, so there's nowhere else to surface it.
+    """
+    result = send_report_email(to_email, client_name, pdf_bytes, birth_date, birth_place)
+    if result is True:
+        logger.info("email sent to %s", to_email)
+    else:
+        logger.warning("email to %s failed: %s", to_email, result)
+
+
 @app.route("/health", methods=["GET"])
 def health():
     """Lightweight liveness check for Railway."""
@@ -323,6 +434,32 @@ def generate_report_endpoint():
                 except Exception:
                     pass
 
+    # Email the PDF in a background thread so the HTTP response can return
+    # immediately. NOTE: because the send runs *after* the response is sent,
+    # email_sent here means "send was dispatched", not "Gmail accepted it" —
+    # the actual SMTP outcome is logged server-side via _send_report_email_async.
+    email_sent = False
+    email_error = None
+    recipient = (body.get("email") or "").strip()
+    if recipient:
+        if pdf_b64 is None:  # pdf generation failed → nothing to attach
+            email_error = "pdf generation failed; nothing to email"
+        elif not GMAIL_USER or not GMAIL_APP_PASSWORD:
+            email_error = "Gmail credentials not configured on server"
+        elif "@" not in recipient:
+            email_error = f"invalid recipient email: {recipient!r}"
+        else:
+            import threading
+            # Decode once so the thread doesn't have to redo the base64 work.
+            pdf_bytes_for_email = base64.b64decode(pdf_b64) if pdf_b64 else b""
+            t = threading.Thread(
+                target=_send_report_email_async,
+                args=(recipient, result["name"], pdf_bytes_for_email, birth_date, birth_place),
+                daemon=True,
+            )
+            t.start()
+            email_sent = True
+
     return jsonify({
         "status": "success",
         "report": result["report"],
@@ -342,6 +479,8 @@ def generate_report_endpoint():
             "chart_svg_generated": bool(chart_svg_path),
             "chart_svg_error": chart_error or None,
             "chart_style": CHART_STYLE,
+            "email_sent": email_sent,
+            "email_error": email_error,
         },
     }), 200
 
