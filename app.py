@@ -94,11 +94,17 @@ def _fetch_chart_image_url(chart_data: dict) -> tuple:
         "location.longitude": lon,
         "location.timezone": tz,
         "theme": "classic",
-        # Marcia's full set of interpreted bodies: 10 classical planets,
-        # Chiron, mean lunar apogee (Lilith), both lunar nodes (mean + true),
-        # and the four major asteroids.
-        "points": "sun,moon,mercury,venus,mars,jupiter,saturn,uranus,neptune,pluto,chiron,meanApogee,meanNode,trueNode,ceres,pallas,juno,vesta",
     }
+
+    # AstroAPI expects `points` as a repeated query parameter
+    # (?points=sun&points=moon&...), not a comma-separated string. Marcia's
+    # full set of interpreted bodies: 10 classical planets, Chiron, mean
+    # lunar apogee (Lilith), mean lunar node, and the four major asteroids.
+    points_list = [
+        "sun", "moon", "mercury", "venus", "mars", "jupiter", "saturn",
+        "uranus", "neptune", "pluto", "chiron", "meanApogee", "meanNode",
+        "ceres", "pallas", "juno", "vesta",
+    ]
 
     url = ASTROAPI_BASE_URL.rstrip("/") + "/" + ASTROAPI_CHART_PATH.lstrip("/")
     referer = os.environ.get("ASTROAPI_REFERER", "https://web-production-6c77f.up.railway.app")
@@ -110,7 +116,12 @@ def _fetch_chart_image_url(chart_data: dict) -> tuple:
     }
 
     try:
-        resp = requests.get(url, params=params, headers=headers, timeout=ASTROAPI_TIMEOUT)
+        resp = requests.get(
+            url,
+            params=list(params.items()) + [("points", p) for p in points_list],
+            headers=headers,
+            timeout=ASTROAPI_TIMEOUT,
+        )
     except Exception as e:
         return None, f"AstroAPI request failed: {e}"
 
