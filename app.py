@@ -29,7 +29,7 @@ MAX_BODY_BYTES = int(os.environ.get("MAX_BODY_BYTES", str(256 * 1024)))  # 256 K
 # AstroAPI for fetching the chart wheel SVG. Both are optional — if not set,
 # the PDF still renders correctly without a chart wheel.
 ASTROAPI_BASE_URL = os.environ.get("ASTROAPI_BASE_URL", "https://api.astroapi.cloud")
-ASTROAPI_CHART_PATH = os.environ.get("ASTROAPI_CHART_PATH", "/api/chart/natal/png")
+ASTROAPI_CHART_PATH = os.environ.get("ASTROAPI_CHART_PATH", "/api/chart2/natal.png")
 ASTROAPI_TIMEOUT = float(os.environ.get("ASTROAPI_TIMEOUT", "30"))
 ASTROAPI_CHART_WIDTH = int(os.environ.get("ASTROAPI_CHART_WIDTH", "800"))
 ASTROAPI_CHART_HEIGHT = int(os.environ.get("ASTROAPI_CHART_HEIGHT", "800"))
@@ -53,84 +53,90 @@ def _missing_required_keys():
     return missing
 
 
-def _fetch_chart_image_url(chart: dict):
+def _fetch_chart_image_url(chart_data: dict) -> tuple:
     """
-    Call AstroAPI's natal-PNG endpoint and persist the returned PNG to a
-    tempfile.
+    Call AstroAPI's natal-chart PNG endpoint and persist the returned PNG to
+    a tempfile.
 
-    AstroAPI's /api/chart/natal/png endpoint returns the chart wheel image
-    bytes DIRECTLY in the response body (not a JSON envelope with a URL
-    inside). Auth is via the X-Api-Key header. The endpoint expects the
-    raw chart inputs (datetime, lat/lon, timezone) — NOT the computed-points
-    structure used by the rest of our pipeline. The Wix caller is responsible
-    for forwarding those raw fields alongside the computed chart.
+    AstroAPI's /api/chart2/natal.png is a GET endpoint that takes the birth
+    inputs as query parameters (NOT a POST body) and returns the rendered
+    chart PNG bytes directly in the response body. Auth is via X-Api-Key,
+    and the key is allow-listed by Referer/Origin, so those headers must be
+    set to the Railway service's public hostname.
 
-    Returns (path, error_message). On success: (local_path, "") — the path
-    points at a tempfile that pdf_generator's _fetch_chart_image() can read
-    directly. On failure: ("", reason). Never raises — failure here just
-    means the PDF renders without the chart wheel.
+    Returns (path, error_message). On success: (local_path, None). On
+    failure: (None, reason). Never raises — failure here just means the PDF
+    renders without the chart wheel.
+
+    The chart2 endpoint accepts a `theme` parameter ("minimal" gives the
+    cleanest look for embedding in a printed PDF). If the active AstroAPI
+    plan doesn't include chart2, fall back to `chart/image.png` (same
+    query params, no theme parameter) by overriding ASTROAPI_CHART_PATH on
+    Railway.
     """
     astroapi_key = os.environ.get("ASTROAPI_KEY", "").strip()
     if not astroapi_key:
-        return "", "ASTROAPI_KEY not configured"
+        return None, "ASTROAPI_KEY not configured"
 
-    # AstroAPI's PNG renderer needs the raw birth inputs, not derived points.
-    required = ("datetime", "latitude", "longitude", "timezone")
-    missing = [f for f in required if chart.get(f) in (None, "")]
-    if missing:
-        return "", f"chart payload missing required fields for AstroAPI PNG: {missing}"
+    dt = chart_data.get("datetime", "")
+    lat = chart_data.get("latitude")
+    lon = chart_data.get("longitude")
+    tz = chart_data.get("timezone", "")
+
+    if not all([dt, lat is not None, lon is not None, tz]):
+        return None, "Missing required fields: datetime, latitude, longitude, timezone"
+
+    params = {
+        "width": ASTROAPI_CHART_WIDTH,
+        "height": ASTROAPI_CHART_HEIGHT,
+        "dateTime": dt,
+        "location.latitude": lat,
+        "location.longitude": lon,
+        "location.timezone": tz,
+        "theme": "minimal",
+    }
 
     url = ASTROAPI_BASE_URL.rstrip("/") + "/" + ASTROAPI_CHART_PATH.lstrip("/")
-    # AstroAPI checks Referer/Origin against the key's allow-list. Set them
-    # to the Railway service's public hostname so the call clears the policy.
-    # Both headers can be overridden via env vars in case the Railway domain
-    # changes or a custom domain is added.
     referer = os.environ.get("ASTROAPI_REFERER", "https://web-production-6c77f.up.railway.app")
     origin = os.environ.get("ASTROAPI_ORIGIN", referer)
     headers = {
         "X-Api-Key": astroapi_key,
-        "Content-Type": "application/json",
         "Referer": referer,
         "Origin": origin,
     }
-    payload = {
-        "datetime": chart.get("datetime"),
-        "latitude": chart.get("latitude"),
-        "longitude": chart.get("longitude"),
-        "timezone": chart.get("timezone"),
-        "width": ASTROAPI_CHART_WIDTH,
-        "height": ASTROAPI_CHART_HEIGHT,
-    }
+
     try:
-        resp = requests.post(url, json=payload, headers=headers, timeout=ASTROAPI_TIMEOUT)
+        resp = requests.get(url, params=params, headers=headers, timeout=ASTROAPI_TIMEOUT)
     except Exception as e:
-        return "", f"AstroAPI request failed: {e}"
+        return None, f"AstroAPI request failed: {e}"
 
     if resp.status_code != 200:
-        # Try to surface AstroAPI's error message if it returned JSON
+        # Try to surface AstroAPI's error message body if it returned text/JSON
         try:
             err = resp.json()
             msg = err.get("message") or err.get("error") or err
+            return None, f"AstroAPI returned HTTP {resp.status_code}: {msg}"
         except Exception:
-            msg = (resp.text or "")[:200]
-        return "", f"AstroAPI returned HTTP {resp.status_code}: {msg}"
+            return None, f"AstroAPI returned HTTP {resp.status_code}: {(resp.text or '')[:200]}"
 
-    # Response body should be a PNG. Validate before writing.
-    body = resp.content
-    if not body or len(body) < 8 or not body[:8].startswith(b"\x89PNG\r\n\x1a\n"):
+    # Validate the response really is a PNG before persisting
+    if not resp.content or not resp.content.startswith(b"\x89PNG"):
         ctype = (resp.headers.get("content-type") or "?")
-        return "", f"AstroAPI response did not look like PNG (content-type={ctype}, first 8 bytes={body[:8]!r})"
+        return None, (
+            f"AstroAPI response is not a valid PNG (content-type={ctype}, "
+            f"first 8 bytes={resp.content[:8]!r})"
+        )
 
     # Persist to a tempfile so pdf_generator can read it as a local path.
-    # The caller is responsible for cleaning up after the PDF is built.
+    # The /generate-report handler unlinks it after the PDF is built.
     import tempfile
     try:
-        fd, path = tempfile.mkstemp(prefix="astrochart_", suffix=".png")
-        with os.fdopen(fd, "wb") as f:
-            f.write(body)
+        tmp = tempfile.NamedTemporaryFile(prefix="astrochart_", suffix=".png", delete=False)
+        tmp.write(resp.content)
+        tmp.close()
     except Exception as e:
-        return "", f"could not save PNG to tempfile: {e}"
-    return path, ""
+        return None, f"could not save PNG to tempfile: {e}"
+    return tmp.name, None
 
 
 @app.route("/health", methods=["GET"])
