@@ -93,7 +93,11 @@ def _fetch_chart_image_url(chart_data: dict) -> tuple:
         "location.latitude": lat,
         "location.longitude": lon,
         "location.timezone": tz,
-        "theme": "minimal",
+        "theme": "classic",
+        # Marcia's full set of interpreted bodies: 10 classical planets,
+        # Chiron, mean lunar apogee (Lilith), both lunar nodes (mean + true),
+        # and the four major asteroids.
+        "points": "sun,moon,mercury,venus,mars,jupiter,saturn,uranus,neptune,pluto,chiron,meanApogee,meanNode,trueNode,ceres,pallas,juno,vesta",
     }
 
     url = ASTROAPI_BASE_URL.rstrip("/") + "/" + ASTROAPI_CHART_PATH.lstrip("/")
