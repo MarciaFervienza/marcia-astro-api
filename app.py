@@ -90,6 +90,19 @@ CHART_STYLE = os.environ.get("CHART_STYLE", "modern")  # 'modern' or 'classic'
 RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "").strip()
 EMAIL_FROM_ADDRESS = os.environ.get("EMAIL_FROM_ADDRESS", "").strip()
 EMAIL_FROM_NAME = os.environ.get("EMAIL_FROM_NAME", "Márcia Fervienza Astrologia")
+
+# Shared-secret auth for /generate-report — set on Railway, also embedded
+# in the Wix client's request header so only Wix (and anyone we hand the
+# key to manually) can trigger report generation. Comparison is constant-
+# time via hmac.compare_digest to avoid leaking the key one character at
+# a time through response-time differences.
+#
+# Fail-closed semantics: if API_SECRET_KEY is unset on the server, every
+# /generate-report request is rejected with 401 — better than silently
+# allowing all traffic when the env var wasn't set. /health and /env-check
+# remain unprotected so Railway's healthcheck and our own diagnostics keep
+# working.
+API_SECRET_KEY = os.environ.get("API_SECRET_KEY", "").strip()
 EMAIL_SUBJECT = "Seu Relatório de Mapa Natal — Márcia Fervienza"
 EMAIL_BODY_TEMPLATE = """Olá, {client_name}!
 
@@ -358,6 +371,8 @@ def env_check():
         "RESEND_API_KEY_length": len(os.environ.get("RESEND_API_KEY", "")),
         "EMAIL_FROM_ADDRESS": os.environ.get("EMAIL_FROM_ADDRESS", "(unset)"),
         "EMAIL_FROM_NAME": os.environ.get("EMAIL_FROM_NAME", "(default)"),
+        "API_SECRET_KEY_set": bool(os.environ.get("API_SECRET_KEY")),
+        "API_SECRET_KEY_length": len(os.environ.get("API_SECRET_KEY", "")),
     }), 200
 
 
@@ -373,6 +388,18 @@ def generate_report_endpoint():
         "limit":         int
         "no_fio":        bool
     """
+    # Shared-secret auth. Fail-closed: if API_SECRET_KEY isn't set on the
+    # server, every request is rejected. Constant-time compare on the
+    # header to avoid timing-side-channel leaks of the key.
+    import hmac
+    presented_key = request.headers.get("X-API-Key", "")
+    if not API_SECRET_KEY or not presented_key \
+            or not hmac.compare_digest(presented_key, API_SECRET_KEY):
+        return jsonify({
+            "status": "error",
+            "message": "Unauthorized",
+        }), 401
+
     missing = _missing_required_keys()
     if missing:
         return jsonify({
