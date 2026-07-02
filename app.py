@@ -262,6 +262,96 @@ def _generate_chart_svg(chart_data: dict) -> tuple:
     return svg_path, None
 
 
+# Portuguese month names for formatting the PDF cover's display string from
+# the structured birth_date (e.g. "1977-01-24" → "24 de janeiro de 1977").
+# Index 0 unused so month numbers index directly.
+_PT_MONTHS = (
+    "", "janeiro", "fevereiro", "março", "abril", "maio", "junho",
+    "julho", "agosto", "setembro", "outubro", "novembro", "dezembro",
+)
+
+
+def _parse_birth_inputs(birth_date_raw, birth_time_raw, unknown):
+    """Validate and combine the request's birth_date (YYYY-MM-DD) +
+    birth_time (HH:MM) + unknown_birth_time (bool) fields into:
+      - the internal ISO datetime string the chart-wheel renderer reads
+        from body["datetime"]
+      - a Portuguese-formatted display string for the PDF cover
+      - a time_estimated flag that's surfaced in the response meta
+
+    When unknown_birth_time is true, birth_time is ignored entirely and
+    the datetime is anchored at 00:00:00 — the chart still renders but
+    house cusps are approximate; the time_estimated flag warns downstream.
+
+    Returns a dict with one of two shapes:
+      success: {"datetime": "1977-01-24T16:07:00",
+                "display":  "24 de janeiro de 1977, 16:07",
+                "time_estimated": False}
+      error:   {"error": "<Portuguese message>", "code": 400}
+
+    All error messages are in Portuguese so they can surface directly to
+    the end-user in Wix's error UI without translation.
+    """
+    import re
+    from datetime import datetime as _dt
+
+    birth_date_str = (birth_date_raw or "").strip() if isinstance(birth_date_raw, str) else ""
+    birth_time_str = (birth_time_raw or "").strip() if isinstance(birth_time_raw, str) else ""
+    unknown = bool(unknown)
+
+    if not birth_date_str:
+        return {"error": "Campo 'birth_date' obrigatório no formato AAAA-MM-DD.", "code": 400}
+
+    # Strict YYYY-MM-DD format check — strptime alone would accept e.g.
+    # "1977-1-24" which we want to reject for predictability.
+    if not re.match(r"^\d{4}-\d{2}-\d{2}$", birth_date_str):
+        return {
+            "error": f"Data de nascimento inválida (esperado AAAA-MM-DD): {birth_date_str}",
+            "code": 400,
+        }
+    try:
+        parsed_date = _dt.strptime(birth_date_str, "%Y-%m-%d").date()
+    except ValueError:
+        return {
+            "error": f"Data de nascimento inválida: {birth_date_str} não é uma data real.",
+            "code": 400,
+        }
+
+    if unknown:
+        time_iso = "00:00:00"
+        time_estimated = True
+        display_time = None
+    else:
+        if not birth_time_str:
+            return {
+                "error": "Campo 'birth_time' obrigatório no formato HH:MM "
+                         "(use unknown_birth_time=true se o horário for desconhecido).",
+                "code": 400,
+            }
+        if not re.match(r"^\d{2}:\d{2}$", birth_time_str):
+            return {
+                "error": f"Hora de nascimento inválida (esperado HH:MM): {birth_time_str}",
+                "code": 400,
+            }
+        try:
+            parsed_time = _dt.strptime(birth_time_str, "%H:%M").time()
+        except ValueError:
+            return {
+                "error": f"Hora de nascimento inválida: {birth_time_str} não é um horário real.",
+                "code": 400,
+            }
+        time_iso = f"{parsed_time.hour:02d}:{parsed_time.minute:02d}:00"
+        time_estimated = False
+        display_time = f"{parsed_time.hour:02d}:{parsed_time.minute:02d}"
+
+    datetime_iso = f"{birth_date_str}T{time_iso}"
+    display = f"{parsed_date.day} de {_PT_MONTHS[parsed_date.month]} de {parsed_date.year}"
+    if display_time:
+        display += f", {display_time}"
+
+    return {"datetime": datetime_iso, "display": display, "time_estimated": time_estimated}
+
+
 def _sanitize_for_filename(s: str) -> str:
     """Reduce an arbitrary client name to a filename-safe token. Drops
     accents/diacritics, replaces whitespace with underscores, and strips
@@ -422,9 +512,28 @@ def generate_report_endpoint():
     limit = body.pop("limit", None)
     no_fio = bool(body.pop("no_fio", False))
 
-    # PDF-only metadata fields (free-form strings shown on the cover)
-    birth_date = body.pop("birth_date", "") or ""
-    birth_place = body.pop("birth_place", "") or ""
+    # New structured birth-data contract: birth_date (YYYY-MM-DD) +
+    # birth_time (HH:MM) + unknown_birth_time (bool). The parser
+    # validates each field, returns Portuguese error messages on
+    # invalid input, and combines into:
+    #   - body["datetime"]: ISO string the chart-wheel renderer reads
+    #   - birth_date_display: Portuguese string for the PDF cover
+    #   - time_estimated: surfaced in the response meta
+    birth_date_raw = body.pop("birth_date", None)
+    birth_time_raw = body.pop("birth_time", None)
+    unknown_birth_time = body.pop("unknown_birth_time", False)
+    birth_place = (body.pop("birth_place", "") or "").strip()
+
+    parsed_birth = _parse_birth_inputs(birth_date_raw, birth_time_raw, unknown_birth_time)
+    if "error" in parsed_birth:
+        return jsonify({
+            "status": "error",
+            "message": parsed_birth["error"],
+        }), parsed_birth["code"]
+
+    body["datetime"] = parsed_birth["datetime"]
+    birth_date_display = parsed_birth["display"]
+    time_estimated = parsed_birth["time_estimated"]
 
     # Validate required fields up front (clearer 400 than a deep stack later)
     for required in ("gender", "points", "ascendant", "aspects"):
@@ -468,7 +577,7 @@ def generate_report_endpoint():
         pdf_bytes = pg.generate_pdf(
             report_text=result["report"],
             client_name=result["name"],
-            birth_date=birth_date,
+            birth_date=birth_date_display,
             birth_place=birth_place,
             chart_image_url=chart_svg_path,
             aspects=body.get("aspects", []),
@@ -489,6 +598,9 @@ def generate_report_endpoint():
                 except Exception:
                     pass
 
+    # Make the new birth-data structured fields available downstream:
+    # the response meta needs to include time_estimated so callers (Wix)
+    # can flag charts where the time defaulted to midnight as approximate.
     # Email the PDF synchronously before returning the response. Adds ~2-3s
     # (Gmail SMTP handshake + send) to the total response time, well within
     # Railway's edge timeout. The earlier background-thread implementation
@@ -548,6 +660,7 @@ def generate_report_endpoint():
             "chart_svg_generated": bool(chart_svg_path),
             "chart_svg_error": chart_error or None,
             "chart_style": CHART_STYLE,
+            "time_estimated": time_estimated,
             "email_sent": email_sent,
             "email_error": email_error,
         },
