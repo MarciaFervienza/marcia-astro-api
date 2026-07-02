@@ -626,7 +626,7 @@ def generate_report_endpoint():
                     to_email=recipient,
                     client_name=result["name"],
                     pdf_bytes=pdf_bytes,
-                    birth_date=birth_date,
+                    birth_date=birth_date_display,
                     birth_place=birth_place,
                 )
             except Exception as e:
