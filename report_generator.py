@@ -1198,9 +1198,39 @@ _MID_SENTENCE_UPPERCASE_E_RE = re.compile(
 _TARGETED_FIXES = [
     # Typo: "gerosa" is not a word — the intended word is "generosa"
     (re.compile(r"\bgerosa\b"), "generosa"),
-    # Voice: the Vênus section drifted to third-person "nela"/"ela" for
-    # the client. These specific phrasings collapse to direct address.
+    # Voice: the Vênus section drifts to third-person "nela"/"ela mesma"
+    # about the client. These exact phrasings collapse to direct address.
     (re.compile(r"\breconhecem nela\b"), "reconhecem em você"),
+    (re.compile(r"\bentendida naquilo que ela mesma\b"), "entendida naquilo que você mesma"),
+]
+
+# House-number normalization. Report body alternates between "casa sete"
+# (spelled out) and "casa 7" (digits) — often in the same section. Pick
+# digits everywhere: subtitles under section titles already use digits,
+# and digits are more scannable in a report that reads as much like a
+# reference document as a book. Only touches the "casa <word>" pattern
+# (with optional capitalization); "casa 7" stays as-is. Word boundaries
+# on both sides guard against accidental matches in other contexts.
+_HOUSE_WORD_TO_DIGIT = [
+    ("um", "1"), ("uma", "1"),
+    ("dois", "2"), ("duas", "2"),
+    ("três", "3"),
+    ("quatro", "4"),
+    ("cinco", "5"),
+    ("seis", "6"),
+    ("sete", "7"),
+    ("oito", "8"),
+    ("nove", "9"),
+    ("dez", "10"),
+    ("onze", "11"),
+    ("doze", "12"),
+]
+_CASA_NORMALIZATION_RES = [
+    # IGNORECASE catches "casa Sete" / "Casa Sete" / "casa sete" variants
+    # uniformly. Group 1 preserves the original case of the leading letter
+    # so "Casa" stays "Casa" and "casa" stays "casa" in the replacement.
+    (re.compile(rf"\b(C|c)asa {word}\b", flags=re.IGNORECASE), rf"\1asa {digit}")
+    for word, digit in _HOUSE_WORD_TO_DIGIT
 ]
 
 
@@ -1284,6 +1314,19 @@ def cleanup_pass(text: str):
                 "count": n,
                 "auto_fixed": True,
             })
+
+    # ---------- 6. House-number normalization → digit form ----------
+    casa_total = 0
+    for pat, replacement in _CASA_NORMALIZATION_RES:
+        text, n = pat.subn(replacement, text)
+        casa_total += n
+    if casa_total:
+        changes.append({
+            "type": "casa_normalization",
+            "count": casa_total,
+            "form": "digit",
+            "auto_fixed": True,
+        })
 
     return text, changes
 

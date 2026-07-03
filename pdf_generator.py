@@ -751,8 +751,12 @@ def _cover_flowables(client_name: str, birth_date: str, birth_place: str, styles
     # editorial covers rarely start at the very top edge.
     flow.append(Spacer(1, 2.4 * cm))
 
-    # Small gold kicker — "MAPA NATAL" in tracked-out caps
-    flow.append(Paragraph("M A P A &nbsp; N A T A L", styles["cover_kicker"]))
+    # Small gold kicker — "MAPA NATAL" in tracked-out caps. Plain ASCII
+    # spaces only; earlier versions used '&nbsp;' between the two words to
+    # widen the visual gap, but Inter-Medium renders the non-breaking-space
+    # glyph as a mid-height bullet, which looked like a decorative middle
+    # dot. Regular spaces are safe across fonts.
+    flow.append(Paragraph("M A P A    N A T A L", styles["cover_kicker"]))
 
     # Two-line serif title, second line in italic terracotta
     flow.append(Paragraph("Seu", styles["cover_title"]))
@@ -868,10 +872,15 @@ def _looks_like_transparent_logo(path):
 # ============================================================
 def _select_pull_quote(paragraphs: list) -> str:
     """Pick one sentence from a section that reads well as a pull quote:
-    length 50-180 chars, ends with a period (declarative), preferably from
+    length 55-140 chars, ends with a period (declarative), preferably from
     a middle paragraph so it's not an intro or a sign-off. Returns the
     empty string if nothing qualifies — the caller then skips inserting
     a breather page for that section.
+
+    The 140-char upper bound is tighter than an earlier version because
+    long quotes wrap to 5+ lines at pull-quote size (20pt/32pt leading),
+    which can overflow the single-page KeepTogether budget and force an
+    orphan continuation page.
     """
     if not paragraphs:
         return ""
@@ -881,18 +890,14 @@ def _select_pull_quote(paragraphs: list) -> str:
     # Split each paragraph into sentences.
     sentences = []
     for p in candidate_paras:
-        # Simple sentence splitter — Portuguese punctuation. Preserves the
-        # terminating punctuation as the last char of each sentence.
         parts = re.split(r"(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÂÊÔÃÕÇ])", p.strip())
         sentences.extend(s.strip() for s in parts if s.strip())
-    # Filter: right length, declarative, not a question, no ellipses
     def _qualifies(s):
-        if not 50 <= len(s) <= 180:
+        if not 55 <= len(s) <= 140:
             return False
         if not s.endswith("."):
             return False
         if "—" in s and len(s) < 90:
-            # A dash mid-sentence in a short quote often reads as fragmentary
             return False
         if "..." in s or "…" in s:
             return False
@@ -900,20 +905,28 @@ def _select_pull_quote(paragraphs: list) -> str:
     scored = [s for s in sentences if _qualifies(s)]
     if not scored:
         return ""
-    # Pick the median-length sentence — reads better than shortest or longest
     scored.sort(key=len)
     return scored[len(scored) // 2]
 
 
 def _pull_quote_flowables(sentence: str, styles):
-    """Full-page breather with the pull quote centered vertically."""
+    """Full-page breather with the pull quote centered vertically.
+
+    The content stack (top spacer + quote mark + quote text + rule) is
+    wrapped in a KeepTogether so ReportLab either fits it entirely on a
+    single page or moves the whole unit to the next page. Without this,
+    a long quote wrapping to many lines can overflow: ReportLab renders
+    the top spacer + first lines on one page, the remaining lines on
+    the next page, then the terminal PageBreak triggers yet another
+    fresh page — the empty-page bug reported around the Netuno quote.
+    """
     if not sentence:
         return []
-    flow = [
-        # Push down for vertical-ish centering. The frame content area is
-        # roughly 25cm tall; 8cm above + quote + rule + 6cm below leaves the
-        # quote sitting at the visual midpoint of the page.
-        Spacer(1, 8.0 * cm),
+    quote_stack = KeepTogether([
+        # 5cm above instead of 8cm — gives the quote more room to breathe
+        # without pushing it past mid-page. Combined with the tighter
+        # sentence length cap this fits within a single page comfortably.
+        Spacer(1, 5.0 * cm),
         Paragraph("&ldquo;", styles["pull_quote_mark"]),
         Paragraph(_escape(sentence), styles["pull_quote"]),
         Spacer(1, 0.6 * cm),
@@ -921,9 +934,8 @@ def _pull_quote_flowables(sentence: str, styles):
             width=1.8 * cm, thickness=0.5, color=COLOR_GOLD,
             hAlign="CENTER", lineCap="round",
         ),
-        PageBreak(),
-    ]
-    return flow
+    ])
+    return [quote_stack, PageBreak()]
 
 
 # ============================================================
