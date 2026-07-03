@@ -74,21 +74,24 @@ ASPECT_COLORS = [
 ]
 CHART_STYLE = os.environ.get("CHART_STYLE", "modern")  # 'modern' or 'classic'
 
-# Resend (resend.com) for emailing the PDF to the client. Resend's API is
-# HTTPS-based, which sidesteps Railway's outbound SMTP egress restrictions
-# that blocked port 587 to Gmail. When RESEND_API_KEY + EMAIL_FROM_ADDRESS
-# are both set on Railway and the request body contains an `email` field,
-# the PDF is mailed inline before the HTTP response returns. If either env
-# var is missing or the request omits `email`, no send is attempted and
-# the response is unaffected.
+# Gmail / Google Workspace SMTP for emailing the PDF to the client.
+# GMAIL_USER doubles as the authenticated SMTP username AND the From
+# address (per RFC 5322 the From header reads "EMAIL_FROM_NAME <GMAIL_USER>").
+# GMAIL_APP_PASSWORD is a Gmail-issued app password (regular account
+# passwords are rejected by SMTP). Both vars must be present on Railway
+# for the send guard in /generate-report to attempt delivery — otherwise
+# meta.email_error surfaces "Gmail credentials not configured..." and no
+# send is attempted.
 #
-# IMPORTANT: EMAIL_FROM_ADDRESS must be on a domain that's verified in
-# Resend's dashboard (DNS DKIM + SPF records). For initial testing without
-# domain verification, set EMAIL_FROM_ADDRESS to "onboarding@resend.dev" —
-# Resend allows that as a sender but ONLY delivers to addresses on the
-# Resend account, not arbitrary recipients.
-RESEND_API_KEY = os.environ.get("RESEND_API_KEY", "").strip()
-EMAIL_FROM_ADDRESS = os.environ.get("EMAIL_FROM_ADDRESS", "").strip()
+# Egress note: Railway containers had outbound port 587 blocked when we
+# last tried this, which is why we went through Resend. The current
+# implementation forces IPv4 (Railway lacks outbound IPv6, so smtplib's
+# default AAAA-first getaddrinfo returns unreachable addresses) and falls
+# back from 587-STARTTLS to 465-SMTPS if the first attempt errors. If both
+# ports are blocked, the request still succeeds (report + PDF returned)
+# with a descriptive email_error string in the response meta.
+GMAIL_USER = os.environ.get("GMAIL_USER", "").strip()
+GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "").strip()
 EMAIL_FROM_NAME = os.environ.get("EMAIL_FROM_NAME", "Márcia Fervienza Astrologia")
 
 # Shared-secret auth for /generate-report — set on Railway, also embedded
@@ -570,14 +573,26 @@ def _sanitize_for_filename(s: str) -> str:
 
 def send_report_email(to_email: str, client_name: str, pdf_bytes: bytes,
                       birth_date: str = "", birth_place: str = ""):
-    """Email the natal-report PDF to the client via Resend's HTTPS API.
+    """Email the natal-report PDF to the client via Gmail SMTP.
+
+    From header: "EMAIL_FROM_NAME <GMAIL_USER>".
+    Authenticates with GMAIL_APP_PASSWORD (Gmail app-password, not the
+    account's regular password — regular passwords are rejected).
+
+    Transport strategy:
+      1. Force IPv4 resolution for both attempts (Railway containers have
+         no outbound IPv6; default AAAA-first getaddrinfo returns
+         unreachable addresses → instant ENETUNREACH).
+      2. Try smtp.gmail.com:587 with STARTTLS first.
+      3. If step 2 fails (network error / SMTP error, NOT auth error),
+         fall back to smtp.gmail.com:465 with implicit SSL. Some networks
+         block one port and not the other.
 
     Args:
         to_email     — recipient address (validated upstream by the caller)
         client_name  — used in the Portuguese greeting and the attachment
                        filename
-        pdf_bytes    — raw PDF bytes to attach (base64-encoded for the JSON
-                       payload inside this function)
+        pdf_bytes    — raw PDF bytes attached as application/pdf
         birth_date   — currently unused; kept in signature for future use
         birth_place  — same
 
@@ -585,65 +600,79 @@ def send_report_email(to_email: str, client_name: str, pdf_bytes: bytes,
     Never raises — failure is signalled via the return value so the caller
     can put the message in the response meta.
     """
-    if not RESEND_API_KEY:
-        return "Resend API key not configured (RESEND_API_KEY)"
-    if not EMAIL_FROM_ADDRESS:
-        return "Sender address not configured (EMAIL_FROM_ADDRESS)"
+    if not GMAIL_USER or not GMAIL_APP_PASSWORD:
+        return "Gmail credentials not configured (GMAIL_USER + GMAIL_APP_PASSWORD)"
     if not to_email or "@" not in to_email:
         return f"invalid recipient: {to_email!r}"
     if not pdf_bytes:
         return "no PDF bytes to attach"
 
-    # Format From header per RFC 5322: "Display Name <addr@domain>".
-    # Resend accepts both bare addresses and the display-name form.
-    from_value = (
-        f"{EMAIL_FROM_NAME} <{EMAIL_FROM_ADDRESS}>"
-        if EMAIL_FROM_NAME else EMAIL_FROM_ADDRESS
+    import smtplib
+    import socket
+    import ssl
+    from email.message import EmailMessage
+    from email.utils import formataddr
+
+    msg = EmailMessage()
+    msg["From"] = formataddr((EMAIL_FROM_NAME, GMAIL_USER))
+    msg["To"] = to_email
+    msg["Subject"] = EMAIL_SUBJECT
+    msg.set_content(EMAIL_BODY_TEMPLATE.format(client_name=client_name or "Cliente"))
+    filename = f"Mapa_Natal_{_sanitize_for_filename(client_name)}.pdf"
+    msg.add_attachment(
+        pdf_bytes, maintype="application", subtype="pdf", filename=filename,
     )
 
-    filename = f"Mapa_Natal_{_sanitize_for_filename(client_name)}.pdf"
-
-    payload = {
-        "from": from_value,
-        "to": [to_email],
-        "subject": EMAIL_SUBJECT,
-        "text": EMAIL_BODY_TEMPLATE.format(client_name=client_name or "Cliente"),
-        "attachments": [
-            {
-                "filename": filename,
-                "content": base64.b64encode(pdf_bytes).decode("ascii"),
-            },
-        ],
-    }
+    # Force IPv4 for the duration of the SMTP calls. Railway containers have
+    # no outbound IPv6, but Python's default getaddrinfo returns AAAA
+    # records first when both A and AAAA are present. Without this, both
+    # smtplib.SMTP and smtplib.SMTP_SSL would try to connect to an IPv6
+    # address the container can't route to, and the kernel would return
+    # ENETUNREACH (Errno 101) before we ever hit the TCP handshake. We
+    # restore the original getaddrinfo in the finally block so no other
+    # code is affected outside this send.
+    _orig_getaddrinfo = socket.getaddrinfo
+    def _ipv4_only_getaddrinfo(host, port, family=0, *args, **kwargs):
+        return _orig_getaddrinfo(host, port, socket.AF_INET, *args, **kwargs)
+    socket.getaddrinfo = _ipv4_only_getaddrinfo
 
     try:
-        resp = requests.post(
-            "https://api.resend.com/emails",
-            headers={
-                "Authorization": f"Bearer {RESEND_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json=payload,
-            timeout=30,
-        )
-    except requests.exceptions.Timeout:
-        return "Resend API timed out after 30s"
-    except requests.exceptions.RequestException as e:
-        return f"network error reaching Resend API: {e}"
-    except Exception as e:
-        return f"unexpected error calling Resend: {e}"
+        # Attempt 1: port 587 with STARTTLS (Gmail's preferred submission port).
+        err_587 = None
+        try:
+            with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as smtp:
+                smtp.ehlo()
+                smtp.starttls(context=ssl.create_default_context())
+                smtp.ehlo()
+                smtp.login(GMAIL_USER, GMAIL_APP_PASSWORD)
+                smtp.send_message(msg)
+            return True
+        except smtplib.SMTPAuthenticationError as e:
+            # Auth errors are terminal — the app password itself is wrong,
+            # so the same credentials will fail on 465 too. Don't waste a
+            # second connection attempt.
+            return f"Gmail SMTP auth failed (check GMAIL_APP_PASSWORD): {e}"
+        except (smtplib.SMTPException, OSError, socket.timeout) as e:
+            err_587 = f"[587 STARTTLS] {type(e).__name__}: {e}"
 
-    if resp.status_code in (200, 201, 202):
-        return True
-
-    # Try to surface Resend's error message body if it returned JSON
-    try:
-        err = resp.json()
-        msg = err.get("message") or err.get("error") or str(err)
-        name = err.get("name", "")
-        return f"Resend API HTTP {resp.status_code}{f' ({name})' if name else ''}: {msg}"
-    except Exception:
-        return f"Resend API HTTP {resp.status_code}: {(resp.text or '')[:200]}"
+        # Attempt 2: port 465 with implicit SSL (SMTPS). Sometimes networks
+        # block 587 but allow 465, or vice versa.
+        try:
+            with smtplib.SMTP_SSL(
+                "smtp.gmail.com", 465, timeout=30,
+                context=ssl.create_default_context(),
+            ) as smtp:
+                smtp.ehlo()
+                smtp.login(GMAIL_USER, GMAIL_APP_PASSWORD)
+                smtp.send_message(msg)
+            return True
+        except smtplib.SMTPAuthenticationError as e:
+            return f"Gmail SMTP auth failed on 465 (check GMAIL_APP_PASSWORD): {e}"
+        except (smtplib.SMTPException, OSError, socket.timeout) as e:
+            err_465 = f"[465 SSL] {type(e).__name__}: {e}"
+            return f"Both SMTP ports failed. {err_587} · {err_465}"
+    finally:
+        socket.getaddrinfo = _orig_getaddrinfo
 
 
 @app.route("/health", methods=["GET"])
@@ -655,14 +684,15 @@ def health():
 @app.route("/env-check", methods=["GET"])
 def env_check():
     """Diagnostic: report whether email-related env vars are visible to the
-    running process. Returns booleans + lengths only for the secret — never
-    the API key itself — so this is safe to leave exposed. The
-    EMAIL_FROM_ADDRESS and EMAIL_FROM_NAME values are shown in full because
-    they're not secrets (they're inside every outbound email)."""
+    running process. Returns booleans + lengths only for the secrets — never
+    the values themselves — so this is safe to leave exposed. GMAIL_USER
+    and EMAIL_FROM_NAME are returned in full because they're not secrets
+    (they're stamped on every outbound message)."""
     return jsonify({
-        "RESEND_API_KEY_set": bool(os.environ.get("RESEND_API_KEY")),
-        "RESEND_API_KEY_length": len(os.environ.get("RESEND_API_KEY", "")),
-        "EMAIL_FROM_ADDRESS": os.environ.get("EMAIL_FROM_ADDRESS", "(unset)"),
+        "GMAIL_USER_set": bool(os.environ.get("GMAIL_USER")),
+        "GMAIL_USER": os.environ.get("GMAIL_USER", "(unset)"),
+        "GMAIL_APP_PASSWORD_set": bool(os.environ.get("GMAIL_APP_PASSWORD")),
+        "GMAIL_APP_PASSWORD_length": len(os.environ.get("GMAIL_APP_PASSWORD", "")),
         "EMAIL_FROM_NAME": os.environ.get("EMAIL_FROM_NAME", "(default)"),
         "API_SECRET_KEY_set": bool(os.environ.get("API_SECRET_KEY")),
         "API_SECRET_KEY_length": len(os.environ.get("API_SECRET_KEY", "")),
@@ -858,10 +888,8 @@ def generate_report_endpoint():
     if recipient:
         if pdf_bytes is None:  # pdf generation failed → nothing to attach
             email_error = "pdf generation failed; nothing to email"
-        elif not RESEND_API_KEY:
-            email_error = "Resend API key not configured on server"
-        elif not EMAIL_FROM_ADDRESS:
-            email_error = "Sender address not configured on server (EMAIL_FROM_ADDRESS)"
+        elif not GMAIL_USER or not GMAIL_APP_PASSWORD:
+            email_error = "Gmail credentials not configured on server (GMAIL_USER + GMAIL_APP_PASSWORD)"
         elif "@" not in recipient:
             email_error = f"invalid recipient email: {recipient!r}"
         else:
