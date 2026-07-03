@@ -751,12 +751,27 @@ def _cover_flowables(client_name: str, birth_date: str, birth_place: str, styles
     # editorial covers rarely start at the very top edge.
     flow.append(Spacer(1, 2.4 * cm))
 
-    # Small gold kicker — "MAPA NATAL" in tracked-out caps. Plain ASCII
-    # spaces only; earlier versions used '&nbsp;' between the two words to
-    # widen the visual gap, but Inter-Medium renders the non-breaking-space
-    # glyph as a mid-height bullet, which looked like a decorative middle
-    # dot. Regular spaces are safe across fonts.
-    flow.append(Paragraph("M A P A    N A T A L", styles["cover_kicker"]))
+    # Small gold kicker — "MAPA NATAL" in tracked-out caps.
+    #
+    # Layout notes learned the hard way:
+    #  · '&nbsp;' (U+00A0) between the two words renders as a mid-height
+    #    dot glyph in Inter-Medium, which read as a decorative middle dot.
+    #  · Plain ASCII spaces get normalized by ReportLab's Paragraph XML
+    #    parser — runs collapse to single spaces AND the layout engine
+    #    strips inter-letter spacing between single-letter "words", so
+    #    "M A P A    N A T A L" ends up as "MAPANATAL" with no visible
+    #    gaps at all.
+    #
+    # Solution: use typographic Unicode spaces, which the XML parser
+    # treats as content characters (not markup whitespace) and so
+    # preserves verbatim. EN SPACE (U+2002 — half an em wide) between
+    # each letter reads like a normal tracked space; two EM SPACEs
+    # (U+2003 — one em each) between the two words give a comfortable
+    # word gap.
+    _EN = " "
+    _WORD_GAP = "  "
+    kicker_text = _EN.join("MAPA") + _WORD_GAP + _EN.join("NATAL")
+    flow.append(Paragraph(kicker_text, styles["cover_kicker"]))
 
     # Two-line serif title, second line in italic terracotta
     flow.append(Paragraph("Seu", styles["cover_title"]))
