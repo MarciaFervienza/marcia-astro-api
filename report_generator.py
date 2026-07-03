@@ -1181,6 +1181,28 @@ _EN_RETROGRADE_RE = re.compile(r"\bretrograde\b", re.IGNORECASE)
 # We FLAG these (don't auto-rewrite) because correct restructure needs context.
 _FEM_RETROGRADA_RE = re.compile(r"\b([Aa]|[Àà])\s+retrógrada\b")
 
+# Mid-sentence capital "É". Claude has a tic of capitalizing the é-particle
+# mid-sentence for emphasis ("A questão É que...", "onde ele se dissolve É
+# no trabalho..."). Match a capital É preceded by a Portuguese lowercase
+# letter or a mid-sentence connector (comma / semicolon / em-dash) + space,
+# but NOT preceded by a sentence terminator. The negative look-behind on
+# ".!?" is redundant given the positive look-behind on the lowercase set
+# but keeps the intent explicit.
+_MID_SENTENCE_UPPERCASE_E_RE = re.compile(
+    r"(?<=[a-záéíóúãõçâêôàïüA-Z,;\-—]\s)É\b"
+)
+
+# Specific typo / voice fixes that surfaced in reviewed reports. Kept as
+# narrow, deterministic substitutions rather than generic pattern rewrites
+# to avoid collateral damage on legitimate uses.
+_TARGETED_FIXES = [
+    # Typo: "gerosa" is not a word — the intended word is "generosa"
+    (re.compile(r"\bgerosa\b"), "generosa"),
+    # Voice: the Vênus section drifted to third-person "nela"/"ela" for
+    # the client. These specific phrasings collapse to direct address.
+    (re.compile(r"\breconhecem nela\b"), "reconhecem em você"),
+]
+
 
 def cleanup_pass(text: str):
     """
@@ -1238,6 +1260,30 @@ def cleanup_pass(text: str):
             "auto_fixed": False,
             "note": "needs manual restructure — 'retrógrada' used as standalone noun",
         })
+
+    # ---------- 4. Mid-sentence capital É → lowercase é ----------
+    mid_e_count = 0
+    for m in list(_MID_SENTENCE_UPPERCASE_E_RE.finditer(text))[::-1]:
+        text = text[:m.start()] + "é" + text[m.end():]
+        mid_e_count += 1
+    if mid_e_count:
+        changes.append({
+            "type": "mid_sentence_uppercase_e",
+            "count": mid_e_count,
+            "auto_fixed": True,
+        })
+
+    # ---------- 5. Targeted typo / voice fixes ----------
+    for pat, replacement in _TARGETED_FIXES:
+        text, n = pat.subn(replacement, text)
+        if n:
+            changes.append({
+                "type": "targeted_fix",
+                "pattern": pat.pattern,
+                "replacement": replacement,
+                "count": n,
+                "auto_fixed": True,
+            })
 
     return text, changes
 

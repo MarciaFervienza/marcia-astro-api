@@ -240,17 +240,40 @@ def _styles():
             leading=26,
             alignment=TA_LEFT,
         ),
-        # Small caps eyebrow above / instead of a rule under some titles.
-        "section_eyebrow": ParagraphStyle(
-            name="section_eyebrow",
-            fontName="Inter-Medium",
-            fontSize=8,
-            textColor=COLOR_GOLD,
-            spaceAfter=4,
-            leading=10,
+        # Astrological subtitle rendered under the main section title, e.g.
+        # "Mercúrio em Capricórnio · Casa 7". Small Inter, muted, so the
+        # psychological main heading stays the primary visual anchor.
+        "section_subtitle": ParagraphStyle(
+            name="section_subtitle",
+            fontName="Inter-Regular",
+            fontSize=9,
+            textColor=COLOR_GREY,
+            spaceBefore=0,
+            spaceAfter=18,
+            leading=13,
             alignment=TA_LEFT,
-            # ReportLab has no true small-caps, but the effect is imitated
-            # by uppercasing at render time (see _section_flowables).
+        ),
+        # Pull quote — one sentence, large italic serif, centered, generous
+        # leading. Used on standalone "breather" pages between sections.
+        "pull_quote": ParagraphStyle(
+            name="pull_quote",
+            fontName="EBGaramond-Italic",
+            fontSize=20,
+            textColor=COLOR_CHARCOAL,
+            leading=32,
+            alignment=TA_CENTER,
+            spaceBefore=0,
+            spaceAfter=0,
+        ),
+        "pull_quote_mark": ParagraphStyle(
+            name="pull_quote_mark",
+            fontName="EBGaramond-Regular",
+            fontSize=52,
+            textColor=COLOR_GOLD,
+            leading=52,
+            alignment=TA_CENTER,
+            spaceBefore=0,
+            spaceAfter=6,
         ),
         "body": ParagraphStyle(
             name="body",
@@ -759,10 +782,15 @@ def _cover_flowables(client_name: str, birth_date: str, birth_place: str, styles
     if birth_place:
         flow.append(Paragraph(_escape(birth_place), styles["cover_birth"]))
 
-    # Push the logo down toward the bottom edge (before the footer band)
+    # Push the logo/wordmark down toward the bottom edge (before the footer band)
     flow.append(Spacer(1, 3.4 * cm))
 
-    if LOGO_PATH.exists():
+    # Logo path — but ONLY use it if it's a proper transparent-background
+    # PNG. The current logo.png is 99.5% opaque white pixels (a legacy
+    # "white block" export), so on ivory it would render as a big charcoal
+    # box after any inversion. When a real transparent-background logo is
+    # dropped in place, this check flips and it renders normally.
+    if _looks_like_transparent_logo(LOGO_PATH):
         try:
             img = Image(str(LOGO_PATH))
             # Smaller than the previous cover — the logo is a maker's mark
@@ -776,52 +804,249 @@ def _cover_flowables(client_name: str, birth_date: str, birth_place: str, styles
             img.hAlign = "CENTER"
             flow.append(img)
         except Exception:
-            pass
+            _append_wordmark(flow, styles)
+    else:
+        _append_wordmark(flow, styles)
 
     flow.append(PageBreak())
+    return flow
+
+
+def _append_wordmark(flow, styles):
+    """Fallback maker's mark used on the cover when no usable logo file is
+    present. Just the initials in a serif, centered — reads as a signature
+    rather than a placeholder.
+    """
+    wordmark_style = ParagraphStyle(
+        name="wordmark",
+        fontName="EBGaramond-Italic",
+        fontSize=18,
+        textColor=COLOR_TERRACOTTA,
+        alignment=TA_CENTER,
+        leading=22,
+    )
+    flow.append(Paragraph("mf", wordmark_style))
+
+
+def _looks_like_transparent_logo(path):
+    """True when the file at `path` is a PNG with actually-transparent
+    background regions. False for the legacy all-white file or when the
+    file is missing/unreadable. This is a cheap PIL check that runs once
+    per PDF; if PIL isn't installed, assume the logo is good and let
+    ReportLab render it.
+    """
+    if not path or not Path(path).exists():
+        return False
+    try:
+        from PIL import Image as _PILImage
+    except ImportError:
+        return True  # trust the user
+    try:
+        with _PILImage.open(str(path)) as im:
+            if im.mode not in ("RGBA", "LA", "PA"):
+                return False
+            # Sample a few corner points — a proper transparent-background
+            # logo has fully transparent (alpha=0) corners.
+            w, h = im.size
+            corners = [(0, 0), (w - 1, 0), (0, h - 1), (w - 1, h - 1)]
+            corner_alphas = [im.getpixel(pt)[-1] for pt in corners]
+            if not all(a == 0 for a in corner_alphas):
+                return False
+            # And at least 20% of the canvas should be transparent (a real
+            # logo has whitespace around it; a "white block" export has
+            # almost none).
+            band = im.crop((w // 8, h // 8, w * 7 // 8, h * 7 // 8))
+            transparent = sum(1 for px in band.getdata() if px[-1] == 0)
+            total = band.width * band.height
+            return (transparent / total) > 0.2
+    except Exception:
+        return False
+
+
+# ============================================================
+# PULL-QUOTE ("BREATHER") PAGES
+# ============================================================
+def _select_pull_quote(paragraphs: list) -> str:
+    """Pick one sentence from a section that reads well as a pull quote:
+    length 50-180 chars, ends with a period (declarative), preferably from
+    a middle paragraph so it's not an intro or a sign-off. Returns the
+    empty string if nothing qualifies — the caller then skips inserting
+    a breather page for that section.
+    """
+    if not paragraphs:
+        return ""
+    # Prefer sentences from the middle of the section
+    candidate_paras = paragraphs[len(paragraphs) // 3 : max(len(paragraphs) // 3 + 1, len(paragraphs) - 1)] \
+                      or paragraphs
+    # Split each paragraph into sentences.
+    sentences = []
+    for p in candidate_paras:
+        # Simple sentence splitter — Portuguese punctuation. Preserves the
+        # terminating punctuation as the last char of each sentence.
+        parts = re.split(r"(?<=[.!?])\s+(?=[A-ZÁÉÍÓÚÂÊÔÃÕÇ])", p.strip())
+        sentences.extend(s.strip() for s in parts if s.strip())
+    # Filter: right length, declarative, not a question, no ellipses
+    def _qualifies(s):
+        if not 50 <= len(s) <= 180:
+            return False
+        if not s.endswith("."):
+            return False
+        if "—" in s and len(s) < 90:
+            # A dash mid-sentence in a short quote often reads as fragmentary
+            return False
+        if "..." in s or "…" in s:
+            return False
+        return True
+    scored = [s for s in sentences if _qualifies(s)]
+    if not scored:
+        return ""
+    # Pick the median-length sentence — reads better than shortest or longest
+    scored.sort(key=len)
+    return scored[len(scored) // 2]
+
+
+def _pull_quote_flowables(sentence: str, styles):
+    """Full-page breather with the pull quote centered vertically."""
+    if not sentence:
+        return []
+    flow = [
+        # Push down for vertical-ish centering. The frame content area is
+        # roughly 25cm tall; 8cm above + quote + rule + 6cm below leaves the
+        # quote sitting at the visual midpoint of the page.
+        Spacer(1, 8.0 * cm),
+        Paragraph("&ldquo;", styles["pull_quote_mark"]),
+        Paragraph(_escape(sentence), styles["pull_quote"]),
+        Spacer(1, 0.6 * cm),
+        HRFlowable(
+            width=1.8 * cm, thickness=0.5, color=COLOR_GOLD,
+            hAlign="CENTER", lineCap="round",
+        ),
+        PageBreak(),
+    ]
     return flow
 
 
 # ============================================================
 # SECTION FLOWABLES
 # ============================================================
-def _section_flowables(title: str, paragraphs: list, styles):
+# Section-title mapping: which planet key(s) belong to each title's prefix.
+# The report_generator's section list uses "<Prefix>: <Psychological Phrase>"
+# where <Prefix> is either a single planet, a hyphenated planet pair, or a
+# short label ("Casa 4", "Nodo Sul e Nodo Norte", "Asteróides"). We treat
+# the psychological phrase as the main heading and derive an astrological
+# subtitle from the chart data for the prefix — showing the interpretive
+# language first is exactly what the redesign asks for.
+_PT_PLANET_TO_KEY = {
+    "Sol":     "sun",
+    "Lua":     "moon",
+    "Mercúrio":"mercury",
+    "Vênus":   "venus",
+    "Marte":   "mars",
+    "Júpiter": "jupiter",
+    "Saturno": "saturn",
+    "Urano":   "uranus",
+    "Netuno":  "neptune",
+    "Plutão":  "pluto",
+    "Quíron":  "chiron",
+    "Lilith":  "lilith",
+}
+
+
+def _subtitle_from_prefix(prefix: str, points: dict) -> str:
+    """Produce a Portuguese astrological subtitle from a section-title
+    prefix like 'Mercúrio' or 'Sol e Saturno'. Uses the client's actual
+    positions from `points` (already computed upstream). Returns an empty
+    string when the prefix doesn't map to any known planet — the caller
+    then uses the original title as-is with no subtitle line.
+    """
+    if not points:
+        return ""
+
+    # Normalize " e " / " - " / " · " / "-" separators into a single pipe.
+    normalized = prefix.replace(" e ", "|").replace(" - ", "|") \
+                       .replace(" · ", "|").replace("-", "|")
+    parts = [p.strip() for p in normalized.split("|") if p.strip()]
+
+    pieces = []
+    for part in parts:
+        key = _PT_PLANET_TO_KEY.get(part)
+        if not key:
+            continue
+        p = points.get(key) or {}
+        sign_pt = p.get("sign_pt") or ""
+        house = p.get("house")
+        if sign_pt and house is not None:
+            pieces.append(f"{part} em {sign_pt} · Casa {house}")
+        elif sign_pt:
+            pieces.append(f"{part} em {sign_pt}")
+
+    return "   ·   ".join(pieces)
+
+
+def _split_section_title(title: str, points: dict):
+    """Split a section title into (main_heading, subtitle).
+
+    - 'Mercúrio: Como Você Pensa' → ('Como Você Pensa',
+                                     'Mercúrio em Capricórnio · Casa 7')
+    - 'Sol e Saturno: O Pai e as Ferramentas da Vida'
+                    → ('O Pai e as Ferramentas da Vida',
+                       'Sol em Aquário · Casa 8   ·   Saturno em Leão · Casa 2')
+    - 'Abertura' → ('Abertura', '')
+    - 'Fio Condutor' → ('Fio Condutor', '')
+    - 'Casa 4: Suas Raízes e Sua Casa Interna' → ('Suas Raízes e Sua Casa Interna',
+                                                  'Casa 4')  (prefix as subtitle
+                                                              when it isn't a planet)
+    """
+    if ":" not in title:
+        return title, ""
+
+    prefix, _, rest = title.partition(":")
+    prefix = prefix.strip()
+    main = rest.strip() or title
+    subtitle = _subtitle_from_prefix(prefix, points)
+    if not subtitle:
+        # Prefix is a non-planet label (Casa 4, Asteróides, Sua Tríade, Nodo Sul e Nodo Norte).
+        # Show it as-is under the main heading so the reader still has the
+        # astrological anchor.
+        subtitle = prefix
+    return main, subtitle
+
+
+def _section_flowables(title: str, paragraphs: list, styles, points: dict):
     """Build the flowables for one section.
 
-    Header layout:
-       small gold tracked-out caps eyebrow — the section title uppercased
-       serif title — the section title as-is (left-aligned, terracotta)
-       thin gold rule (short, left-aligned)
+    Header layout (per redesign spec):
+       elegant serif main heading (the psychological phrase)
+       thin gold rule (short, left-aligned) — a bookmark
+       small astrological subtitle in Inter
+       [breathing space]
        first paragraph
     """
     flow = []
+    main_heading, subtitle = _split_section_title(title, points)
 
-    # Tracked-out uppercase eyebrow. ReportLab doesn't have real small-
-    # caps, so we imitate them: uppercase the title, add hair spaces
-    # between letters. Kept short by only tracking words, not letters,
-    # so long section names stay legible.
-    eyebrow_text = " · ".join(w.upper() for w in title.split())
-
-    header_block = [
-        Paragraph(_escape(eyebrow_text), styles["section_eyebrow"]),
-        Paragraph(_escape(title), styles["section_title"]),
+    header_parts = [
+        Paragraph(_escape(main_heading), styles["section_title"]),
         HRFlowable(
-            width=2.4 * cm,             # short — a bookmark, not a divider
+            width=2.4 * cm,
             thickness=0.5,
             color=COLOR_GOLD,
             spaceBefore=2,
-            spaceAfter=18,
+            spaceAfter=6,
             hAlign="LEFT",
             lineCap="round",
         ),
     ]
+    if subtitle:
+        header_parts.append(Paragraph(_escape(subtitle), styles["section_subtitle"]))
+
     if paragraphs:
-        header_block.append(Paragraph(_escape(paragraphs[0]), styles["body"]))
+        header_parts.append(Paragraph(_escape(paragraphs[0]), styles["body"]))
         rest = paragraphs[1:]
     else:
         rest = []
 
-    flow.append(KeepTogether(header_block))
+    flow.append(KeepTogether(header_parts))
     for p in rest:
         flow.append(Paragraph(_escape(p), styles["body"]))
 
@@ -911,8 +1136,32 @@ def generate_pdf(
     if chart_image_url or aspects:
         story.extend(_chart_page_flowables(chart_image_url, aspects or [], points or {}, styles))
 
-    for title, paragraphs in _parse_sections(report_text):
-        story.extend(_section_flowables(title, paragraphs, styles))
+    # Section flow with periodic pull-quote breather pages. Every fourth
+    # section (skipping Abertura and Fio Condutor which bookend the report)
+    # gets a standalone quiet page featuring a real sentence from that
+    # section's own text — words already in the report, never generated.
+    parsed_points = points or {}
+    sections = _parse_sections(report_text)
+    _skip_breather_after = {"abertura", "fio condutor"}
+    for i, (title, paragraphs) in enumerate(sections):
+        story.extend(_section_flowables(title, paragraphs, styles, parsed_points))
+
+        # Insert a breather page after this section? Every fourth non-terminal
+        # section counting from Abertura, but never immediately before Fio
+        # Condutor (the closing shouldn't be led into by a quote page).
+        if i == len(sections) - 1:
+            continue  # never after the last section
+        title_key = title.split(":")[0].strip().lower()
+        if title_key in _skip_breather_after:
+            continue
+        # Look at the NEXT section — if it's Fio Condutor, no breather
+        next_title = sections[i + 1][0].split(":")[0].strip().lower()
+        if next_title == "fio condutor":
+            continue
+        if (i + 1) % 4 == 0:  # after sections 4, 8, 12 (1-indexed effectively)
+            quote = _select_pull_quote(paragraphs)
+            if quote:
+                story.extend(_pull_quote_flowables(quote, styles))
 
     doc.build(story)
     return buf.getvalue()
