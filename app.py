@@ -74,24 +74,23 @@ ASPECT_COLORS = [
 ]
 CHART_STYLE = os.environ.get("CHART_STYLE", "modern")  # 'modern' or 'classic'
 
-# Gmail / Google Workspace SMTP for emailing the PDF to the client.
-# GMAIL_USER doubles as the authenticated SMTP username AND the From
-# address (per RFC 5322 the From header reads "EMAIL_FROM_NAME <GMAIL_USER>").
-# GMAIL_APP_PASSWORD is a Gmail-issued app password (regular account
-# passwords are rejected by SMTP). Both vars must be present on Railway
-# for the send guard in /generate-report to attempt delivery — otherwise
-# meta.email_error surfaces "Gmail credentials not configured..." and no
-# send is attempted.
+# SendGrid Web API (HTTPS) for emailing the PDF to the client. Railway
+# blocks outbound SMTP submission ports (both 587 and 465 time out at the
+# TCP layer, confirmed on this project), so any smtplib path — Gmail,
+# Google Workspace, or otherwise — is dead in the water here. SendGrid's
+# Web API delivers over HTTPS to api.sendgrid.com, which Railway allows
+# freely. The message payload is the same shape as Gmail SMTP would be:
+# the From header still reads "EMAIL_FROM_NAME <EMAIL_FROM_ADDRESS>", the
+# PDF attaches as application/pdf, and reply_to routes replies to the
+# executive inbox.
 #
-# Egress note: Railway containers had outbound port 587 blocked when we
-# last tried this, which is why we went through Resend. The current
-# implementation forces IPv4 (Railway lacks outbound IPv6, so smtplib's
-# default AAAA-first getaddrinfo returns unreachable addresses) and falls
-# back from 587-STARTTLS to 465-SMTPS if the first attempt errors. If both
-# ports are blocked, the request still succeeds (report + PDF returned)
-# with a descriptive email_error string in the response meta.
-GMAIL_USER = os.environ.get("GMAIL_USER", "").strip()
-GMAIL_APP_PASSWORD = os.environ.get("GMAIL_APP_PASSWORD", "").strip()
+# EMAIL_FROM_ADDRESS must be on a domain whose sender authentication is
+# verified in SendGrid's dashboard (SPF + DKIM DNS records). Otherwise
+# SendGrid returns 403 with a "from address does not match a verified
+# Sender Identity" error, which we surface in email_error.
+SENDGRID_API_KEY = os.environ.get("SENDGRID_API_KEY", "").strip()
+EMAIL_FROM_ADDRESS = os.environ.get("EMAIL_FROM_ADDRESS", "").strip()
+EMAIL_REPLY_TO = os.environ.get("EMAIL_REPLY_TO", "").strip()
 EMAIL_FROM_NAME = os.environ.get("EMAIL_FROM_NAME", "Márcia Fervienza Astrologia")
 
 # Shared-secret auth for /generate-report — set on Railway, also embedded
@@ -573,26 +572,25 @@ def _sanitize_for_filename(s: str) -> str:
 
 def send_report_email(to_email: str, client_name: str, pdf_bytes: bytes,
                       birth_date: str = "", birth_place: str = ""):
-    """Email the natal-report PDF to the client via Gmail SMTP.
+    """Email the natal-report PDF to the client via SendGrid's Web API.
 
-    From header: "EMAIL_FROM_NAME <GMAIL_USER>".
-    Authenticates with GMAIL_APP_PASSWORD (Gmail app-password, not the
-    account's regular password — regular passwords are rejected).
+    HTTPS POST to https://api.sendgrid.com/v3/mail/send with a JSON body
+    that carries the PDF as a base64-encoded attachment. On success
+    SendGrid returns HTTP 202 Accepted (no body). On failure it returns
+    4xx/5xx with a JSON `{"errors": [{"message": ..., "field": ...}]}`
+    body that we forward into email_error verbatim so the failure mode
+    is visible to the caller.
 
-    Transport strategy:
-      1. Force IPv4 resolution for both attempts (Railway containers have
-         no outbound IPv6; default AAAA-first getaddrinfo returns
-         unreachable addresses → instant ENETUNREACH).
-      2. Try smtp.gmail.com:587 with STARTTLS first.
-      3. If step 2 fails (network error / SMTP error, NOT auth error),
-         fall back to smtp.gmail.com:465 with implicit SSL. Some networks
-         block one port and not the other.
+    From header: "EMAIL_FROM_NAME <EMAIL_FROM_ADDRESS>"
+    Reply-To:    EMAIL_REPLY_TO (routes replies to the executive inbox)
+    Subject:     EMAIL_SUBJECT (Portuguese, defined at module scope)
+    Body:        EMAIL_BODY_TEMPLATE (Portuguese, greeting + sign-off)
+    Attachment:  Mapa_Natal_<sanitized-name>.pdf, application/pdf
 
     Args:
         to_email     — recipient address (validated upstream by the caller)
-        client_name  — used in the Portuguese greeting and the attachment
-                       filename
-        pdf_bytes    — raw PDF bytes attached as application/pdf
+        client_name  — used in the greeting and the attachment filename
+        pdf_bytes    — raw PDF bytes; base64-encoded into the JSON payload
         birth_date   — currently unused; kept in signature for future use
         birth_place  — same
 
@@ -600,79 +598,83 @@ def send_report_email(to_email: str, client_name: str, pdf_bytes: bytes,
     Never raises — failure is signalled via the return value so the caller
     can put the message in the response meta.
     """
-    if not GMAIL_USER or not GMAIL_APP_PASSWORD:
-        return "Gmail credentials not configured (GMAIL_USER + GMAIL_APP_PASSWORD)"
+    if not SENDGRID_API_KEY:
+        return "SendGrid API key not configured (SENDGRID_API_KEY)"
+    if not EMAIL_FROM_ADDRESS:
+        return "Sender address not configured (EMAIL_FROM_ADDRESS)"
     if not to_email or "@" not in to_email:
         return f"invalid recipient: {to_email!r}"
     if not pdf_bytes:
         return "no PDF bytes to attach"
 
-    import smtplib
-    import socket
-    import ssl
-    from email.message import EmailMessage
-    from email.utils import formataddr
-
-    msg = EmailMessage()
-    msg["From"] = formataddr((EMAIL_FROM_NAME, GMAIL_USER))
-    msg["To"] = to_email
-    msg["Subject"] = EMAIL_SUBJECT
-    msg.set_content(EMAIL_BODY_TEMPLATE.format(client_name=client_name or "Cliente"))
     filename = f"Mapa_Natal_{_sanitize_for_filename(client_name)}.pdf"
-    msg.add_attachment(
-        pdf_bytes, maintype="application", subtype="pdf", filename=filename,
-    )
 
-    # Force IPv4 for the duration of the SMTP calls. Railway containers have
-    # no outbound IPv6, but Python's default getaddrinfo returns AAAA
-    # records first when both A and AAAA are present. Without this, both
-    # smtplib.SMTP and smtplib.SMTP_SSL would try to connect to an IPv6
-    # address the container can't route to, and the kernel would return
-    # ENETUNREACH (Errno 101) before we ever hit the TCP handshake. We
-    # restore the original getaddrinfo in the finally block so no other
-    # code is affected outside this send.
-    _orig_getaddrinfo = socket.getaddrinfo
-    def _ipv4_only_getaddrinfo(host, port, family=0, *args, **kwargs):
-        return _orig_getaddrinfo(host, port, socket.AF_INET, *args, **kwargs)
-    socket.getaddrinfo = _ipv4_only_getaddrinfo
+    payload = {
+        "personalizations": [
+            {"to": [{"email": to_email}]},
+        ],
+        "from": {
+            "email": EMAIL_FROM_ADDRESS,
+            "name": EMAIL_FROM_NAME or EMAIL_FROM_ADDRESS,
+        },
+        "subject": EMAIL_SUBJECT,
+        "content": [
+            {
+                "type": "text/plain",
+                "value": EMAIL_BODY_TEMPLATE.format(client_name=client_name or "Cliente"),
+            },
+        ],
+        "attachments": [
+            {
+                "content": base64.b64encode(pdf_bytes).decode("ascii"),
+                "type": "application/pdf",
+                "filename": filename,
+                "disposition": "attachment",
+            },
+        ],
+    }
+    # reply_to is optional — omit the key entirely if not configured,
+    # rather than sending an empty-string address which SendGrid rejects.
+    if EMAIL_REPLY_TO:
+        payload["reply_to"] = {"email": EMAIL_REPLY_TO}
 
     try:
-        # Attempt 1: port 587 with STARTTLS (Gmail's preferred submission port).
-        err_587 = None
-        try:
-            with smtplib.SMTP("smtp.gmail.com", 587, timeout=30) as smtp:
-                smtp.ehlo()
-                smtp.starttls(context=ssl.create_default_context())
-                smtp.ehlo()
-                smtp.login(GMAIL_USER, GMAIL_APP_PASSWORD)
-                smtp.send_message(msg)
-            return True
-        except smtplib.SMTPAuthenticationError as e:
-            # Auth errors are terminal — the app password itself is wrong,
-            # so the same credentials will fail on 465 too. Don't waste a
-            # second connection attempt.
-            return f"Gmail SMTP auth failed (check GMAIL_APP_PASSWORD): {e}"
-        except (smtplib.SMTPException, OSError, socket.timeout) as e:
-            err_587 = f"[587 STARTTLS] {type(e).__name__}: {e}"
+        resp = requests.post(
+            "https://api.sendgrid.com/v3/mail/send",
+            headers={
+                "Authorization": f"Bearer {SENDGRID_API_KEY}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=30,
+        )
+    except requests.exceptions.Timeout:
+        return "SendGrid API timed out after 30s"
+    except requests.exceptions.RequestException as e:
+        return f"network error reaching SendGrid API: {e}"
+    except Exception as e:
+        return f"unexpected error calling SendGrid: {e}"
 
-        # Attempt 2: port 465 with implicit SSL (SMTPS). Sometimes networks
-        # block 587 but allow 465, or vice versa.
-        try:
-            with smtplib.SMTP_SSL(
-                "smtp.gmail.com", 465, timeout=30,
-                context=ssl.create_default_context(),
-            ) as smtp:
-                smtp.ehlo()
-                smtp.login(GMAIL_USER, GMAIL_APP_PASSWORD)
-                smtp.send_message(msg)
-            return True
-        except smtplib.SMTPAuthenticationError as e:
-            return f"Gmail SMTP auth failed on 465 (check GMAIL_APP_PASSWORD): {e}"
-        except (smtplib.SMTPException, OSError, socket.timeout) as e:
-            err_465 = f"[465 SSL] {type(e).__name__}: {e}"
-            return f"Both SMTP ports failed. {err_587} · {err_465}"
-    finally:
-        socket.getaddrinfo = _orig_getaddrinfo
+    # 202 Accepted is the success case; 200 OK is also treated as success
+    # in case SendGrid ever changes semantics.
+    if resp.status_code in (200, 202):
+        return True
+
+    # Surface SendGrid's structured error body — it usually contains the
+    # exact reason (unverified sender, bad address format, expired API
+    # key, etc.) which we want the caller to see in email_error.
+    try:
+        err_body = resp.json()
+        if isinstance(err_body, dict) and err_body.get("errors"):
+            msgs = "; ".join(
+                (e.get("message") or str(e))
+                + (f" (field: {e['field']})" if e.get("field") else "")
+                for e in err_body["errors"]
+            )
+            return f"SendGrid HTTP {resp.status_code}: {msgs}"
+        return f"SendGrid HTTP {resp.status_code}: {err_body}"
+    except Exception:
+        return f"SendGrid HTTP {resp.status_code}: {(resp.text or '')[:300]}"
 
 
 @app.route("/health", methods=["GET"])
@@ -689,10 +691,10 @@ def env_check():
     and EMAIL_FROM_NAME are returned in full because they're not secrets
     (they're stamped on every outbound message)."""
     return jsonify({
-        "GMAIL_USER_set": bool(os.environ.get("GMAIL_USER")),
-        "GMAIL_USER": os.environ.get("GMAIL_USER", "(unset)"),
-        "GMAIL_APP_PASSWORD_set": bool(os.environ.get("GMAIL_APP_PASSWORD")),
-        "GMAIL_APP_PASSWORD_length": len(os.environ.get("GMAIL_APP_PASSWORD", "")),
+        "SENDGRID_API_KEY_set": bool(os.environ.get("SENDGRID_API_KEY")),
+        "SENDGRID_API_KEY_length": len(os.environ.get("SENDGRID_API_KEY", "")),
+        "EMAIL_FROM_ADDRESS": os.environ.get("EMAIL_FROM_ADDRESS", "(unset)"),
+        "EMAIL_REPLY_TO": os.environ.get("EMAIL_REPLY_TO", "(unset)"),
         "EMAIL_FROM_NAME": os.environ.get("EMAIL_FROM_NAME", "(default)"),
         "API_SECRET_KEY_set": bool(os.environ.get("API_SECRET_KEY")),
         "API_SECRET_KEY_length": len(os.environ.get("API_SECRET_KEY", "")),
@@ -888,8 +890,10 @@ def generate_report_endpoint():
     if recipient:
         if pdf_bytes is None:  # pdf generation failed → nothing to attach
             email_error = "pdf generation failed; nothing to email"
-        elif not GMAIL_USER or not GMAIL_APP_PASSWORD:
-            email_error = "Gmail credentials not configured on server (GMAIL_USER + GMAIL_APP_PASSWORD)"
+        elif not SENDGRID_API_KEY:
+            email_error = "SendGrid API key not configured on server (SENDGRID_API_KEY)"
+        elif not EMAIL_FROM_ADDRESS:
+            email_error = "Sender address not configured on server (EMAIL_FROM_ADDRESS)"
         elif "@" not in recipient:
             email_error = f"invalid recipient email: {recipient!r}"
         else:
