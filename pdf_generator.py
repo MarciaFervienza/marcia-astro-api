@@ -24,11 +24,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
-from reportlab.lib.colors import HexColor, white
-from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY
+from reportlab.lib.colors import HexColor, white, black
+from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import ParagraphStyle
-from reportlab.lib.units import cm
+from reportlab.lib.units import cm, mm
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.pdfmetrics import registerFontFamily
+from reportlab.pdfbase.ttfonts import TTFont
 from reportlab.platypus import (
     BaseDocTemplate,
     Frame,
@@ -42,6 +45,68 @@ from reportlab.platypus import (
     Table,
     TableStyle,
 )
+
+
+# ============================================================
+# CUSTOM FONT REGISTRATION
+# ============================================================
+# Bundled TTFs live in ./fonts/ next to this file. Both families are
+# OFL-licensed (SIL Open Font License — free for embedding in any output,
+# commercial included). Registration is idempotent per process — safe to
+# call multiple times; ReportLab warns and skips duplicates.
+FONTS_DIR = Path(__file__).parent / "fonts"
+
+
+def _register_fonts_once():
+    """Register EB Garamond + Inter TTFs with ReportLab. Safe to call
+    repeatedly; ReportLab silently ignores re-registration attempts. If
+    the bundled fonts are missing or corrupt, this raises — the report
+    can't ship without them.
+    """
+    faces = {
+        # EB Garamond — elegant serif for headings and display type
+        "EBGaramond-Regular":    "EBGaramond-Regular.ttf",
+        "EBGaramond-Italic":     "EBGaramond-Italic.ttf",
+        "EBGaramond-Bold":       "EBGaramond-Bold.ttf",
+        "EBGaramond-BoldItalic": "EBGaramond-BoldItalic.ttf",
+        # Inter — clean sans-serif for body copy and UI-like elements
+        "Inter-Regular":  "Inter-Regular.ttf",
+        "Inter-Italic":   "Inter-Italic.ttf",
+        "Inter-Medium":   "Inter-Medium.ttf",
+        "Inter-SemiBold": "Inter-SemiBold.ttf",
+    }
+    registered = set(pdfmetrics.getRegisteredFontNames())
+    for name, fname in faces.items():
+        if name in registered:
+            continue
+        path = FONTS_DIR / fname
+        if not path.exists():
+            raise FileNotFoundError(
+                f"required font missing: {path} — cannot render styled PDF"
+            )
+        pdfmetrics.registerFont(TTFont(name, str(path)))
+
+    # Register the two family groupings so ReportLab's Paragraph <b>/<i>
+    # HTML tags dispatch to the correct face automatically. Inter only
+    # ships a regular italic in our subset — <b> will fall back to
+    # Inter-SemiBold, which is what we want visually.
+    registerFontFamily(
+        "EBGaramond",
+        normal="EBGaramond-Regular",
+        bold="EBGaramond-Bold",
+        italic="EBGaramond-Italic",
+        boldItalic="EBGaramond-BoldItalic",
+    )
+    registerFontFamily(
+        "Inter",
+        normal="Inter-Regular",
+        bold="Inter-SemiBold",
+        italic="Inter-Italic",
+        boldItalic="Inter-SemiBold",
+    )
+
+
+_register_fonts_once()
 
 # Vendored fallbacks for the small bits we need from report_generator. The
 # canonical definitions live there; these locals are used only when the import
@@ -110,17 +175,34 @@ logger = logging.getLogger("pdf-generator")
 # ============================================================
 # DESIGN TOKENS
 # ============================================================
-COLOR_RED = HexColor("#E03C31")
-COLOR_TEAL = HexColor("#239C93")
-COLOR_BODY = HexColor("#1A1A1A")
-COLOR_GREY = HexColor("#666666")
-COLOR_FOOTER = HexColor("#999999")
-COLOR_TABLE_GRID = HexColor("#E5E0D8")
+# Luxury-book palette. Only ivory + charcoal do the heavy lifting; the
+# accent trio (sage / terracotta / gold) is used deliberately sparingly
+# — a thin rule under a title, an emphasized word inside body copy, the
+# page number. Every request the palette answers should reach for the
+# most restrained option first.
+COLOR_IVORY     = HexColor("#F8F5EF")  # page background
+COLOR_CHARCOAL  = HexColor("#2F2F2F")  # body text
+COLOR_SAGE      = HexColor("#A7B3A1")  # secondary accents, subtle rules
+COLOR_TERRACOTTA = HexColor("#B97A63")  # emphasis, section titles
+COLOR_GOLD      = HexColor("#C7A66A")  # fine flourishes, page numbers
+
+# Retained for backwards-compat with any downstream callers that imported
+# the old constant names. Do NOT use these in new code — they resolve to
+# the new palette's closest equivalent.
+COLOR_RED  = COLOR_TERRACOTTA
+COLOR_TEAL = COLOR_SAGE
+COLOR_BODY = COLOR_CHARCOAL
+COLOR_GREY = HexColor("#8A8579")  # muted stone, for footer / birth-data
+COLOR_FOOTER = COLOR_GREY
+COLOR_TABLE_GRID = HexColor("#E6DFCE")  # ivory-toned hairline
 
 PAGE_W, PAGE_H = A4
-SIDE_MARGIN = 2.2 * cm
-TOP_MARGIN = 2.2 * cm
-BOTTOM_MARGIN = 2.0 * cm  # leaves room for footer
+# Generous margins — the whole point of the redesign is white space.
+# 2.8cm sides and 2.6cm top leave a Kinfolk-editorial measure at
+# ~11.4cm line-length for the body text.
+SIDE_MARGIN = 2.8 * cm
+TOP_MARGIN = 2.6 * cm
+BOTTOM_MARGIN = 2.2 * cm  # leaves room for footer
 
 LOGO_PATH = Path(__file__).parent / "logo.png"
 
@@ -147,70 +229,127 @@ CHART_PAGE_FOOTNOTE = (
 # ============================================================
 def _styles():
     return {
+        # --------- Section-body flow ---------
         "section_title": ParagraphStyle(
             name="section_title",
-            fontName="Helvetica-Bold",
-            fontSize=17,
-            textColor=COLOR_RED,
-            spaceBefore=22,
+            fontName="EBGaramond-Regular",
+            fontSize=22,
+            textColor=COLOR_TERRACOTTA,
+            spaceBefore=32,
+            spaceAfter=6,
+            leading=26,
+            alignment=TA_LEFT,
+        ),
+        # Small caps eyebrow above / instead of a rule under some titles.
+        "section_eyebrow": ParagraphStyle(
+            name="section_eyebrow",
+            fontName="Inter-Medium",
+            fontSize=8,
+            textColor=COLOR_GOLD,
             spaceAfter=4,
-            leading=21,
+            leading=10,
+            alignment=TA_LEFT,
+            # ReportLab has no true small-caps, but the effect is imitated
+            # by uppercasing at render time (see _section_flowables).
         ),
         "body": ParagraphStyle(
             name="body",
-            fontName="Times-Roman",
-            fontSize=11,
-            textColor=COLOR_BODY,
-            leading=16,
+            fontName="Inter-Regular",
+            fontSize=10.5,
+            textColor=COLOR_CHARCOAL,
+            leading=17,             # generous line-height (~162% of size)
             alignment=TA_JUSTIFY,
-            spaceAfter=10,
+            spaceAfter=12,
+            firstLineIndent=0,      # editorial: no indents, blank-line separation
+        ),
+
+        # --------- Cover page ---------
+        "cover_kicker": ParagraphStyle(
+            name="cover_kicker",
+            fontName="Inter-Medium",
+            fontSize=9,
+            textColor=COLOR_GOLD,
+            alignment=TA_CENTER,
+            leading=12,
+            spaceAfter=6,
+        ),
+        "cover_title": ParagraphStyle(
+            name="cover_title",
+            fontName="EBGaramond-Regular",
+            fontSize=44,
+            textColor=COLOR_CHARCOAL,
+            alignment=TA_CENTER,
+            leading=50,
+            spaceBefore=6,
+            spaceAfter=4,
+        ),
+        "cover_title_accent": ParagraphStyle(
+            name="cover_title_accent",
+            fontName="EBGaramond-Italic",
+            fontSize=44,
+            textColor=COLOR_TERRACOTTA,
+            alignment=TA_CENTER,
+            leading=50,
+            spaceBefore=0,
+            spaceAfter=20,
+        ),
+        "cover_attribution": ParagraphStyle(
+            name="cover_attribution",
+            fontName="Inter-Regular",
+            fontSize=10,
+            textColor=COLOR_CHARCOAL,
+            alignment=TA_CENTER,
+            leading=14,
+            spaceAfter=32,
         ),
         "cover_name": ParagraphStyle(
             name="cover_name",
-            fontName="Helvetica-Bold",
-            fontSize=30,
-            textColor=COLOR_RED,
+            fontName="EBGaramond-Italic",
+            fontSize=26,
+            textColor=COLOR_CHARCOAL,
             alignment=TA_CENTER,
-            spaceBefore=28,
+            leading=32,
+            spaceBefore=4,
             spaceAfter=14,
-            leading=34,
         ),
         "cover_birth": ParagraphStyle(
             name="cover_birth",
-            fontName="Helvetica",
-            fontSize=12,
+            fontName="Inter-Regular",
+            fontSize=10,
             textColor=COLOR_GREY,
             alignment=TA_CENTER,
-            spaceAfter=4,
-            leading=16,
+            leading=15,
+            spaceAfter=3,
         ),
-        "cover_subtitle": ParagraphStyle(
-            name="cover_subtitle",
-            fontName="Helvetica",
-            fontSize=18,
-            textColor=COLOR_TEAL,
-            alignment=TA_CENTER,
-            spaceBefore=40,
-            leading=22,
-        ),
+
+        # --------- Chart page ---------
         "chart_page_title": ParagraphStyle(
             name="chart_page_title",
-            fontName="Helvetica-Bold",
-            fontSize=13,
-            textColor=COLOR_RED,
+            fontName="EBGaramond-Regular",
+            fontSize=15,
+            textColor=COLOR_CHARCOAL,
             alignment=TA_CENTER,
             spaceBefore=4,
             spaceAfter=10,
-            leading=16,
+            leading=19,
+        ),
+        "chart_page_kicker": ParagraphStyle(
+            name="chart_page_kicker",
+            fontName="Inter-Medium",
+            fontSize=8,
+            textColor=COLOR_GOLD,
+            alignment=TA_CENTER,
+            spaceAfter=4,
+            leading=11,
         ),
         "footnote": ParagraphStyle(
             name="footnote",
-            fontName="Times-Italic",
-            fontSize=8,
+            fontName="EBGaramond-Italic",
+            fontSize=8.5,
             textColor=COLOR_GREY,
             alignment=TA_JUSTIFY,
-            leading=11,
-            spaceBefore=16,
+            leading=13,
+            spaceBefore=20,
         ),
     }
 
@@ -241,17 +380,60 @@ def _escape(text: str) -> str:
 
 
 # ============================================================
-# FOOTER (drawn by Platypus' onPage callback)
+# PAGE CHROME (background + footer, drawn on every page)
 # ============================================================
-def _draw_footer(canv, doc):
+def _draw_page_chrome(canv, doc):
+    """Paint the ivory background over the entire A4 canvas, then stamp a
+    quiet editorial footer at the bottom. Runs on every page including
+    the cover. The Platypus PageTemplate's onPage callback receives the
+    canvas *before* the frame flowables are drawn, so the ivory rectangle
+    ends up behind everything else naturally.
+    """
     canv.saveState()
-    canv.setFont("Helvetica", 9)
-    canv.setFillColor(COLOR_FOOTER)
-    # Centered page number
-    canv.drawCentredString(PAGE_W / 2, 1.1 * cm, str(doc.page))
-    # Copyright on left
-    canv.drawString(SIDE_MARGIN, 1.1 * cm, f"Marcia Fervienza © {datetime.now().year}")
+
+    # --- Ivory background rectangle -------------------------------
+    canv.setFillColor(COLOR_IVORY)
+    canv.rect(0, 0, PAGE_W, PAGE_H, stroke=0, fill=1)
+
+    # --- Thin gold rule above the footer band ---------------------
+    # Sits at 1.6cm from the bottom, 3cm wide, centered — a hairline
+    # bookmark that signals "footer starts here" without shouting.
+    rule_y = 1.55 * cm
+    rule_half = 1.5 * cm
+    canv.setStrokeColor(COLOR_GOLD)
+    canv.setLineWidth(0.4)
+    canv.line(
+        PAGE_W / 2 - rule_half, rule_y,
+        PAGE_W / 2 + rule_half, rule_y,
+    )
+
+    # --- Footer content -------------------------------------------
+    # Left: attribution in Inter, muted.
+    canv.setFont("Inter-Regular", 8)
+    canv.setFillColor(COLOR_GREY)
+    canv.drawString(
+        SIDE_MARGIN, 1.05 * cm,
+        f"Márcia Fervienza  ·  marciafervienza.com",
+    )
+    # Center: elegant italic serif year — the copyright reads as a mark
+    # rather than a legal notice.
+    canv.setFont("EBGaramond-Italic", 8)
+    canv.drawCentredString(
+        PAGE_W / 2, 1.05 * cm,
+        f"© {datetime.now().year}",
+    )
+    # Right: page number in gold, larger, EBGaramond digit.
+    canv.setFont("EBGaramond-Regular", 10)
+    canv.setFillColor(COLOR_GOLD)
+    canv.drawRightString(
+        PAGE_W - SIDE_MARGIN, 1.0 * cm,
+        str(doc.page),
+    )
     canv.restoreState()
+
+
+# Backwards-compat alias — some earlier code referenced _draw_footer.
+_draw_footer = _draw_page_chrome
 
 
 # ============================================================
@@ -428,27 +610,37 @@ def _aspects_table(in_sign_aspects: list, styles):
         hAlign="CENTER",
     )
     table.setStyle(TableStyle([
-        # Header row
-        ("BACKGROUND",   (0, 0), (-1, 0), COLOR_RED),
-        ("TEXTCOLOR",    (0, 0), (-1, 0), white),
-        ("FONTNAME",     (0, 0), (-1, 0), "Helvetica-Bold"),
-        ("FONTSIZE",     (0, 0), (-1, 0), 10),
-        ("ALIGN",        (0, 0), (-1, 0), "CENTER"),
-        ("BOTTOMPADDING",(0, 0), (-1, 0), 8),
-        ("TOPPADDING",   (0, 0), (-1, 0), 7),
-        # Body
-        ("FONTNAME",     (0, 1), (-1, -1), "Helvetica"),
-        ("FONTSIZE",     (0, 1), (-1, -1), 10),
-        ("TEXTCOLOR",    (0, 1), (-1, -1), COLOR_BODY),
-        ("ALIGN",        (3, 1), (3, -1), "RIGHT"),  # orb column right-aligned
-        ("ALIGN",        (1, 1), (1, -1), "CENTER"), # aspect column centered
-        ("LEFTPADDING",  (0, 0), (-1, -1), 8),
-        ("RIGHTPADDING", (0, 0), (-1, -1), 8),
-        ("TOPPADDING",   (0, 1), (-1, -1), 5),
-        ("BOTTOMPADDING",(0, 1), (-1, -1), 5),
-        # Grid
-        ("BOX",          (0, 0), (-1, -1), 0.6, COLOR_TEAL),
-        ("INNERGRID",    (0, 0), (-1, -1), 0.3, COLOR_TABLE_GRID),
+        # Header row — quiet sage rule beneath, no colored fill; the
+        # column labels themselves are small-caps Inter in charcoal.
+        ("BACKGROUND",     (0, 0), (-1, 0), COLOR_IVORY),
+        ("TEXTCOLOR",      (0, 0), (-1, 0), COLOR_CHARCOAL),
+        ("FONTNAME",       (0, 0), (-1, 0), "Inter-Medium"),
+        ("FONTSIZE",       (0, 0), (-1, 0), 8.5),
+        ("ALIGN",          (0, 0), (-1, 0), "CENTER"),
+        ("BOTTOMPADDING",  (0, 0), (-1, 0), 10),
+        ("TOPPADDING",     (0, 0), (-1, 0), 8),
+        ("LINEBELOW",      (0, 0), (-1, 0), 0.6, COLOR_SAGE),
+
+        # Body rows — Garamond for the planet names (matches the report's
+        # display voice) and Inter for the orb figure (numeric clarity).
+        ("FONTNAME",       (0, 1), (0, -1), "EBGaramond-Regular"),
+        ("FONTNAME",       (2, 1), (2, -1), "EBGaramond-Regular"),
+        ("FONTNAME",       (1, 1), (1, -1), "EBGaramond-Italic"),  # aspect name in italic serif
+        ("FONTNAME",       (3, 1), (3, -1), "Inter-Regular"),
+        ("FONTSIZE",       (0, 1), (-1, -1), 10),
+        ("TEXTCOLOR",      (0, 1), (-1, -1), COLOR_CHARCOAL),
+        ("ALIGN",          (0, 1), (0, -1), "LEFT"),
+        ("ALIGN",          (1, 1), (1, -1), "CENTER"),
+        ("ALIGN",          (2, 1), (2, -1), "LEFT"),
+        ("ALIGN",          (3, 1), (3, -1), "RIGHT"),
+        ("LEFTPADDING",    (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING",   (0, 0), (-1, -1), 10),
+        ("TOPPADDING",     (0, 1), (-1, -1), 8),
+        ("BOTTOMPADDING",  (0, 1), (-1, -1), 8),
+
+        # Row separators — a thin ivory-toned hairline. No outer box:
+        # editorial tables usually let the type breathe against the page.
+        ("LINEBELOW",      (0, 1), (-1, -2), 0.25, COLOR_TABLE_GRID),
     ]))
     return table
 
@@ -463,17 +655,20 @@ def _chart_page_flowables(
     table + footnote."""
     flow = []
 
-    # 1) Chart wheel (best-effort — degrades gracefully if fetch fails or
-    # AstroAPI only has SVG for this chart).
-    # Cap to a fixed 11 cm square. Chart wheels are square; 11 cm leaves
-    # enough vertical room for a 12-row aspects table plus the footnote on
-    # the same page (the frame is ~25.5 cm tall, so this keeps the chart
-    # page from spilling onto a second sheet).
-    target_w_pts = 11 * cm
-    target_h_pts = 11 * cm
+    # Gold small-caps kicker before the wheel — sets the tone before the
+    # chart itself lands. Reads as a chapter frontispiece.
+    flow.append(Paragraph("O SEU MAPA", styles["chart_page_kicker"]))
+    flow.append(Spacer(1, 0.2 * cm))
 
-    # _fetch_chart_image returns either a svglib Drawing (.svg path) or raw
-    # raster bytes (PNG/JPEG URL or path). _chart_image_flowable handles both.
+    # 1) Chart wheel (best-effort — degrades gracefully if the SVG failed).
+    # Cap at 11.5cm square. The bigger new margins mean less horizontal
+    # room on the page, so we can't push the wheel much larger without
+    # squeezing the aspects table below, but 11.5cm still reads
+    # substantially bigger than before because there's more surrounding
+    # white space.
+    target_w_pts = 11.5 * cm
+    target_h_pts = 11.5 * cm
+
     chart_image = _fetch_chart_image(chart_image_url) if chart_image_url else None
     img = (
         _chart_image_flowable(chart_image, target_w_pts, target_h_pts)
@@ -482,15 +677,23 @@ def _chart_page_flowables(
     if img is not None:
         flow.append(img)
     else:
-        # No wheel — keep some breathing room so the table doesn't jump to the top
+        # No wheel — keep breathing room so the table doesn't jump to the top
         flow.append(Spacer(1, 0.6 * cm))
 
-    flow.append(Spacer(1, 0.8 * cm))
+    flow.append(Spacer(1, 1.0 * cm))
 
     # 2) Aspects table (in-sign only)
     in_sign = get_in_sign_aspects(aspects, points) if aspects else []
     if in_sign:
-        flow.append(Paragraph("Aspectos principais", styles["chart_page_title"]))
+        flow.append(Paragraph(
+            "Aspectos <font face='EBGaramond-Italic'>principais</font>",
+            styles["chart_page_title"],
+        ))
+        # Fine gold rule beneath the title, matched to the wheel width
+        flow.append(HRFlowable(
+            width=3.0 * cm, thickness=0.4, color=COLOR_GOLD,
+            spaceBefore=2, spaceAfter=14, hAlign="CENTER", lineCap="round",
+        ))
         flow.append(_aspects_table(in_sign, styles))
 
     # 3) Footnote
@@ -504,18 +707,68 @@ def _chart_page_flowables(
 # COVER FLOWABLES
 # ============================================================
 def _cover_flowables(client_name: str, birth_date: str, birth_place: str, styles):
-    """Build the list of flowables that fill the cover page."""
+    """Build the list of flowables that fill the cover page.
+
+    Layout, top to bottom:
+       [top margin whitespace]
+       small gold kicker  — "MAPA NATAL"
+       serif title in charcoal  — "Seu"
+       serif italic title in terracotta — "Mapa Natal"
+       fine gold rule (short, centered)
+       attribution in Inter — "Interpretado por Márcia Fervienza"
+       [ample space]
+       client name in serif italic
+       birth date + place in muted Inter
+       [logo pinned near the bottom edge]
+       [bottom margin]
+    """
     flow = []
 
-    # Push content down to roughly the upper third of the page
-    flow.append(Spacer(1, 2.0 * cm))
+    # Push content down so the title starts around a third of the way in —
+    # editorial covers rarely start at the very top edge.
+    flow.append(Spacer(1, 2.4 * cm))
+
+    # Small gold kicker — "MAPA NATAL" in tracked-out caps
+    flow.append(Paragraph("M A P A &nbsp; N A T A L", styles["cover_kicker"]))
+
+    # Two-line serif title, second line in italic terracotta
+    flow.append(Paragraph("Seu", styles["cover_title"]))
+    flow.append(Paragraph("Mapa Natal", styles["cover_title_accent"]))
+
+    # Fine gold rule — the flourish
+    flow.append(HRFlowable(
+        width=2.8 * cm, thickness=0.6, color=COLOR_GOLD,
+        spaceBefore=2, spaceAfter=18, hAlign="CENTER", lineCap="round",
+    ))
+
+    # Attribution — quiet, in Inter
+    flow.append(Paragraph(
+        "Interpretado por <font face='EBGaramond-Italic'>Márcia Fervienza</font>",
+        styles["cover_attribution"],
+    ))
+
+    # Breathing space before the client identity block
+    flow.append(Spacer(1, 3.6 * cm))
+
+    # Client name in EBGaramond italic — reads as a signature
+    flow.append(Paragraph(_escape(client_name or "Cliente"), styles["cover_name"]))
+
+    # Birth data — muted Inter with wide letter-spacing feel via smaller size
+    if birth_date:
+        flow.append(Paragraph(_escape(birth_date), styles["cover_birth"]))
+    if birth_place:
+        flow.append(Paragraph(_escape(birth_place), styles["cover_birth"]))
+
+    # Push the logo down toward the bottom edge (before the footer band)
+    flow.append(Spacer(1, 3.4 * cm))
 
     if LOGO_PATH.exists():
         try:
             img = Image(str(LOGO_PATH))
-            # Constrain to a comfortable size; preserve aspect ratio.
-            max_w = 9.0 * cm
-            max_h = 4.5 * cm
+            # Smaller than the previous cover — the logo is a maker's mark
+            # here, not the headline.
+            max_w = 4.0 * cm
+            max_h = 2.0 * cm
             iw, ih = float(img.imageWidth), float(img.imageHeight)
             ratio = min(max_w / iw, max_h / ih)
             img.drawWidth = iw * ratio
@@ -523,20 +776,7 @@ def _cover_flowables(client_name: str, birth_date: str, birth_place: str, styles
             img.hAlign = "CENTER"
             flow.append(img)
         except Exception:
-            # If the logo file is malformed, fall through to text-only cover.
             pass
-
-    # Client name (red, big)
-    flow.append(Paragraph(_escape(client_name or "Cliente"), styles["cover_name"]))
-
-    # Birth data (grey, small)
-    if birth_date:
-        flow.append(Paragraph(_escape(birth_date), styles["cover_birth"]))
-    if birth_place:
-        flow.append(Paragraph(_escape(birth_place), styles["cover_birth"]))
-
-    # Subtitle (teal)
-    flow.append(Paragraph("Mapa Natal", styles["cover_subtitle"]))
 
     flow.append(PageBreak())
     return flow
@@ -546,19 +786,32 @@ def _cover_flowables(client_name: str, birth_date: str, birth_place: str, styles
 # SECTION FLOWABLES
 # ============================================================
 def _section_flowables(title: str, paragraphs: list, styles):
-    """Build the flowables for one section."""
+    """Build the flowables for one section.
+
+    Header layout:
+       small gold tracked-out caps eyebrow — the section title uppercased
+       serif title — the section title as-is (left-aligned, terracotta)
+       thin gold rule (short, left-aligned)
+       first paragraph
+    """
     flow = []
 
-    # Keep the title + divider + first paragraph together so the title never
-    # ends up alone at the bottom of a page.
+    # Tracked-out uppercase eyebrow. ReportLab doesn't have real small-
+    # caps, so we imitate them: uppercase the title, add hair spaces
+    # between letters. Kept short by only tracking words, not letters,
+    # so long section names stay legible.
+    eyebrow_text = " · ".join(w.upper() for w in title.split())
+
     header_block = [
+        Paragraph(_escape(eyebrow_text), styles["section_eyebrow"]),
         Paragraph(_escape(title), styles["section_title"]),
         HRFlowable(
-            width="100%",
-            thickness=0.6,
-            color=COLOR_TEAL,
+            width=2.4 * cm,             # short — a bookmark, not a divider
+            thickness=0.5,
+            color=COLOR_GOLD,
             spaceBefore=2,
-            spaceAfter=14,
+            spaceAfter=18,
+            hAlign="LEFT",
             lineCap="round",
         ),
     ]
@@ -648,7 +901,7 @@ def generate_pdf(
     )
 
     doc.addPageTemplates([
-        PageTemplate(id="main", frames=[frame], onPage=_draw_footer),
+        PageTemplate(id="main", frames=[frame], onPage=_draw_page_chrome),
     ])
 
     story = []
