@@ -473,6 +473,10 @@ Foco EXCLUSIVO: o que traz segurança emocional, como essa Lua se acolhe, do que
 
 Cada descrição precisa ser específica o bastante para que uma leitora possa dizer "sim, é isso" ou "não, não é isso". Evite generalidades. Contraste implicitamente com o outro signo — as duas descrições precisam soar diferentes.
 
+{style_rules}
+
+IMPORTANTE — este relatório JÁ USOU a construção "Não é X, é Y" em outra seção. Ela NÃO pode aparecer aqui. Diga a mesma coisa afirmativamente, sem o antônimo. Se estiver tentado a escrever "Não é frescura, é o que sustenta", escreva "O que genuinamente te sustenta é isso mesmo". Rejeite todo escafolde antitético — "não é frieza, é X" / "não é distância, é X" / qualquer variação. Também rejeite o gancho "Aqui não há Y" seguido de afirmação como forma disfarçada do mesmo padrão.
+
 Trechos autorais para Lua em {sign_before}:
 {chunks_before}
 
@@ -505,6 +509,7 @@ def _generate_moon_sign_blurbs(sign_before_pt, sign_after_pt):
     """
     from report_generator import (
         retrieve_chunks, format_chunks_for_prompt, call_claude,
+        SECTION_STYLE_RULES,
     )
 
     def _fetch_for_sign(sign_pt):
@@ -538,6 +543,7 @@ def _generate_moon_sign_blurbs(sign_before_pt, sign_after_pt):
         sign_after=sign_after_pt,
         chunks_before=format_chunks_for_prompt(chunks_before),
         chunks_after=format_chunks_for_prompt(chunks_after),
+        style_rules=SECTION_STYLE_RULES,
     )
     text = call_claude(prompt, max_tokens=800)
 
@@ -638,7 +644,17 @@ def _apply_moon_note(report_text, moon_meta, time_estimated):
     apply the corresponding transformation. Returns the possibly-modified
     report_text. Branch D (known time, clear of cusp) leaves the report
     untouched. Any failure is swallowed with a warning — the report still
-    ships, just without the Moon note."""
+    ships, just without the Moon note.
+
+    Branch A additionally runs report_generator.cleanup_pass() over the
+    entire modified report after the two Moon-sign blurbs are stitched
+    in. Cleanup ran earlier inside rg.generate_report() over the pre-
+    blurb text, so any "Não é X, é Y" occurrences the blurbs might have
+    introduced would slip past the "1 per report" quota unless we
+    re-scan. Running cleanup_pass again also normalizes English
+    "retrograde" and flags leftover "a retrógrada" occurrences in the
+    blurbs.
+    """
     try:
         if moon_meta.get("moon_sign_uncertain"):
             before = moon_meta["moon_sign_before"]
@@ -654,6 +670,7 @@ def _apply_moon_note(report_text, moon_meta, time_estimated):
             # Pinecone/Claude is unavailable or parsing fails, we still
             # ship Branch A without the appendix rather than losing the
             # whole passage.
+            blurbs_appended = False
             try:
                 blurb_before, blurb_after = _generate_moon_sign_blurbs(before, after)
                 note += _MOON_BLURB_APPENDIX.format(
@@ -662,13 +679,37 @@ def _apply_moon_note(report_text, moon_meta, time_estimated):
                     moon_sign_after=after,
                     moon_blurb_after=blurb_after,
                 )
+                blurbs_appended = True
             except Exception as e:
                 logger.warning(
                     "Moon sign blurbs failed for %s / %s (%s); "
                     "shipping Branch A without blurbs",
                     before, after, e,
                 )
-            return _replace_lua_section_body(report_text, note)
+            modified = _replace_lua_section_body(report_text, note)
+
+            # Safety-net cleanup — re-run cleanup_pass over the full
+            # modified report, but only if blurbs were actually added
+            # (no point re-scanning otherwise; the earlier cleanup
+            # already handled the untouched original).
+            if blurbs_appended:
+                try:
+                    from report_generator import cleanup_pass
+                    modified, extra_changes = cleanup_pass(modified)
+                    if extra_changes:
+                        moon_meta["blurb_cleanup_changes"] = [
+                            {k: v for k, v in c.items() if k != "trace"}
+                            for c in extra_changes
+                        ]
+                        logger.info(
+                            "Branch A cleanup rewrote %d Claude tell(s) in blurbs",
+                            len(extra_changes),
+                        )
+                except Exception as e:
+                    logger.warning(
+                        "post-blurb cleanup_pass failed: %s (shipping as-is)", e
+                    )
+            return modified
         if time_estimated and not moon_meta.get("moon_sign_uncertain") \
                 and moon_meta.get("moon_sign"):
             note = _MOON_NOTE_BRANCH_B.format(moon_sign=moon_meta["moon_sign"])

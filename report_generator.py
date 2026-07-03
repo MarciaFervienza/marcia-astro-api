@@ -950,6 +950,23 @@ def build_sections(chart):
 # ============================================================
 # CLAUDE SYNTHESIS
 # ============================================================
+# Shared style-rules block. Referenced by SECTION_PROMPT_TMPL below AND
+# by app.py's Branch A Moon-blurb prompt via `from report_generator import
+# SECTION_STYLE_RULES`. Any downstream Claude call that produces
+# report-facing text should inject these rules so it screens out the same
+# AI-writing tells the main sections screen out (the "Não é X, é Y"
+# antithesis, `presença` as a vague noun, `funda` in place of `profunda`,
+# `retrógrada` as a feminine noun, etc.). If these rules change, both
+# call sites — and cleanup_pass — need to stay in sync.
+SECTION_STYLE_RULES = """PROIBIDO: metáforas dramáticas ou imagens poéticas forçadas como "corta o ar como lâmina", "chama que arde", "abismo interior", "navega as profundezas" ou qualquer linguagem que soe como inteligência artificial tentando ser literária. A voz de Marcia é psicologicamente precisa e direta — ela não ornamenta, ela nomeia. Use linguagem íntima e direta, não eloquência performática.
+
+TAMBÉM PROIBIDO: (a) a palavra "funda" — use sempre "profunda"; (b) a expressão "que sustenta" sem especificar o que sustenta; (c) a palavra "presença" como substantivo vago — use apenas quando indispensável e com referente claro; (d) a construção repetitiva "Não é X. É Y." — pode aparecer no máximo uma vez por seção; (e) "emoção que age antes de pensar" — prefira "emoções que emergem impulsivamente".
+
+TAMBÉM PROIBIDO: (f) usar "nomear" como verbo padrão para tudo — varie com "identificar", "reconhecer", "colocar em palavras", "articular", "perceber", "distinguir"; (g) a construção "Não é X, é Y" — está limitada a UMA ocorrência por relatório inteiro, não por seção; (h) "retrógrada" como substantivo feminino — o planeta está sempre "retrógrado", nunca "a retrógrada"; (i) qualquer palavra em inglês não traduzida, especialmente "retrograde" — sempre "retrógrado"; (j) qualificadores defensivos desnecessários como "não porque seja naturalmente ambiciosa no sentido frio da palavra" — faça a afirmação diretamente sem recuar dela; (k) repetir o mesmo padrão interpretativo em seções diferentes — se a proteção emocional via controle já foi descrita na seção da Lua, a seção de Plutão não deve repetir a mesma ideia com outras palavras.
+
+CONVENÇÕES DE LINGUAGEM: Use sempre "em oposição", "em quadratura", "em trígono", "em conjunção", "em sextil" — nunca "na oposição", "na quadratura" etc. Planetas retrógrados são sempre descritos como "retrógrado" — nunca "a retrógrada". Mantenha "se regenerar rapidamente" em vez de "se regenerar rápido"."""
+
+
 SECTION_PROMPT_TMPL = """Você é Marcia Fervienza, astróloga e psicóloga com formação em psicologia profunda e mais de duas décadas de prática. Você está escrevendo uma seção do relatório de mapa natal de {name}.
 
 DADOS DO MAPA PARA ESTA SEÇÃO:
@@ -981,13 +998,7 @@ Os aspectos listados já foram filtrados por prioridade e deduplicados. Não men
 
 POSICIONAMENTOS ASTROLÓGICOS: Posicionamentos astrológicos podem ser mencionados naturalmente quando ajudam o leitor a se situar — por exemplo, "sua Lua em Áries" ou "com Saturno na sua casa dois". O que deve ser evitado é listar posicionamentos como coordenadas técnicas ou em sequência que pareça inventário. Os planetas devem aparecer como personagens da narrativa, não como dados de um relatório.
 
-PROIBIDO: metáforas dramáticas ou imagens poéticas forçadas como "corta o ar como lâmina", "chama que arde", "abismo interior", "navega as profundezas" ou qualquer linguagem que soe como inteligência artificial tentando ser literária. A voz de Marcia é psicologicamente precisa e direta — ela não ornamenta, ela nomeia. Use linguagem íntima e direta, não eloquência performática.
-
-TAMBÉM PROIBIDO: (a) a palavra "funda" — use sempre "profunda"; (b) a expressão "que sustenta" sem especificar o que sustenta; (c) a palavra "presença" como substantivo vago — use apenas quando indispensável e com referente claro; (d) a construção repetitiva "Não é X. É Y." — pode aparecer no máximo uma vez por seção; (e) "emoção que age antes de pensar" — prefira "emoções que emergem impulsivamente".
-
-TAMBÉM PROIBIDO: (f) usar "nomear" como verbo padrão para tudo — varie com "identificar", "reconhecer", "colocar em palavras", "articular", "perceber", "distinguir"; (g) a construção "Não é X, é Y" — está limitada a UMA ocorrência por relatório inteiro, não por seção; (h) "retrógrada" como substantivo feminino — o planeta está sempre "retrógrado", nunca "a retrógrada"; (i) qualquer palavra em inglês não traduzida, especialmente "retrograde" — sempre "retrógrado"; (j) qualificadores defensivos desnecessários como "não porque seja naturalmente ambiciosa no sentido frio da palavra" — faça a afirmação diretamente sem recuar dela; (k) repetir o mesmo padrão interpretativo em seções diferentes — se a proteção emocional via controle já foi descrita na seção da Lua, a seção de Plutão não deve repetir a mesma ideia com outras palavras.
-
-CONVENÇÕES DE LINGUAGEM: Use sempre "em oposição", "em quadratura", "em trígono", "em conjunção", "em sextil" — nunca "na oposição", "na quadratura" etc. Planetas retrógrados são sempre descritos como "retrógrado" — nunca "a retrógrada". Mantenha "se regenerar rapidamente" em vez de "se regenerar rápido".
+{style_rules}
 
 REVISÃO FINAL OBRIGATÓRIA:
 Revise o texto antes de retornar: elimine palavras inventadas, corrija o uso incorreto de pronomes reflexivos, e garanta concordância gramatical perfeita.
@@ -1092,6 +1103,7 @@ def generate_section(section, chart, name, gender, section_context=None, context
         psychological_frame=section["psychological_frame"],
         depth_instruction=section.get("depth_instruction", DEPTH_TIER_3),
         gender=gender,
+        style_rules=SECTION_STYLE_RULES,
     )
 
     print(f"    calling Claude...", flush=True)
