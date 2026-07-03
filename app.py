@@ -451,6 +451,112 @@ _MOON_NOTE_BRANCH_A = (
     "corpo reconhece a verdade que o relógio não registrou."
 )
 
+# Branch A only: appendix stitched onto the end of the invitation paragraph.
+# The two blurbs are generated dynamically from the Pinecone RAG library for
+# whichever adjacent-sign pair the ingress falls between, condensed by Claude
+# into 2-4 sentences each. If blurb generation fails for any reason, the
+# appendix is simply skipped and Branch A ships as before — the invitation
+# still stands, just without the concrete descriptions.
+_MOON_BLURB_APPENDIX = (
+    "\n\n"
+    "Se a sua Lua estiver em {moon_sign_before}: {moon_blurb_before}\n"
+    "\n"
+    "Se a sua Lua estiver em {moon_sign_after}: {moon_blurb_after}"
+)
+
+
+_MOON_BLURB_PROMPT = """Você é Márcia Fervienza escrevendo para uma cliente cujo horário exato de nascimento é desconhecido. A Lua mudou de signo no dia do nascimento dela, então ela pode ter nascido com Lua em {sign_before} ou com Lua em {sign_after}. Você precisa descrever brevemente cada uma dessas duas possibilidades para que ela possa se reconhecer.
+
+Sua tarefa: escrever DUAS descrições breves (2 a 4 frases cada, no máximo 4) da vida emocional interior de cada possibilidade. NÃO escreva do zero. Condense os trechos autorais abaixo, mantendo sua voz.
+
+Foco EXCLUSIVO: o que traz segurança emocional, como essa Lua se acolhe, do que ela precisa emocionalmente. NADA sobre mãe, infância, aspectos, casas ou outros planetas — só o estado emocional interno da própria Lua no signo. Escreva em segunda pessoa (você).
+
+Cada descrição precisa ser específica o bastante para que uma leitora possa dizer "sim, é isso" ou "não, não é isso". Evite generalidades. Contraste implicitamente com o outro signo — as duas descrições precisam soar diferentes.
+
+Trechos autorais para Lua em {sign_before}:
+{chunks_before}
+
+Trechos autorais para Lua em {sign_after}:
+{chunks_after}
+
+Formato obrigatório da resposta (respeite exatamente estas etiquetas — o parser depende delas):
+
+BLURB_ANTES:
+<2 a 4 frases sobre a Lua em {sign_before}, foco emocional interno>
+
+BLURB_DEPOIS:
+<2 a 4 frases sobre a Lua em {sign_after}, foco emocional interno>
+"""
+
+
+def _generate_moon_sign_blurbs(sign_before_pt, sign_after_pt):
+    """Retrieve Marcia's authored natal-Moon material for each of the two
+    adjacent-sign candidates from Pinecone (same retrieval helpers the
+    report generator already uses), then have Claude condense each into a
+    short emotional-life description in Marcia's voice.
+
+    Both blurbs are produced in a single Claude call so the model can
+    contrast the two signs against each other. Cost: ~4-6 Pinecone
+    queries + 1 Claude call; adds roughly 5-10s to the request.
+
+    Returns (blurb_before, blurb_after). Raises on any failure — the
+    caller is expected to catch and fall back to the invitation-only
+    version of Branch A.
+    """
+    from report_generator import (
+        retrieve_chunks, format_chunks_for_prompt, call_claude,
+    )
+
+    def _fetch_for_sign(sign_pt):
+        # Same query pattern as the Lua section itself (report_generator.py
+        # lines 737-744), minus the house/aspects tail — for Branch A we
+        # don't know the house, and aspects belong to the fixed material.
+        queries = [
+            f"Lua em {sign_pt} vida emocional segurança",
+            f"Lua em {sign_pt} como se acolhe conforto",
+            f"Lua em {sign_pt} necessidades emocionais",
+        ]
+        by_id = {}
+        for q in queries:
+            for m in retrieve_chunks(q, planets_filter=["Lua"]):
+                if m.id not in by_id or m.score > by_id[m.id].score:
+                    by_id[m.id] = m
+        # Keep the top 8 chunks — enough context for Claude, not so much
+        # that the prompt bloats and slows the call.
+        chunks = sorted(by_id.values(), key=lambda x: x.score, reverse=True)[:8]
+        return chunks
+
+    chunks_before = _fetch_for_sign(sign_before_pt)
+    chunks_after = _fetch_for_sign(sign_after_pt)
+    if not chunks_before or not chunks_after:
+        raise RuntimeError(
+            f"insufficient chunks: before={len(chunks_before)} after={len(chunks_after)}"
+        )
+
+    prompt = _MOON_BLURB_PROMPT.format(
+        sign_before=sign_before_pt,
+        sign_after=sign_after_pt,
+        chunks_before=format_chunks_for_prompt(chunks_before),
+        chunks_after=format_chunks_for_prompt(chunks_after),
+    )
+    text = call_claude(prompt, max_tokens=800)
+
+    # Strict-label parsing. The prompt asks for BLURB_ANTES: / BLURB_DEPOIS:
+    # so we split on those exact tokens; any prose before/after is dropped.
+    import re
+    m_before = re.search(
+        r"BLURB_ANTES\s*:\s*(.+?)(?=\n\s*BLURB_DEPOIS\s*:|\Z)",
+        text, flags=re.DOTALL | re.IGNORECASE,
+    )
+    m_after = re.search(
+        r"BLURB_DEPOIS\s*:\s*(.+?)\Z",
+        text, flags=re.DOTALL | re.IGNORECASE,
+    )
+    if not m_before or not m_after:
+        raise RuntimeError(f"could not parse blurbs from Claude output: {text[:300]!r}")
+    return m_before.group(1).strip(), m_after.group(1).strip()
+
+
 _MOON_NOTE_BRANCH_B = (
     "Uma nota sobre o horário\n"
     "\n"
@@ -535,11 +641,33 @@ def _apply_moon_note(report_text, moon_meta, time_estimated):
     ships, just without the Moon note."""
     try:
         if moon_meta.get("moon_sign_uncertain"):
+            before = moon_meta["moon_sign_before"]
+            after = moon_meta["moon_sign_after"]
             note = _MOON_NOTE_BRANCH_A.format(
                 moon_ingress_local_time=moon_meta["moon_ingress_local_time"],
-                moon_sign_before=moon_meta["moon_sign_before"],
-                moon_sign_after=moon_meta["moon_sign_after"],
+                moon_sign_before=before,
+                moon_sign_after=after,
             )
+            # Try to append the two condensed sign blurbs so the invitation
+            # to "read the descriptions of both and feel which resonates"
+            # actually has descriptions to point at. Best-effort: if
+            # Pinecone/Claude is unavailable or parsing fails, we still
+            # ship Branch A without the appendix rather than losing the
+            # whole passage.
+            try:
+                blurb_before, blurb_after = _generate_moon_sign_blurbs(before, after)
+                note += _MOON_BLURB_APPENDIX.format(
+                    moon_sign_before=before,
+                    moon_blurb_before=blurb_before,
+                    moon_sign_after=after,
+                    moon_blurb_after=blurb_after,
+                )
+            except Exception as e:
+                logger.warning(
+                    "Moon sign blurbs failed for %s / %s (%s); "
+                    "shipping Branch A without blurbs",
+                    before, after, e,
+                )
             return _replace_lua_section_body(report_text, note)
         if time_estimated and not moon_meta.get("moon_sign_uncertain") \
                 and moon_meta.get("moon_sign"):
