@@ -751,9 +751,12 @@ def _cover_flowables(client_name: str, birth_date: str, birth_place: str, styles
     # editorial covers rarely start at the very top edge.
     flow.append(Spacer(1, 2.4 * cm))
 
-    # Small gold kicker — "MAPA NATAL" in tracked-out caps.
+    # Small gold kicker above the title — plain uppercase "MAPA NATAL",
+    # no letter tracking. Consistent with the untracked section titles
+    # per Marcia's review note. Still reads as a kicker because it's
+    # small (9pt), gold, uppercase, and centered above the display title.
     #
-    # Layout notes learned the hard way:
+    # Prior layout notes preserved for future reference:
     #  · '&nbsp;' (U+00A0) between the two words renders as a mid-height
     #    dot glyph in Inter-Medium, which read as a decorative middle dot.
     #  · Plain ASCII spaces get normalized by ReportLab's Paragraph XML
@@ -762,16 +765,11 @@ def _cover_flowables(client_name: str, birth_date: str, birth_place: str, styles
     #    "M A P A    N A T A L" ends up as "MAPANATAL" with no visible
     #    gaps at all.
     #
-    # Solution: use typographic Unicode spaces, which the XML parser
-    # treats as content characters (not markup whitespace) and so
-    # preserves verbatim. EN SPACE (U+2002 — half an em wide) between
-    # each letter reads like a normal tracked space; two EM SPACEs
-    # (U+2003 — one em each) between the two words give a comfortable
-    # word gap.
-    _EN = " "
-    _WORD_GAP = "  "
-    kicker_text = _EN.join("MAPA") + _WORD_GAP + _EN.join("NATAL")
-    flow.append(Paragraph(kicker_text, styles["cover_kicker"]))
+    #  · Unicode EN + EM spaces preserved inter-letter spacing but Inter-
+    #    Medium renders both widths identically, so the word gap didn't
+    #    read wider than between individual letters — the whole string
+    #    still read as one long tracked word.
+    flow.append(Paragraph("MAPA NATAL", styles["cover_kicker"]))
 
     # Two-line serif title, second line in italic terracotta
     flow.append(Paragraph("Seu", styles["cover_title"]))
