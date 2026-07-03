@@ -1162,11 +1162,16 @@ def generate_fio_condutor(name, chart, full_report, gender):
 # Pattern that catches "Não é X. É Y" and "Não é X, é Y" (single sentence-pair).
 # - Group 1 = X (the negated thing, anything but . , ! ? before the separator)
 # - Group 2 = separator (. or ,)
-# - Group 3 = É or é
+# - Group 3 = É or é (case preserved for the rewrite)
 # - Group 4 = Y (the affirmed thing, anything but . ! ? before the sentence end)
 # - Group 5 = sentence ending punctuation (. ! ?)
+#
+# IGNORECASE on the leading "Não é" — we need to catch both sentence-starting
+# "Não é X, é Y" AND mid-sentence "…, não é X, é Y" occurrences. Without this,
+# a phrase like "para você, emoção sem clareza não é intimidade, é ameaça"
+# would slip through cleanup entirely.
 _NEG_AFFIRM_RE = re.compile(
-    r"Não é ([^.,!?]+?)([.,])\s+(É|é) ([^.!?]+?)([.!?])"
+    r"[Nn]ão é ([^.,!?]+?)([.,])\s+(É|é) ([^.!?]+?)([.!?])"
 )
 
 # Bare English "retrograde" — match as a whole word, case-insensitive.
@@ -1192,8 +1197,11 @@ def cleanup_pass(text: str):
             orig = m.group(0)
             y = m.group(4).strip()
             ending = m.group(5)
-            # Drop the "Não é X[.,] " portion; start with capitalized affirmation.
-            rewritten = f"É {y}{ending}"
+            # Drop the "Não é X[.,] " portion. Preserve the case of the
+            # affirming particle — "É" for sentence-starts, "é" for
+            # mid-sentence occurrences — so the rewrite is grammatical.
+            affirm = m.group(3)
+            rewritten = f"{affirm} {y}{ending}"
             text = text[:m.start()] + rewritten + text[m.end():]
             changes.append({
                 "type": "negative_construction",
