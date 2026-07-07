@@ -1040,6 +1040,139 @@ def generate_report_endpoint():
     body["_moon_meta"] = moon_meta
 
     # ==================================================================
+    # ASPECTOS AUSENTES — CALCULAR ANTES DO FILTRO
+    #
+    # Kerykeion's NatalAspects.relevant_aspects só computa aspectos entre
+    # planetas + Quíron + Lilith. NUNCA gera aspectos envolvendo
+    # asteróides (Ceres, Vesta, Juno, Palas) nem Nodos (Norte, Sul).
+    # Como a prática da Marcia interpreta esses aspectos, precisamos
+    # calculá-los manualmente e adicionar à lista ANTES da cascata do
+    # filtro — para que passem pelas mesmas regras de orbe, in-sign,
+    # aplicativo, etc. Assim continuam sendo fonte única de verdade.
+    #
+    # Escopo dos pares calculados:
+    #   · asteróides × planetas principais (Sol → Plutão)
+    #   · Nodos × planetas principais
+    #   · Nodos × asteróides
+    # NÃO calculamos:
+    #   · asteróide × asteróide (regra da Marcia limita a 4° e não usamos)
+    #   · asteróide × Quíron/Lilith (regra da Marcia proíbe totalmente)
+    #   · Nodo Norte × Nodo Sul (definicional, sempre 180°)
+    #
+    # NOTA sobre applying: o payload não carrega velocidades angulares,
+    # então applying vira None nos aspectos manuais. As regras "só se
+    # aplicativo" acima de 8° ficam conservadoras (na dúvida, descarta).
+    # Aspectos abaixo do threshold passam pelo mesmo caminho de qualquer
+    # outro aspecto.
+    # ==================================================================
+    _POINTS_SIGN_ORDER = [
+        "aries", "taurus", "gemini", "cancer", "leo", "virgo",
+        "libra", "scorpio", "sagittarius", "capricorn", "aquarius", "pisces",
+    ]
+    _ASPECT_ANGLES = {
+        "conjunction": 0, "sextile": 60, "square": 90,
+        "trine": 120, "opposition": 180,
+    }
+    _ASPECT_PT_LABELS = {
+        "conjunction": "conjunção", "sextile": "sextil", "square": "quadratura",
+        "trine": "trígono", "opposition": "oposição",
+    }
+    _INIT_MAX_ORB = 12.0  # generoso — a cascata do filtro reduz depois
+
+    def _abs_pos(pdict):
+        """Retorna a posição absoluta em graus 0-360 a partir de sign + degrees."""
+        if not isinstance(pdict, dict):
+            return None
+        sign = (pdict.get("sign") or "").lower()
+        deg = pdict.get("degrees")
+        if sign not in _POINTS_SIGN_ORDER or deg is None:
+            return None
+        try:
+            return _POINTS_SIGN_ORDER.index(sign) * 30.0 + float(deg)
+        except (ValueError, TypeError):
+            return None
+
+    def _compute_missing_aspects(points):
+        """Computa aspectos que o Kerykeion não gera. Retorna lista no mesmo
+        formato dos aspectos do payload — planet_a, planet_b, type, type_pt,
+        orb, applying=None."""
+        ASTEROIDS = ["ceres", "vesta", "juno", "pallas"]
+        MAIN_PLANETS = ["sun", "moon", "mercury", "venus", "mars",
+                        "jupiter", "saturn", "uranus", "neptune", "pluto"]
+        NODES = ["north_node", "south_node"]
+
+        pairs = []
+        # asteróide × planeta (evitando duplicar par)
+        for a in ASTEROIDS:
+            for p in MAIN_PLANETS:
+                pairs.append((a, p))
+        # Nodo × planeta
+        for n in NODES:
+            for p in MAIN_PLANETS:
+                pairs.append((n, p))
+        # Nodo × asteróide
+        for n in NODES:
+            for a in ASTEROIDS:
+                pairs.append((n, a))
+
+        out = []
+        for pa_key, pb_key in pairs:
+            pos_a = _abs_pos(points.get(pa_key))
+            pos_b = _abs_pos(points.get(pb_key))
+            if pos_a is None or pos_b is None:
+                continue
+
+            # Distância angular circular (menor das duas direções)
+            raw = abs(pos_a - pos_b)
+            dist = min(raw, 360.0 - raw)
+
+            # Cada par de corpos forma no máximo UM aspecto — o mais próximo
+            # de um dos ângulos ptolomaicos. Escolher o de menor orbe.
+            best_type = None
+            best_orb = None
+            for atype, angle in _ASPECT_ANGLES.items():
+                orb = abs(dist - angle)
+                if best_orb is None or orb < best_orb:
+                    best_orb = orb
+                    best_type = atype
+
+            if best_type is None or best_orb > _INIT_MAX_ORB:
+                continue
+
+            out.append({
+                "planet_a": pa_key,
+                "planet_b": pb_key,
+                "type": best_type,
+                "type_pt": _ASPECT_PT_LABELS[best_type],
+                "orb": round(best_orb, 2),
+                "applying": None,  # sem velocidade nos points do payload
+            })
+        return out
+
+    # Aspectos que já vieram do cliente (Kerykeion) — planetas + Quíron + Lilith
+    _client_aspects = body.get("aspects") or []
+    # Aspectos calculados manualmente — asteróides + Nodos
+    _computed_aspects = _compute_missing_aspects(body.get("points") or {})
+
+    # Dedupe: se o cliente já mandou algum desses pares (improvável mas defensivo),
+    # não sobrescrever. Chave é o par + tipo, independente da ordem dos corpos.
+    def _pair_key(a):
+        pa = a.get("planet_a", "")
+        pb = a.get("planet_b", "")
+        return (frozenset((pa, pb)), a.get("type"))
+    _existing_keys = {_pair_key(a) for a in _client_aspects}
+    _computed_new = [a for a in _computed_aspects if _pair_key(a) not in _existing_keys]
+
+    _raw_aspects = _client_aspects + _computed_new
+    _n_client = len(_client_aspects)
+    _n_computed_added = len(_computed_new)
+
+    logger.info(
+        "aspects: %d from client + %d computed manually = %d total pre-filter",
+        _n_client, _n_computed_added, len(_raw_aspects),
+    )
+
+    # ==================================================================
     # FILTRO DE ASPECTOS — ÚNICA FONTE DE VERDADE PARA TODO O PIPELINE
     #
     # Executa numa cascata determinística. Cada aspecto que sobrevive tem:
@@ -1063,7 +1196,7 @@ def generate_report_endpoint():
     # ==================================================================
     from report_generator import is_in_sign_aspect as _is_in_sign
 
-    _raw_aspects = body.get("aspects") or []
+    # _raw_aspects já montado acima combinando cliente + computados manualmente
     _points = body.get("points") or {}
 
     # ----- Constantes do filtro -----
@@ -1339,6 +1472,8 @@ def generate_report_endpoint():
             # bruto e quantos foram descartados por serem dissociados, mais a
             # lista completa dos descartados (par de corpos, tipo, orbe) para
             # verificação visual.
+            "aspects_from_client_count": _n_client,
+            "aspects_computed_manually_count": _n_computed_added,
             "aspects_raw_count": len(_raw_aspects),
             "aspects_kept_count": len(kept),
             "aspects_kept": kept,
