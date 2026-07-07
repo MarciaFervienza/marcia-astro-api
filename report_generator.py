@@ -535,6 +535,23 @@ def section_chart_context(section_name, chart):
             return base
         return f"{base} na casa {planet['house']}"
 
+    # Prefixo de reforço em CADA seção quando a hora é desconhecida — sem isso
+    # o Claude ainda pode inferir/repetir posições de casa vindas dos trechos
+    # autorais recuperados do Pinecone (que normalmente incluem "casa N").
+    # Colocar isso na frente de cada bloco de contexto é a garantia de que a
+    # regra chegue à consciência do modelo em cada chamada, não só nas seções
+    # de abertura/triade/lua onde a NOTA aparece explicitamente.
+    _tunk_prefix = (
+        "[REGRA ABSOLUTA PARA ESTA SEÇÃO] O horário de nascimento é desconhecido. "
+        "NUNCA mencione a casa astrológica de nenhum planeta ou ponto — não escreva "
+        "'na casa X', 'da casa X', 'casa X', nem versões por extenso ('casa quatro', "
+        "'oitava casa' etc.). Mesmo que os trechos autorais abaixo façam essa "
+        "menção, VOCÊ NÃO PODE reproduzi-la. Trabalhe apenas por signo e por "
+        "aspectos. Interprete o que os trechos dizem sobre o planeta em geral, "
+        "descartando qualquer referência a casa. Também NÃO mencione o "
+        "Ascendente, Meio-do-Céu, Descendente ou Fundo do Céu (Imum Coeli).\n\n"
+    ) if time_unknown else ""
+
     # Compute filtered aspects for this section once (also records into _section_aspect_audit)
     filtered_aspects = aspects_for_section_filtered(section_name, chart)
     aspects_line = fmt_filtered_aspects(filtered_aspects)
@@ -542,14 +559,14 @@ def section_chart_context(section_name, chart):
     if section_name == "abertura":
         if time_unknown:
             # Sem Ascendente/MC — mapa sem hora não tem esses pontos.
-            return (
+            return _tunk_prefix + (
                 f"Sol: {fmt_position(p['sun'])}\n"
                 f"Lua: {fmt_position(p['moon'])}\n"
                 f"[NOTA: Este mapa foi calculado sem horário de nascimento. "
                 f"Ascendente e casas não estão disponíveis. Não os mencione — "
                 f"trabalhe apenas com signos e aspectos planetários.]"
             )
-        return (
+        return _tunk_prefix + (
             f"Sol: {_pl(p['sun'])}\n"
             f"Lua: {_pl(p['moon'])}\n"
             f"Ascendente: {fmt_position(asc)}\n"
@@ -559,7 +576,7 @@ def section_chart_context(section_name, chart):
     if section_name == "triade":
         if time_unknown:
             # Vira "Sol e Lua" — sem Ascendente.
-            return (
+            return _tunk_prefix + (
                 f"Sol: {fmt_position(p['sun'])}\n"
                 f"Lua: {fmt_position(p['moon'])}\n\n"
                 f"Aspectos relevantes de Sol e Lua (filtrados, priorizados, sem duplicatas): {aspects_line}\n\n"
@@ -567,7 +584,7 @@ def section_chart_context(section_name, chart):
                 f"como uma tríade — não há Ascendente. Sintetize a dupla Sol/Lua e como "
                 f"os dois se articulam. NÃO mencione o Ascendente em nenhuma parte do texto.]"
             )
-        return (
+        return _tunk_prefix + (
             f"Sol: {_pl(p['sun'])}\n"
             f"Lua: {_pl(p['moon'])}\n"
             f"Ascendente: {fmt_position(asc)}\n"
@@ -576,7 +593,7 @@ def section_chart_context(section_name, chart):
         )
 
     if section_name == "mercurio":
-        return (
+        return _tunk_prefix + (
             f"Mercúrio: {_pl(p['mercury'])}\n"
             f"Aspectos relevantes de Mercúrio (filtrados): {aspects_line}\n\n"
             f"NOTA DE ESTILO PARA ESTA SEÇÃO: Avoid doubling the same verb in sequence — "
@@ -589,7 +606,7 @@ def section_chart_context(section_name, chart):
             # Mudou de signo no dia + hora desconhecida — o signo é indeterminado.
             # Descrever só por aspectos; a leitura dos dois signos possíveis
             # é acoplada depois pela lógica de Branch A em app.py.
-            return (
+            return _tunk_prefix + (
                 f"[NOTA: A hora de nascimento é desconhecida E a Lua mudou de signo "
                 f"neste dia (de {moon_meta.get('moon_sign_before')} para "
                 f"{moon_meta.get('moon_sign_after')} às {moon_meta.get('moon_ingress_local_time')} "
@@ -599,7 +616,7 @@ def section_chart_context(section_name, chart):
                 f"herdados — independentemente de qual dos dois signos seja o dela.]\n\n"
                 f"Aspectos relevantes da Lua (filtrados): {aspects_line}"
             )
-        return (
+        return _tunk_prefix + (
             f"Lua: {_pl(p['moon'])}\n"
             f"Aspectos relevantes da Lua (filtrados): {aspects_line}"
         )
@@ -619,73 +636,73 @@ def section_chart_context(section_name, chart):
             lines.append("Casa 4: sem planetas listados (interpretar a partir do IC)")
         lines.append("")
         lines.append(f"Aspectos relevantes envolvendo a Casa 4 (filtrados): {aspects_line}")
-        return "\n".join(lines)
+        return _tunk_prefix + "\n".join(lines)
 
     if section_name == "sol_saturno":
-        return (
+        return _tunk_prefix + (
             f"Sol: {_pl(p['sun'])}\n"
             f"Saturno: {_pl(p['saturn'])}\n"
             f"Aspectos relevantes Sol/Saturno (filtrados): {aspects_line}"
         )
 
     if section_name == "venus_marte":
-        return (
+        return _tunk_prefix + (
             f"Vênus: {_pl(p['venus'])}\n"
             f"Marte: {_pl(p['mars'])}\n"
             f"Aspectos relevantes Vênus/Marte (filtrados): {aspects_line}"
         )
 
     if section_name == "jupiter":
-        return (
+        return _tunk_prefix + (
             f"Júpiter: {_pl(p['jupiter'])}\n"
             f"Aspectos relevantes de Júpiter (filtrados): {aspects_line}"
         )
 
     if section_name == "saturno":
-        return (
+        return _tunk_prefix + (
             f"Saturno: {_pl(p['saturn'])}\n"
             f"Aspectos relevantes de Saturno (filtrados): {aspects_line}"
         )
 
     if section_name == "quiron":
-        return (
+        return _tunk_prefix + (
             f"Quíron: {_pl(p['chiron'])}\n"
             f"Aspectos relevantes de Quíron (filtrados): {aspects_line}"
         )
 
     if section_name == "urano":
-        return (
+        return _tunk_prefix + (
             f"Urano: {_pl(p['uranus'])}\n"
             f"Aspectos relevantes de Urano (filtrados): {aspects_line}"
         )
 
     if section_name == "netuno":
-        return (
+        return _tunk_prefix + (
             f"Netuno: {_pl(p['neptune'])}\n"
             f"Aspectos relevantes de Netuno (filtrados): {aspects_line}"
         )
 
     if section_name == "plutao":
-        return (
+        return _tunk_prefix + (
             f"Plutão: {_pl(p['pluto'])}\n"
             f"Aspectos relevantes de Plutão (filtrados): {aspects_line}"
         )
 
     if section_name == "lilith":
-        return (
+        return _tunk_prefix + (
             f"Lilith: {_pl(p['lilith'])}\n"
             f"Aspectos relevantes de Lilith (filtrados): {aspects_line}"
         )
 
     if section_name == "nodos":
-        return (
+        return _tunk_prefix + (
             f"Nodo Sul: {_pl(p['south_node'])}\n"
             f"Nodo Norte: {_pl(p['north_node'])}\n"
             f"Aspectos relevantes dos Nodos (filtrados): {aspects_line}"
         )
 
     if section_name == "asteroides":
-        return (
+        return _tunk_prefix + (
             f"Ceres: {_pl(p['ceres'])}\n"
             f"Vesta: {_pl(p['vesta'])}\n"
             f"Juno: {_pl(p['juno'])}\n"
