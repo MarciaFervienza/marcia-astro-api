@@ -469,6 +469,210 @@ def aspects_for_planet(chart, planet_key):
     return out
 
 
+def compute_parental_clusters(chart):
+    """Compute two independent clusters that count converging factors for
+    parental accentuation. Two design principles:
+
+      1. NÃO se usa 'casa=progenitor'. Os clusters medem funções simbólicas
+         (autoridade/estrutura via Sol+Saturno; cuidado/vínculo via Lua).
+      2. Aspectos SÓ contam se envolverem luminar (Sol ou Lua). Aspectos
+         geracionais (Saturno-Urano/Netuno/Plutão e transpessoal-transpessoal)
+         NÃO contam — indicam colorido geracional, não história pessoal.
+      3. Cada cluster dispara com 2 OU MAIS fatores presentes.
+      4. Aspectos duros = conjunção, oposição, quadratura.
+      5. Posições de casa contam por si (não são geracionais); ficam
+         suprimidas quando a hora é desconhecida.
+
+    Fator de contexto (casa 4): Plutão/Saturno/Urano na 4 NÃO disparam
+    cluster; se algum cluster já disparou, reforçam a leitura como
+    ambiente doméstico. Se nenhum cluster disparou, ficam silenciosos.
+
+    Retorna dict com fatores, contadores, flags de trigger e uma lista
+    de aspectos GERACIONAIS explicitamente EXCLUÍDOS (para transparência
+    e auditoria no meta da resposta).
+    """
+    p = chart.get("points") or {}
+    aspects = chart.get("aspects") or []
+    time_unknown = _time_is_unknown(chart)
+    moon_meta = _moon_ingress_meta(chart)
+    moon_uncertain = time_unknown and bool(moon_meta.get("moon_sign_uncertain"))
+
+    HARD_TYPES = {"conjunction", "opposition", "square"}
+
+    def _find_hard(k1, k2):
+        """Retorna o dict do aspecto duro entre k1 e k2 se existir."""
+        for a in aspects:
+            if a.get("type") not in HARD_TYPES:
+                continue
+            pa = a.get("planet_a")
+            pb = a.get("planet_b")
+            if (pa == k1 and pb == k2) or (pa == k2 and pb == k1):
+                return a
+        return None
+
+    def _fmt_aspect(label, aspect):
+        atype = aspect.get("type_pt") or aspect.get("type")
+        orb = aspect.get("orb", 0.0)
+        return f"{label} {atype} (orbe {orb:.1f}°)"
+
+    # ----- CLUSTER 1 — Autoridade/estrutura (Sol + Saturno, sem Lua) -----
+    c1 = []
+    if not time_unknown:
+        sh = (p.get("sun") or {}).get("house")
+        if sh == 8:
+            c1.append("Sol na casa 8")
+        elif sh == 12:
+            c1.append("Sol na casa 12")
+    for k, pt_label in (("saturn", "Sol-Saturno"),
+                        ("pluto", "Sol-Plutão"),
+                        ("uranus", "Sol-Urano")):
+        a = _find_hard("sun", k)
+        if a:
+            c1.append(_fmt_aspect(pt_label, a))
+    if not time_unknown:
+        sath = (p.get("saturn") or {}).get("house")
+        if sath == 12:
+            c1.append("Saturno na casa 12")
+
+    # ----- CLUSTER 2 — Cuidado/vínculo (Lua, sem Sol) -----
+    c2 = []
+    for k, pt_label in (("pluto", "Lua-Plutão"),
+                        ("saturn", "Lua-Saturno"),
+                        ("neptune", "Lua-Netuno"),
+                        ("uranus", "Lua-Urano")):
+        a = _find_hard("moon", k)
+        if a:
+            c2.append(_fmt_aspect(pt_label, a))
+    if not time_unknown:
+        mh = (p.get("moon") or {}).get("house")
+        if mh == 8:
+            c2.append("Lua na casa 8")
+        elif mh == 12:
+            c2.append("Lua na casa 12")
+    # Lua em queda/exílio — só se o signo for confiável (não moon_uncertain)
+    if not moon_uncertain:
+        msign = ((p.get("moon") or {}).get("sign") or "").lower()
+        if msign == "scorpio":
+            c2.append("Lua em Escorpião (queda)")
+        elif msign == "capricorn":
+            c2.append("Lua em Capricórnio (exílio)")
+
+    # ----- Casa 4: reforço contextual (NÃO dispara sozinho) -----
+    h4 = []
+    if not time_unknown:
+        for k, pt_label in (("pluto", "Plutão"), ("saturn", "Saturno"), ("uranus", "Urano")):
+            if (p.get(k) or {}).get("house") == 4:
+                h4.append(f"{pt_label} na casa 4")
+
+    # ----- Aspectos GERACIONAIS explicitamente excluídos (auditoria) -----
+    excluded = []
+    GEN_PAIRS = [
+        ("saturn", "uranus", "Saturno-Urano"),
+        ("saturn", "neptune", "Saturno-Netuno"),
+        ("saturn", "pluto", "Saturno-Plutão"),
+        ("uranus", "neptune", "Urano-Netuno"),
+        ("uranus", "pluto", "Urano-Plutão"),
+        ("neptune", "pluto", "Netuno-Plutão"),
+    ]
+    for k1, k2, label in GEN_PAIRS:
+        a = _find_hard(k1, k2)
+        if a:
+            excluded.append(_fmt_aspect(label, a) + " — geracional, sem luminar")
+
+    return {
+        "cluster_1_authority": {
+            "factors": c1,
+            "count": len(c1),
+            "triggered": len(c1) >= 2,
+        },
+        "cluster_2_care": {
+            "factors": c2,
+            "count": len(c2),
+            "triggered": len(c2) >= 2,
+        },
+        "house_4_context": h4,
+        "excluded_generational_aspects": excluded,
+        "house_factors_suppressed_by_unknown_time": time_unknown,
+    }
+
+
+# ----- Frases-âncora fixas para os textos dos clusters -----
+_CLUSTER_1_ANCHOR = (
+    "Há uma concentração significativa de indicadores ligados à função de autoridade e estrutura na sua "
+    "formação. Essa área do mapa está acentuada, e costuma corresponder a uma relação marcante com quem "
+    "exerceu esse papel estruturante — pode ter sido ausência, perda ou distância, ou o oposto: uma "
+    "presença exigente, rígida, que pesou. Veja o que ressoa com a sua experiência."
+)
+
+_CLUSTER_2_ANCHOR = (
+    "Há uma concentração significativa de indicadores ligados à função de cuidado e ao vínculo de "
+    "segurança emocional da infância. Essa área do mapa está acentuada, e costuma corresponder a uma "
+    "experiência marcante com a principal figura de cuidado — pode ter sido ausência, instabilidade ou "
+    "ruptura, ou uma presença que sufocava, invadia ou cobrava. Veja o que ressoa com a sua experiência."
+)
+
+_CLUSTERS_BOTH_ANCHOR_FIO = (
+    "Há indicadores convergentes tanto na função de autoridade e estrutura quanto na função de cuidado "
+    "e vínculo. Quando o mapa acumula os dois, costuma apontar para uma infância marcada por transformações "
+    "profundas na estrutura familiar — perdas, rupturas, ou mudanças que reorganizaram o campo emocional. "
+    "A natureza específica disso é sua para reconhecer: o mapa mostra a intensidade, não o enredo."
+)
+
+
+def _cluster_addendum_for_section(clusters, which):
+    """Gera o addendum para o psychological_frame das seções de Sol/Saturno
+    ou Lua com base no cluster que disparou. which ∈ {'sol_saturno', 'lua'}.
+    Retorna string vazia se o cluster respectivo não disparou.
+
+    O addendum instrui o Claude a usar a frase-âncora como ABERTURA da
+    seção (não literal — desenvolve na voz do relatório) e deixa a
+    interpretação sempre em modo de possibilidade a reconhecer, nunca
+    afirmando 'seu pai' ou 'sua mãe' nem a natureza específica.
+    """
+    if which == "sol_saturno":
+        cl = clusters.get("cluster_1_authority") or {}
+        if not cl.get("triggered"):
+            return ""
+        factors = cl.get("factors") or []
+        anchor = _CLUSTER_1_ANCHOR
+        cluster_label = "AUTORIDADE E ESTRUTURA"
+    elif which == "lua":
+        cl = clusters.get("cluster_2_care") or {}
+        if not cl.get("triggered"):
+            return ""
+        factors = cl.get("factors") or []
+        anchor = _CLUSTER_2_ANCHOR
+        cluster_label = "CUIDADO E VÍNCULO"
+    else:
+        return ""
+
+    factors_list = "\n".join(f"  · {f}" for f in factors)
+
+    return (
+        f"\n\n[CLUSTER DE ACENTUAÇÃO {cluster_label} — DISPAROU]\n"
+        f"Este mapa acumula {len(factors)} indicadores convergentes nesta função "
+        f"(limiar de disparo: 2 ou mais):\n"
+        f"{factors_list}\n\n"
+        f"FRASE-ÂNCORA (use como PONTO DE PARTIDA para esta seção, "
+        f"desenvolvendo na voz do relatório — não copie literalmente, mas "
+        f"preserve a estrutura de possibilidade a reconhecer):\n"
+        f"\"{anchor}\"\n\n"
+        f"REGRAS PARA O DESENVOLVIMENTO:\n"
+        f"(a) NUNCA escreva 'seu pai', 'sua mãe', 'seu pai foi', 'sua mãe era'. "
+        f"Refira-se sempre como 'quem exerceu essa função', 'a figura que "
+        f"estruturou/cuidou', 'esse papel na sua história'.\n"
+        f"(b) SEMPRE apresente como POSSIBILIDADE. Use 'pode ter sido', "
+        f"'costuma corresponder a', 'em muitos casos aparece como'. NUNCA "
+        f"afirme uma versão única (nem 'ausência' nem 'excesso') como se "
+        f"fosse fato — a geometria mostra intensidade, não enredo.\n"
+        f"(c) ABRA o leque de possibilidades opostas (ex.: ausência OU "
+        f"presença invasiva) e convide o leitor a reconhecer qual ressoa.\n"
+        f"(d) Esta seção é o ÚNICO lugar do relatório onde esta função é "
+        f"desenvolvida — o Fio Condutor apenas referenciará brevemente. Não "
+        f"deixe para depois.\n"
+    )
+
+
 def find_aspect(chart, key_a, key_b, aspect_type):
     """Retorna o dict do aspecto entre key_a e key_b do tipo aspect_type se
     ele existir na lista chart["aspects"] (já filtrada in-sign), em qualquer
@@ -829,6 +1033,15 @@ def build_sections(chart):
     # the same source.
     time_unknown = _time_is_unknown(chart)
     moon_meta = _moon_ingress_meta(chart)
+
+    # Clusters de acentuação parental. Calculados uma vez e usados em três
+    # locais downstream: (1) addendum ao psychological_frame de sol_saturno,
+    # (2) addendum ao psychological_frame de lua, (3) menção breve no Fio
+    # Condutor via _parental_dynamics_context. Também expostos no meta da
+    # resposta para auditoria. Guardo no próprio chart para outros consumidores
+    # acessarem sem recomputar.
+    parental_clusters = compute_parental_clusters(chart)
+    chart["_parental_clusters"] = parental_clusters
     moon_uncertain = time_unknown and bool(moon_meta.get("moon_sign_uncertain"))
 
     sun = p["sun"]
@@ -1071,7 +1284,7 @@ def build_sections(chart):
                 ) if time_unknown else
                 # (i) hora conhecida — comportamento original
                 "A Lua fala da figura materna ou do cuidador principal na infância, do ambiente familiar, das memórias e dos padrões emocionais que moldaram como você navega o mundo."
-            ),
+            ) + _cluster_addendum_for_section(parental_clusters, "lua"),
             "depth_instruction": DEPTH_TIER_1,
         },
         {
@@ -1118,7 +1331,7 @@ def build_sections(chart):
                 "que esta pessoa possa carregar sobre como trabalhar com a tensão entre expansão e dúvida do próprio valor.\n\n"
                 "Após mencionar o trígono Saturno-Netuno, adicione uma frase de transição que conecte essa observação "
                 "à orientação prática final — não salte diretamente do aspecto para a conclusão."
-            ),
+            ) + _cluster_addendum_for_section(parental_clusters, "sol_saturno"),
             "depth_instruction": DEPTH_TIER_3,
         },
         {
@@ -1599,6 +1812,53 @@ def _parental_dynamics_context(chart):
         parts.append("[LUA INCERTA] A Lua mudou de signo no dia do nascimento. "
                      "NÃO afirme um signo para a Lua em qualquer parte do texto — "
                      "trabalhe só pelos aspectos dela.")
+
+    # Clusters de acentuação parental — apenas menção breve no Fio Condutor.
+    # O desenvolvimento profundo já foi feito na seção de Sol/Saturno (cluster 1)
+    # e/ou na seção de Lua (cluster 2). Aqui referencia sem repetir. Se ambos
+    # dispararam, este é o único lugar onde a leitura 'ambos' aparece.
+    clusters = chart.get("_parental_clusters") or {}
+    c1 = clusters.get("cluster_1_authority") or {}
+    c2 = clusters.get("cluster_2_care") or {}
+    h4 = clusters.get("house_4_context") or []
+    if c1.get("triggered") or c2.get("triggered"):
+        parts.append("")
+        parts.append("CLUSTERS DE ACENTUAÇÃO PARENTAL — instruções para o Fio Condutor:")
+        if c1.get("triggered") and c2.get("triggered"):
+            parts.append(
+                f"  · Ambos os clusters dispararam. Cluster 1 (autoridade/estrutura, "
+                f"{c1['count']} fatores) já foi desenvolvido na seção Sol/Saturno; "
+                f"Cluster 2 (cuidado/vínculo, {c2['count']} fatores) já foi "
+                f"desenvolvido na seção Lua. NÃO repita esses desenvolvimentos. "
+                f"Este é o ÚNICO lugar onde a leitura combinada dos dois deve "
+                f"aparecer. Use como PONTO DE PARTIDA (na sua voz, não literal):"
+            )
+            parts.append(f"    \"{_CLUSTERS_BOTH_ANCHOR_FIO}\"")
+        elif c1.get("triggered"):
+            parts.append(
+                f"  · Cluster 1 (autoridade/estrutura, {c1['count']} fatores) "
+                f"disparou e foi desenvolvido na seção Sol/Saturno. NO Fio Condutor, "
+                f"apenas referencie brevemente essa acentuação como parte da síntese, "
+                f"SEM repetir o desenvolvimento nem a frase-âncora."
+            )
+        elif c2.get("triggered"):
+            parts.append(
+                f"  · Cluster 2 (cuidado/vínculo, {c2['count']} fatores) disparou e "
+                f"foi desenvolvido na seção Lua. No Fio Condutor, apenas referencie "
+                f"brevemente essa acentuação como parte da síntese, SEM repetir o "
+                f"desenvolvimento nem a frase-âncora."
+            )
+        if h4:
+            parts.append(
+                f"  · Reforço contextual (ambiente doméstico): {', '.join(h4)}. "
+                f"Se coerente com a síntese, mencione brevemente que o ambiente "
+                f"doméstico refletiu essa dinâmica; NÃO trate como cluster separado."
+            )
+        parts.append(
+            "  · REGRAS GERAIS: nunca escreva 'seu pai/sua mãe'; sempre "
+            "'quem exerceu essa função'. Sempre modo de possibilidade; o mapa "
+            "mostra a intensidade, não o enredo."
+        )
 
     return "\n".join(parts)
 
@@ -2354,6 +2614,7 @@ def generate_report(
         "aspect_audit": aspect_audit,
         "cleanup_changes": cleanup_changes,
         "sign_divergences": sign_divergences,
+        "parental_clusters": chart.get("_parental_clusters"),
     }
 
 

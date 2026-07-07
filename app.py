@@ -1537,6 +1537,7 @@ def generate_report_endpoint():
             # for a Lua num mapa moon_uncertain). Lista fica exposta pro
             # operador auditar cada correção feita.
             "sign_divergences": result.get("sign_divergences", []),
+            "parental_clusters": result.get("parental_clusters"),
             # Geocoded location (lat/lng + resolved IANA zone name) so the
             # caller can verify the geocode landed where they expect.
             "birth_city": birth_city,
