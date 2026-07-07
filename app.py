@@ -1039,38 +1039,172 @@ def generate_report_endpoint():
     body["_unknown_birth_time"] = unknown_birth_time
     body["_moon_meta"] = moon_meta
 
-    # ------------------------------------------------------------------
-    # Filtrar aspectos dissociados (fora de signo).
+    # ==================================================================
+    # FILTRO DE ASPECTOS — ÚNICA FONTE DE VERDADE PARA TODO O PIPELINE
     #
-    # A prática da Marcia não reconhece aspectos que estão dentro do orbe mas
-    # cujos signos NÃO formam o par natural do aspecto (ex.: conjunção entre
-    # Lua em Leão e Júpiter em Câncer, mesmo com orbe < 5°). Antes desta
-    # linha, `body["aspects"]` continha todos os aspectos que o cálculo do
-    # cliente (Kerykeion / astro engine) produziu, dissociados inclusive; o
-    # report_generator então iterava sobre TODOS eles em
-    # `aspects_for_section_filtered` e `aspects_for_planet`, e o Claude
-    # acabava interpretando aspectos que na tradição da Marcia não existem.
+    # Executa numa cascata determinística. Cada aspecto que sobrevive tem:
+    #   {planet_a, planet_b, type, type_pt, orb,
+    #    applying: True|False|None,          # aplicativo (True) / separativo (False) / indeterminado
+    #    weight:   "dominant"|"very_strong"|"strong"|"moderate"|"weak"|"conjunction_only",
+    #    strength: float 0-1                 # força geométrica pura (só orbe)
+    #   }
     #
-    # A função `get_in_sign_aspects` (report_generator.py:125) já implementa
-    # a lógica de distância circular por signos:
-    #   conjunção → 0 signos · sextil → 2 · quadratura → 3 · trígono → 4 · oposição → 6
-    # Chamando aqui, todo o pipeline downstream (texto interpretativo E tabela
-    # do PDF) vê a mesma lista já filtrada — fonte única de verdade.
-    from report_generator import get_in_sign_aspects as _in_sign_filter
+    # A lista filtrada é escrita de volta em body["aspects"] e usada por:
+    #   · report_generator (texto interpretativo, contexto Claude)
+    #   · pdf_generator (tabela de aspectos in-sign na página 2)
+    #   · verify_planet_signs (verificador anti-alucinação)
+    # Todos consomem A MESMA lista — evita o bug histórico onde tabela e
+    # texto interpretativo usavam listas diferentes.
+    #
+    # NOTA sobre `strength`: neste passo o valor é PURAMENTE geométrico
+    # (função monotônica do orbe). NÃO codifica hierarquia planetária
+    # nem importância do par de corpos — essa camada de "pesos por par"
+    # é planejada para uma rodada futura.
+    # ==================================================================
+    from report_generator import is_in_sign_aspect as _is_in_sign
+
     _raw_aspects = body.get("aspects") or []
-    _in_sign_aspects = _in_sign_filter(_raw_aspects, body.get("points") or {})
-    n_dropped = len(_raw_aspects) - len(_in_sign_aspects)
-    if n_dropped:
-        # Capturar os aspectos descartados para auditoria/debug — vão pro meta
-        # da resposta para que possamos verificar visualmente que cada drop é
-        # legítimo (i.e., é de fato dissociado, não um falso descarte).
-        _in_sign_keys = {(a.get("planet_a"), a.get("planet_b"), a.get("type")) for a in _in_sign_aspects}
-        dropped = [a for a in _raw_aspects
-                   if (a.get("planet_a"), a.get("planet_b"), a.get("type")) not in _in_sign_keys]
-        body["_dropped_aspects"] = dropped
-        logger.info("dropped %d dissociated aspects out of %d raw aspects",
-                    n_dropped, len(_raw_aspects))
-    body["aspects"] = _in_sign_aspects
+    _points = body.get("points") or {}
+
+    # ----- Constantes do filtro -----
+    _PLANETS = {"sun","moon","mercury","venus","mars","jupiter","saturn","uranus","neptune","pluto"}
+    _TRANSPERSONAL = {"uranus","neptune","pluto"}
+    _ASTEROIDS = {"ceres","vesta","juno","pallas"}
+    _CHIRON_LILITH = {"chiron","lilith"}
+    _MINOR_SPECIAL = {"chiron","lilith","north_node","south_node"}
+
+    # Orbe padrão máximo por tipo de aspecto (planetas entre si)
+    _ORB_MAX = {
+        "conjunction": 12.0,
+        "opposition":  10.0,
+        "square":      10.0,
+        "trine":        8.0,
+        "sextile":      6.0,
+    }
+    # Acima deste orbe, o aspecto SÓ passa se applying==True
+    _APPLYING_REQUIRED_ABOVE = {
+        "conjunction": 8.0,
+        "opposition":  8.0,
+        "square":      8.0,
+    }
+
+    def _weight_and_strength(orb):
+        """Peso categórico (dominant → conjunction_only) + strength geométrica linear.
+        strength = 1 - orb/12, clampado em [0, 1] — vai a 1 no aspecto exato."""
+        s = max(0.0, min(1.0, 1.0 - orb / 12.0))
+        s = round(s, 3)
+        if orb < 2.0:  return "dominant",         s
+        if orb < 4.0:  return "very_strong",      s
+        if orb < 6.0:  return "strong",           s
+        if orb < 8.0:  return "moderate",         s
+        if orb < 10.0: return "weak",             s
+        return           "conjunction_only",      s
+
+    def _normalize_applying(a):
+        """Aceita: bool, None, 'Applying'/'Separating' string, ausente.
+        Retorna True/False/None. Trata Lua como incerta em mapas sem hora."""
+        # Regra especial: aspectos envolvendo Lua em unknown_birth_time são
+        # intrinsecamente incertos — Lua move ~13°/dia, o valor de applying
+        # calculado para meio-dia default não é confiável.
+        if unknown_birth_time and ("moon" in (a.get("planet_a"), a.get("planet_b"))):
+            return None
+        v = a.get("applying")
+        if v is True or v is False:
+            return v
+        if isinstance(v, str):
+            vl = v.lower()
+            if vl in ("applying", "aplicativo", "aplicando"): return True
+            if vl in ("separating", "separativo", "separando"): return False
+        return None  # ausente ou irreconhecível
+
+    kept = []
+    dropped = []
+
+    def _drop(a, reason, **extras):
+        dropped.append({
+            **{k: a.get(k) for k in ("planet_a","planet_b","type","orb")},
+            "reason": reason, **extras,
+        })
+
+    for a in _raw_aspects:
+        pa = a.get("planet_a")
+        pb = a.get("planet_b")
+        atype = a.get("type")
+        orb = float(a.get("orb", 0.0) or 0.0)
+        applying = _normalize_applying(a)
+
+        # Etapa 1: aspecto in-sign obrigatório (regra pré-existente)
+        sa = (_points.get(pa) or {}).get("sign")
+        sb = (_points.get(pb) or {}).get("sign")
+        if not (sa and sb) or not _is_in_sign(sa, sb, atype):
+            _drop(a, "out_of_sign_dissociated")
+            continue
+
+        # Etapa 2: pares proibidos (asteróide × Quíron/Lilith — ignorar totalmente)
+        if (pa in _ASTEROIDS and pb in _CHIRON_LILITH) or \
+           (pb in _ASTEROIDS and pa in _CHIRON_LILITH):
+            _drop(a, "forbidden_pair_asteroid_x_chiron_or_lilith")
+            continue
+
+        # Etapa 3: orbe máximo por tipo de aspecto (padrão entre planetas)
+        max_orb_std = _ORB_MAX.get(atype)
+        if max_orb_std is None:
+            _drop(a, "unknown_aspect_type")
+            continue
+
+        # Etapa 4: restrições específicas de PARES DE CORPOS
+        # 4a — conjunção entre asteróides: máx 4°
+        if atype == "conjunction" and pa in _ASTEROIDS and pb in _ASTEROIDS:
+            if orb > 4.0:
+                _drop(a, "asteroid_conj_orb_over_4", limit=4.0)
+                continue
+
+        # 4b — conjunção de PLANETA com Quíron/Lilith/Nodo/Asteróide: máx 5°
+        elif atype == "conjunction" and (
+            (pa in _PLANETS and (pb in _MINOR_SPECIAL or pb in _ASTEROIDS)) or
+            (pb in _PLANETS and (pa in _MINOR_SPECIAL or pa in _ASTEROIDS))
+        ):
+            if orb > 5.0:
+                _drop(a, "planet_x_minor_conj_orb_over_5", limit=5.0)
+                continue
+
+        # 4c — QUALQUER aspecto entre dois transpessoais: máx 5°
+        elif pa in _TRANSPERSONAL and pb in _TRANSPERSONAL:
+            if orb > 5.0:
+                _drop(a, "transpersonal_x_transpersonal_orb_over_5", limit=5.0)
+                continue
+
+        # 4d — caso geral: aplicar orbe padrão do tipo
+        else:
+            if orb > max_orb_std:
+                _drop(a, "standard_orb_exceeded", limit=max_orb_std)
+                continue
+
+        # Etapa 5: regra do "só se aplicativo" nas faixas altas
+        # (conjunções/oposições/quadraturas 8°-limite exigem applying=True;
+        #  se applying==None → conservador → descarta)
+        appl_threshold = _APPLYING_REQUIRED_ABOVE.get(atype)
+        if appl_threshold is not None and orb > appl_threshold:
+            if applying is not True:
+                _drop(a, "above_applying_threshold_not_applying",
+                      threshold=appl_threshold, applying=applying)
+                continue
+
+        # Sobreviveu — anotar peso e força e manter
+        weight, strength = _weight_and_strength(orb)
+        kept.append({
+            **a,
+            "applying": applying,
+            "weight": weight,
+            "strength": strength,
+        })
+
+    body["aspects"] = kept
+    body["_dropped_aspects"] = dropped
+    logger.info(
+        "aspects filter: %d raw → %d kept (%d dropped)",
+        len(_raw_aspects), len(kept), len(dropped),
+    )
 
     try:
         result = rg.generate_report(
@@ -1206,8 +1340,9 @@ def generate_report_endpoint():
             # lista completa dos descartados (par de corpos, tipo, orbe) para
             # verificação visual.
             "aspects_raw_count": len(_raw_aspects),
-            "aspects_in_sign_count": len(_in_sign_aspects),
-            "aspects_dropped": body.get("_dropped_aspects", []),
+            "aspects_kept_count": len(kept),
+            "aspects_kept": kept,
+            "aspects_dropped": dropped,
             # Divergências entre afirmações de "[planeta] em [signo]" no texto
             # gerado e os dados reais do chart. Cada item foi CORRIGIDO no
             # texto antes de sair (signo substituído; ou "em X" removido se
