@@ -1340,6 +1340,9 @@ FIO_CONDUTOR_PROMPT_TMPL = """Você é Marcia Fervienza. Você acabou de escreve
 RESUMO DO MAPA:
 {full_chart_summary}
 
+DINÂMICA PARENTAL / DE APEGO — dados reais deste mapa (use APENAS o que está listado aqui):
+{parental_dynamics_context}
+
 RELATÓRIO COMPLETO GERADO ATÉ AGORA:
 {full_report_so_far}
 
@@ -1350,7 +1353,7 @@ Esta seção deve:
 2. Mostrar como essas tensões não são falhas — são o motor desta pessoa
 3. Reunir as orientações práticas que foram oferecidas em cada seção e mostrar como elas convergem num único movimento — não repetindo o que foi dito, mas sintetizando
 4. Mostrar como as tensões individuais são expressões de uma mesma dinâmica central
-5. Incluir explicitamente a dimensão do pai — Sol em Aquário na casa oito, Saturno em Leão retrógrado na casa dois, quadratura Sol-Urano — e como o que faltou nessa referência ecoa nas outras tensões do mapa
+5. Amarrar explicitamente a dinâmica parental / de apego à síntese. Isso é obrigatório porque o enquadramento de apego atravessa todo o relatório. A figura paterna é lida pelo Sol (identidade, direção vital) e por Saturno (autoridade, estrutura, limite). A figura materna é lida pela Lua (nutrição, segurança emocional, receptividade). Use a seção "DINÂMICA PARENTAL / DE APEGO" acima para decidir qual figura recebe mais peso NESTE mapa específico: pode ser predominantemente paterna, predominantemente materna, ambas com pesos comparáveis, ou marcada pela ausência de uma delas. Deixe os dados guiarem — se Sol e Saturno estão intensamente aspectados (especialmente por aspectos difíceis), a dimensão paterna tende a dominar; se a Lua carrega os aspectos mais tensos, é a dimensão materna; se ambos, ambas. REGRA CRÍTICA: você só pode afirmar posicionamento (signo, casa, retrogradação, aspecto) que esteja EXPLICITAMENTE listado na "DINÂMICA PARENTAL / DE APEGO" acima. NUNCA invente configurações. Se a hora é desconhecida (verá isso indicado na seção parental), não afirme casas. Se o signo da Lua está marcado como indeterminado, não afirme signo para a Lua — trabalhe só com aspectos dela.
 6. Terminar com algo concreto e singular que a pessoa possa carregar — não uma previsão, não uma lista, mas uma orientação central que emerge naturalmente de tudo que foi revelado neste mapa
 
 Tom: mais elevado e conclusivo que as outras seções, mas sem ornamentação poética forçada. Profundidade sem dramatismo. A mesma voz direta e íntima do restante do relatório.
@@ -1470,12 +1473,93 @@ def build_full_chart_summary(chart):
     return "\n".join(lines)
 
 
+def _parental_dynamics_context(chart):
+    """Enumera os dados REAIS relativos à dinâmica parental / de apego para
+    o Fio Condutor. Substitui a antiga instrução hardcoded que assumia a
+    configuração paterna do Cliente Teste (Sol Aquário casa 8, Saturno Leão
+    retrógrado casa 2, quadratura Sol-Urano).
+
+    Dois eixos:
+      - PATERNO: Sol + Saturno (identidade/autoridade)
+      - MATERNO: Lua (nutrição/segurança emocional)
+
+    Para cada corpo lista signo, casa (só se hora conhecida), retrogradação
+    e aspectos com outros corpos (só os in-sign que sobreviveram ao filtro).
+    Também aplica a regra do ramo sem-hora: se moon_uncertain, o signo da
+    Lua vira 'INDETERMINADO' — Claude deve trabalhar só com aspectos.
+    """
+    p = chart.get("points") or {}
+    time_unknown = _time_is_unknown(chart)
+    mm = _moon_ingress_meta(chart)
+    moon_uncertain = time_unknown and bool(mm.get("moon_sign_uncertain"))
+
+    def _fmt_body(key, label):
+        b = p.get(key) or {}
+        sign = b.get("sign_pt", "?")
+        retr = " retrógrado" if b.get("retrograde") else ""
+        house = b.get("house")
+        house_part = f" na casa {house}" if house and not time_unknown else ""
+        # Suprime signo/casa da Lua se incerta
+        if key == "moon" and moon_uncertain:
+            return f"  {label}: signo INDETERMINADO (ingresso lunar no dia; use só aspectos abaixo)"
+        return f"  {label}: {sign}{retr}{house_part}"
+
+    # Aspectos envolvendo cada corpo (só os in-sign que passaram no filtro)
+    def _aspects_of(key):
+        pt_label = PLANET_LABEL_PT.get(key, key)
+        out = []
+        for a in chart.get("aspects") or []:
+            if a.get("planet_a") != key and a.get("planet_b") != key:
+                continue
+            other_key = a["planet_b"] if a["planet_a"] == key else a["planet_a"]
+            other_label = PLANET_LABEL_PT.get(other_key, other_key)
+            other_sign = p.get(other_key, {}).get("sign_pt", "?")
+            asp_type = a.get("type_pt", a.get("type", "?"))
+            orb = a.get("orb", 0)
+            # Se a Lua é incerta e o outro corpo é a Lua, indica só o aspecto
+            if moon_uncertain and other_key == "moon":
+                out.append(f"    · {asp_type} com Lua (signo indeterminado), orbe {orb:.1f}°")
+            else:
+                out.append(f"    · {asp_type} com {other_label} (em {other_sign}), orbe {orb:.1f}°")
+        if not out:
+            return "    · nenhum aspecto in-sign com outros corpos"
+        return "\n".join(out)
+
+    parts = []
+    parts.append("EIXO PATERNO — figuras/estruturas de autoridade:")
+    parts.append(_fmt_body("sun", "Sol"))
+    parts.append("  Aspectos in-sign do Sol:")
+    parts.append(_aspects_of("sun"))
+    parts.append(_fmt_body("saturn", "Saturno"))
+    parts.append("  Aspectos in-sign de Saturno:")
+    parts.append(_aspects_of("saturn"))
+    parts.append("")
+    parts.append("EIXO MATERNO — nutrição / segurança emocional:")
+    parts.append(_fmt_body("moon", "Lua"))
+    parts.append("  Aspectos in-sign da Lua:")
+    parts.append(_aspects_of("moon"))
+
+    if time_unknown:
+        parts.append("")
+        parts.append("[HORA DESCONHECIDA] Este mapa foi calculado sem horário de "
+                     "nascimento. NÃO afirme casas (Ascendente e Casas não puderam "
+                     "ser calculados).")
+    if moon_uncertain:
+        parts.append("[LUA INCERTA] A Lua mudou de signo no dia do nascimento. "
+                     "NÃO afirme um signo para a Lua em qualquer parte do texto — "
+                     "trabalhe só pelos aspectos dela.")
+
+    return "\n".join(parts)
+
+
 def generate_fio_condutor(name, chart, full_report, gender):
     init_clients()
     summary = build_full_chart_summary(chart)
+    parental_ctx = _parental_dynamics_context(chart)
     prompt = FIO_CONDUTOR_PROMPT_TMPL.format(
         name=name,
         full_chart_summary=summary,
+        parental_dynamics_context=parental_ctx,
         full_report_so_far=full_report,
         gender=gender,
     )
