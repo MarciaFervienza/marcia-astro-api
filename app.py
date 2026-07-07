@@ -356,9 +356,21 @@ def _parse_birth_inputs(birth_date_raw, birth_time_raw, unknown):
     datetime_iso = f"{birth_date_str}T{time_iso}"
     display = f"{parsed_date.day} de {_PT_MONTHS[parsed_date.month]} de {parsed_date.year}"
     if display_time:
-        display += f", {display_time}"
+        display += f", às {display_time}"
+    # Extra: quando a hora é desconhecida, retornamos uma nota para o rodapé
+    # da capa deixando explícito que o mapa foi calculado ao meio-dia default.
+    # A capa renderiza essa linha separadamente quando não vazia.
+    unknown_time_note = (
+        "Horário desconhecido — mapa calculado para meio-dia (12:00)"
+        if time_estimated else ""
+    )
 
-    return {"datetime": datetime_iso, "display": display, "time_estimated": time_estimated}
+    return {
+        "datetime": datetime_iso,
+        "display": display,
+        "time_estimated": time_estimated,
+        "unknown_time_note": unknown_time_note,
+    }
 
 
 # =============================================================
@@ -619,6 +631,28 @@ def _replace_lua_section_body(report_text, new_body):
     return replaced
 
 
+def _append_to_lua_section(report_text, appendix):
+    """Anexa `appendix` ao FINAL do corpo da seção `## Lua: Suas Raízes
+    Emocionais` (isto é, imediatamente antes do próximo `## ` ou do fim do
+    documento). Usado pelo Branch A para acoplar os blurbs dos dois signos
+    depois da leitura por aspectos que o Claude já gerou.
+
+    Se o marcador da seção não for encontrado, retorna o texto sem alteração
+    para não corromper o relatório.
+    """
+    import re
+    marker = f"## {_LUA_SECTION_TITLE}"
+    # Localizar a seção e capturar seu corpo até o próximo ## ou fim.
+    pattern = re.escape(marker) + r"\n\n(.*?)(?=\n## |\Z)"
+    match = re.search(pattern, report_text, flags=re.DOTALL)
+    if not match:
+        logger.warning("could not find Lua section marker for append; leaving unchanged")
+        return report_text
+    body = match.group(1).rstrip()
+    replaced = f"{marker}\n\n{body}\n{appendix}\n"
+    return report_text[:match.start()] + replaced + report_text[match.end():]
+
+
 def _prepend_to_lua_section(report_text, note):
     """Prepend a note to the body of the `## Lua: Suas Raízes Emocionais`
     section, before the existing Moon reading. Used for Branches B and C.
@@ -657,63 +691,64 @@ def _apply_moon_note(report_text, moon_meta, time_estimated):
     """
     try:
         if moon_meta.get("moon_sign_uncertain"):
+            # Branch A — hora desconhecida + Lua mudou de signo. A seção da Lua
+            # já foi gerada pelo Claude com um psychological_frame que fala só
+            # de aspectos (via report_generator). Aqui apenas ANEXAMOS os dois
+            # blurbs de signo ao final da seção da Lua — não substituímos o
+            # corpo. O disclaimer geral no topo do report (também vindo do
+            # report_generator) já cobre "mapa sem hora / Ascendente ausente".
             before = moon_meta["moon_sign_before"]
             after = moon_meta["moon_sign_after"]
-            note = _MOON_NOTE_BRANCH_A.format(
-                moon_ingress_local_time=moon_meta["moon_ingress_local_time"],
-                moon_sign_before=before,
-                moon_sign_after=after,
+            appendix_header = (
+                "\n\n### Os dois signos possíveis\n\n"
+                f"Como sua Lua pode estar em {before} ou em {after}, "
+                "abaixo estão duas descrições breves da vida emocional de cada "
+                "possibilidade — leia as duas e perceba qual ressoa mais com "
+                "a sua experiência interior.\n"
             )
-            # Try to append the two condensed sign blurbs so the invitation
-            # to "read the descriptions of both and feel which resonates"
-            # actually has descriptions to point at. Best-effort: if
-            # Pinecone/Claude is unavailable or parsing fails, we still
-            # ship Branch A without the appendix rather than losing the
-            # whole passage.
-            blurbs_appended = False
             try:
                 blurb_before, blurb_after = _generate_moon_sign_blurbs(before, after)
-                note += _MOON_BLURB_APPENDIX.format(
+                appendix = appendix_header + _MOON_BLURB_APPENDIX.format(
                     moon_sign_before=before,
                     moon_blurb_before=blurb_before,
                     moon_sign_after=after,
                     moon_blurb_after=blurb_after,
                 )
-                blurbs_appended = True
             except Exception as e:
                 logger.warning(
                     "Moon sign blurbs failed for %s / %s (%s); "
-                    "shipping Branch A without blurbs",
+                    "shipping Branch A without appendix",
                     before, after, e,
                 )
-            modified = _replace_lua_section_body(report_text, note)
+                appendix = ""
 
-            # Safety-net cleanup — re-run cleanup_pass over the full
-            # modified report, but only if blurbs were actually added
-            # (no point re-scanning otherwise; the earlier cleanup
-            # already handled the untouched original).
-            if blurbs_appended:
-                try:
-                    from report_generator import cleanup_pass
-                    modified, extra_changes = cleanup_pass(modified)
-                    if extra_changes:
-                        moon_meta["blurb_cleanup_changes"] = [
-                            {k: v for k, v in c.items() if k != "trace"}
-                            for c in extra_changes
-                        ]
-                        logger.info(
-                            "Branch A cleanup rewrote %d Claude tell(s) in blurbs",
-                            len(extra_changes),
-                        )
-                except Exception as e:
-                    logger.warning(
-                        "post-blurb cleanup_pass failed: %s (shipping as-is)", e
+            if not appendix:
+                return report_text
+            modified = _append_to_lua_section(report_text, appendix)
+
+            # Safety-net cleanup — re-scan the full modified report so any
+            # "Não é X, é Y" leaked into the blurbs is caught by the same
+            # global-quota rule that ran earlier on the pre-blurb text.
+            try:
+                from report_generator import cleanup_pass
+                modified, extra_changes = cleanup_pass(modified)
+                if extra_changes:
+                    moon_meta["blurb_cleanup_changes"] = [
+                        {k: v for k, v in c.items() if k != "trace"}
+                        for c in extra_changes
+                    ]
+                    logger.info(
+                        "Branch A cleanup rewrote %d Claude tell(s) in blurbs",
+                        len(extra_changes),
                     )
+            except Exception as e:
+                logger.warning(
+                    "post-blurb cleanup_pass failed: %s (shipping as-is)", e
+                )
             return modified
-        if time_estimated and not moon_meta.get("moon_sign_uncertain") \
-                and moon_meta.get("moon_sign"):
-            note = _MOON_NOTE_BRANCH_B.format(moon_sign=moon_meta["moon_sign"])
-            return _prepend_to_lua_section(report_text, note)
+        # Branch B (hora desconhecida sem ingresso) removido — o disclaimer
+        # gerado por report_generator no topo do relatório já cobre a
+        # necessidade. Não fazemos nada aqui neste caso; seguimos.
         if moon_meta.get("moon_near_cusp"):
             note = _MOON_NOTE_BRANCH_C.format(
                 moon_sign=moon_meta["moon_sign"],
@@ -938,6 +973,7 @@ def generate_report_endpoint():
     body["datetime"] = parsed_birth["datetime"]
     birth_date_display = parsed_birth["display"]
     time_estimated = parsed_birth["time_estimated"]
+    unknown_time_note = parsed_birth.get("unknown_time_note", "")
 
     # Geocode birth_city → (lat, lng, IANA tz name). Always geocoded fresh
     # from the city string; any latitude/longitude/timezone the caller may
@@ -982,6 +1018,13 @@ def generate_report_endpoint():
                 "message": f"Chart JSON missing required field: '{required}'",
             }), 400
 
+    # Sinalizar ao report_generator: hora desconhecida + info de ingresso lunar.
+    # Essas chaves com underscore são consumidas em report_generator.py para
+    # reformular seções que dependem de hora (abertura/triade/lua/casa_4) e para
+    # inserir o disclaimer no topo do relatório. Não vão para a resposta.
+    body["_unknown_birth_time"] = unknown_birth_time
+    body["_moon_meta"] = moon_meta
+
     try:
         result = rg.generate_report(
             body,
@@ -1019,11 +1062,15 @@ def generate_report_endpoint():
     pdf_bytes = None  # kept around for the email path so we don't round-trip via base64
     pdf_error = None
     try:
+        # Se o cliente não passou birth_place explícito, usar a cidade que
+        # foi de fato geocoded — dá transparência sobre o que foi calculado.
+        cover_place = birth_place or (body.get("birth_city") or "").strip()
         pdf_bytes = pg.generate_pdf(
             report_text=result["report"],
             client_name=result["name"],
             birth_date=birth_date_display,
-            birth_place=birth_place,
+            birth_place=cover_place,
+            birth_note=unknown_time_note,
             chart_image_url=chart_svg_path,
             aspects=body.get("aspects", []),
             points=body.get("points", {}),

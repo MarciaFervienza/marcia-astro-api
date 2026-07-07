@@ -729,7 +729,8 @@ def _chart_page_flowables(
 # ============================================================
 # COVER FLOWABLES
 # ============================================================
-def _cover_flowables(client_name: str, birth_date: str, birth_place: str, styles):
+def _cover_flowables(client_name: str, birth_date: str, birth_place: str, styles,
+                     birth_note: str = ""):
     """Build the list of flowables that fill the cover page.
 
     Layout, top to bottom:
@@ -798,6 +799,15 @@ def _cover_flowables(client_name: str, birth_date: str, birth_place: str, styles
         flow.append(Paragraph(_escape(birth_date), styles["cover_birth"]))
     if birth_place:
         flow.append(Paragraph(_escape(birth_place), styles["cover_birth"]))
+    # Optional note — used to make explicit that the chart was calculated
+    # without a birth time (defaulted to noon). Rendered in italic serif to
+    # match the muted disclaimer voice used elsewhere.
+    if birth_note:
+        flow.append(Spacer(1, 0.3 * cm))
+        flow.append(Paragraph(
+            f"<font face='EBGaramond-Italic'>{_escape(birth_note)}</font>",
+            styles["cover_birth"],
+        ))
 
     # Push the logo/wordmark down toward the bottom edge (before the footer band)
     flow.append(Spacer(1, 3.4 * cm))
@@ -1086,6 +1096,7 @@ def generate_pdf(
     client_name: str,
     birth_date: str = "",
     birth_place: str = "",
+    birth_note: str = "",
     chart_image_url: str = "",
     aspects: list = None,
     points: dict = None,
@@ -1155,7 +1166,7 @@ def generate_pdf(
     ])
 
     story = []
-    story.extend(_cover_flowables(client_name, birth_date, birth_place, styles))
+    story.extend(_cover_flowables(client_name, birth_date, birth_place, styles, birth_note=birth_note))
 
     # Chart page — only add it if we have something to show
     if chart_image_url or aspects:

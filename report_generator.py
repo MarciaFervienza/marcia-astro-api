@@ -487,6 +487,23 @@ def fmt_position(p):
     return s
 
 
+def _time_is_unknown(chart):
+    """True quando o endpoint sinalizou que o horário de nascimento não foi
+    informado. Nesse caso o Ascendente/MC/casas foram calculados a partir do
+    default meio-dia e NÃO são confiáveis — o contexto entregue ao Claude
+    precisa omitir tudo que depende de hora, e as seções que dependem dela
+    são reformuladas ou puladas. A flag é injetada em app.py antes de chamar
+    generate_report."""
+    return bool(chart.get("_unknown_birth_time", False))
+
+
+def _moon_ingress_meta(chart):
+    """Retorna o dict de meta lunar computado em app.py (via detect_moon_ingress
+    quando a hora é desconhecida, check_moon_cusp quando é conhecida). Usado
+    para reformular a seção da Lua quando ela mudou de signo no dia."""
+    return chart.get("_moon_meta", {}) or {}
+
+
 def section_chart_context(section_name, chart):
     """
     Per-section concise chart-data context shown to Claude.
@@ -498,27 +515,61 @@ def section_chart_context(section_name, chart):
       - drops Tier-4 pairs with orb ≥ 2°,
       - excludes aspects already described in previous sections
         (via the module-level `described_aspect_themes` set).
+
+    When time is unknown (chart["_unknown_birth_time"]=True) all "na casa N"
+    references are stripped and the Ascendente/MC lines are omitted from the
+    abertura/triade contexts — nothing that depends on birth time reaches
+    Claude, so Claude can't write about it.
     """
     p = chart["points"]
     asc = chart["ascendant"]
     mc = chart.get("midheaven", {})
+    time_unknown = _time_is_unknown(chart)
+    moon_meta = _moon_ingress_meta(chart)
+    moon_uncertain = time_unknown and bool(moon_meta.get("moon_sign_uncertain"))
+
+    # fmt_pos_local: hora conhecida → "signo grau° na casa N"; desconhecida → só "signo grau°"
+    def _pl(planet):
+        base = fmt_position(planet)
+        if time_unknown:
+            return base
+        return f"{base} na casa {planet['house']}"
 
     # Compute filtered aspects for this section once (also records into _section_aspect_audit)
     filtered_aspects = aspects_for_section_filtered(section_name, chart)
     aspects_line = fmt_filtered_aspects(filtered_aspects)
 
     if section_name == "abertura":
+        if time_unknown:
+            # Sem Ascendente/MC — mapa sem hora não tem esses pontos.
+            return (
+                f"Sol: {fmt_position(p['sun'])}\n"
+                f"Lua: {fmt_position(p['moon'])}\n"
+                f"[NOTA: Este mapa foi calculado sem horário de nascimento. "
+                f"Ascendente e casas não estão disponíveis. Não os mencione — "
+                f"trabalhe apenas com signos e aspectos planetários.]"
+            )
         return (
-            f"Sol: {fmt_position(p['sun'])} na casa {p['sun']['house']}\n"
-            f"Lua: {fmt_position(p['moon'])} na casa {p['moon']['house']}\n"
+            f"Sol: {_pl(p['sun'])}\n"
+            f"Lua: {_pl(p['moon'])}\n"
             f"Ascendente: {fmt_position(asc)}\n"
             f"Meio-do-Céu: {fmt_position(mc)}"
         )
 
     if section_name == "triade":
+        if time_unknown:
+            # Vira "Sol e Lua" — sem Ascendente.
+            return (
+                f"Sol: {fmt_position(p['sun'])}\n"
+                f"Lua: {fmt_position(p['moon'])}\n\n"
+                f"Aspectos relevantes de Sol e Lua (filtrados, priorizados, sem duplicatas): {aspects_line}\n\n"
+                f"[NOTA: Este mapa foi calculado sem horário de nascimento. Não interprete "
+                f"como uma tríade — não há Ascendente. Sintetize a dupla Sol/Lua e como "
+                f"os dois se articulam. NÃO mencione o Ascendente em nenhuma parte do texto.]"
+            )
         return (
-            f"Sol: {fmt_position(p['sun'])} na casa {p['sun']['house']}\n"
-            f"Lua: {fmt_position(p['moon'])} na casa {p['moon']['house']}\n"
+            f"Sol: {_pl(p['sun'])}\n"
+            f"Lua: {_pl(p['moon'])}\n"
             f"Ascendente: {fmt_position(asc)}\n"
             f"Meio-do-Céu: {fmt_position(mc)}\n\n"
             f"Aspectos relevantes da tríade (filtrados, priorizados, sem duplicatas): {aspects_line}"
@@ -526,7 +577,7 @@ def section_chart_context(section_name, chart):
 
     if section_name == "mercurio":
         return (
-            f"Mercúrio: {fmt_position(p['mercury'])} na casa {p['mercury']['house']}\n"
+            f"Mercúrio: {_pl(p['mercury'])}\n"
             f"Aspectos relevantes de Mercúrio (filtrados): {aspects_line}\n\n"
             f"NOTA DE ESTILO PARA ESTA SEÇÃO: Avoid doubling the same verb in sequence — "
             f"'precisa conhecer a fundo, precisa poder sustentar' should be restructured. "
@@ -534,8 +585,22 @@ def section_chart_context(section_name, chart):
         )
 
     if section_name == "lua":
+        if moon_uncertain:
+            # Mudou de signo no dia + hora desconhecida — o signo é indeterminado.
+            # Descrever só por aspectos; a leitura dos dois signos possíveis
+            # é acoplada depois pela lógica de Branch A em app.py.
+            return (
+                f"[NOTA: A hora de nascimento é desconhecida E a Lua mudou de signo "
+                f"neste dia (de {moon_meta.get('moon_sign_before')} para "
+                f"{moon_meta.get('moon_sign_after')} às {moon_meta.get('moon_ingress_local_time')} "
+                f"horário local). O signo da Lua é INDETERMINADO. NÃO mencione um signo "
+                f"específico para a Lua. Trabalhe APENAS com os aspectos lunares — o que "
+                f"eles revelam sobre a vida emocional, a figura materna, os padrões "
+                f"herdados — independentemente de qual dos dois signos seja o dela.]\n\n"
+                f"Aspectos relevantes da Lua (filtrados): {aspects_line}"
+            )
         return (
-            f"Lua: {fmt_position(p['moon'])} na casa {p['moon']['house']}\n"
+            f"Lua: {_pl(p['moon'])}\n"
             f"Aspectos relevantes da Lua (filtrados): {aspects_line}"
         )
 
@@ -558,73 +623,73 @@ def section_chart_context(section_name, chart):
 
     if section_name == "sol_saturno":
         return (
-            f"Sol: {fmt_position(p['sun'])} na casa {p['sun']['house']}\n"
-            f"Saturno: {fmt_position(p['saturn'])} na casa {p['saturn']['house']}\n"
+            f"Sol: {_pl(p['sun'])}\n"
+            f"Saturno: {_pl(p['saturn'])}\n"
             f"Aspectos relevantes Sol/Saturno (filtrados): {aspects_line}"
         )
 
     if section_name == "venus_marte":
         return (
-            f"Vênus: {fmt_position(p['venus'])} na casa {p['venus']['house']}\n"
-            f"Marte: {fmt_position(p['mars'])} na casa {p['mars']['house']}\n"
+            f"Vênus: {_pl(p['venus'])}\n"
+            f"Marte: {_pl(p['mars'])}\n"
             f"Aspectos relevantes Vênus/Marte (filtrados): {aspects_line}"
         )
 
     if section_name == "jupiter":
         return (
-            f"Júpiter: {fmt_position(p['jupiter'])} na casa {p['jupiter']['house']}\n"
+            f"Júpiter: {_pl(p['jupiter'])}\n"
             f"Aspectos relevantes de Júpiter (filtrados): {aspects_line}"
         )
 
     if section_name == "saturno":
         return (
-            f"Saturno: {fmt_position(p['saturn'])} na casa {p['saturn']['house']}\n"
+            f"Saturno: {_pl(p['saturn'])}\n"
             f"Aspectos relevantes de Saturno (filtrados): {aspects_line}"
         )
 
     if section_name == "quiron":
         return (
-            f"Quíron: {fmt_position(p['chiron'])} na casa {p['chiron']['house']}\n"
+            f"Quíron: {_pl(p['chiron'])}\n"
             f"Aspectos relevantes de Quíron (filtrados): {aspects_line}"
         )
 
     if section_name == "urano":
         return (
-            f"Urano: {fmt_position(p['uranus'])} na casa {p['uranus']['house']}\n"
+            f"Urano: {_pl(p['uranus'])}\n"
             f"Aspectos relevantes de Urano (filtrados): {aspects_line}"
         )
 
     if section_name == "netuno":
         return (
-            f"Netuno: {fmt_position(p['neptune'])} na casa {p['neptune']['house']}\n"
+            f"Netuno: {_pl(p['neptune'])}\n"
             f"Aspectos relevantes de Netuno (filtrados): {aspects_line}"
         )
 
     if section_name == "plutao":
         return (
-            f"Plutão: {fmt_position(p['pluto'])} na casa {p['pluto']['house']}\n"
+            f"Plutão: {_pl(p['pluto'])}\n"
             f"Aspectos relevantes de Plutão (filtrados): {aspects_line}"
         )
 
     if section_name == "lilith":
         return (
-            f"Lilith: {fmt_position(p['lilith'])} na casa {p['lilith']['house']}\n"
+            f"Lilith: {_pl(p['lilith'])}\n"
             f"Aspectos relevantes de Lilith (filtrados): {aspects_line}"
         )
 
     if section_name == "nodos":
         return (
-            f"Nodo Sul: {fmt_position(p['south_node'])} na casa {p['south_node']['house']}\n"
-            f"Nodo Norte: {fmt_position(p['north_node'])} na casa {p['north_node']['house']}\n"
+            f"Nodo Sul: {_pl(p['south_node'])}\n"
+            f"Nodo Norte: {_pl(p['north_node'])}\n"
             f"Aspectos relevantes dos Nodos (filtrados): {aspects_line}"
         )
 
     if section_name == "asteroides":
         return (
-            f"Ceres: {fmt_position(p['ceres'])} na casa {p['ceres']['house']}\n"
-            f"Vesta: {fmt_position(p['vesta'])} na casa {p['vesta']['house']}\n"
-            f"Juno: {fmt_position(p['juno'])} na casa {p['juno']['house']}\n"
-            f"Palas: {fmt_position(p['pallas'])} na casa {p['pallas']['house']}\n"
+            f"Ceres: {_pl(p['ceres'])}\n"
+            f"Vesta: {_pl(p['vesta'])}\n"
+            f"Juno: {_pl(p['juno'])}\n"
+            f"Palas: {_pl(p['pallas'])}\n"
             f"Aspectos relevantes dos asteróides (filtrados, orbe < 2°): {aspects_line}"
         )
 
@@ -637,6 +702,14 @@ def section_chart_context(section_name, chart):
 def build_sections(chart):
     p = chart["points"]
     asc = chart["ascendant"]
+
+    # Time-unknown branches: skip and rewrite sections that assume Ascendente/casas.
+    # The flag comes from app.py (endpoint stashes it on the chart dict before
+    # calling generate_report). moon_meta carries the Branch A ingress info from
+    # the same source.
+    time_unknown = _time_is_unknown(chart)
+    moon_meta = _moon_ingress_meta(chart)
+    moon_uncertain = time_unknown and bool(moon_meta.get("moon_sign_uncertain"))
 
     sun = p["sun"]
     moon = p["moon"]
@@ -683,8 +756,50 @@ def build_sections(chart):
         "plutao", "lilith", "nodos", "asteroides",
     )
 
-    _sections_unordered = [
-        {
+    # Abertura + Tríade dependem se a hora é conhecida — cada uma tem duas variantes.
+    if time_unknown:
+        _abertura_section = {
+            "name": "abertura",
+            "title": "Abertura",
+            "queries": [
+                f"Sol em {sun['sign_pt']} Lua em {moon['sign_pt']} síntese identidade",
+                f"quem é essa pessoa {sun['sign_pt']} {moon['sign_pt']}",
+            ],
+            "planets_filter": ["Sol", "Lua"],
+            "psychological_frame": (
+                "Escreva uma abertura calorosa que funcione como uma porta de entrada, não como uma análise imediata. "
+                "O primeiro parágrafo deve criar uma sensação de reconhecimento — como se alguém que te conhece "
+                "profundamente estivesse dizendo 'eu te vejo'. Apenas no segundo parágrafo comece a nomear as tensões "
+                "centrais do mapa. Termine com uma frase que convide o leitor a continuar. Tom: íntimo, acolhedor, presente.\n\n"
+                "IMPORTANTE: este mapa foi calculado SEM horário de nascimento. NÃO mencione o Ascendente em nenhum "
+                "momento — ele não pôde ser calculado. Trabalhe só com o Sol e a Lua e suas dinâmicas. Não use as "
+                "expressões 'como você se apresenta', 'primeira impressão', 'máscara social' ou variações que "
+                "descrevem o papel do Ascendente. Evite a construção 'Não é X. É Y'."
+            ),
+            "depth_instruction": DEPTH_TIER_3,
+        }
+        _triade_section = {
+            "name": "triade",
+            "title": "Sol e Lua: O Núcleo Emocional-Vital",
+            "queries": [
+                f"Sol em {sun['sign_pt']}",
+                f"Lua em {moon['sign_pt']} vida emocional",
+                f"Sol Lua síntese {sun['sign_pt']} {moon['sign_pt']}",
+            ],
+            "planets_filter": ["Sol", "Lua"],
+            "psychological_frame": (
+                "Interprete o Sol e a Lua como o núcleo do mapa — a dupla vital-emocional. O Sol é para onde você "
+                "vai, a Lua é de onde você vem. Sintetize como esses dois funcionam juntos e onde criam tensão.\n\n"
+                "IMPORTANTE: este mapa foi calculado SEM horário de nascimento. NÃO mencione o Ascendente em nenhum "
+                "momento — ele não pôde ser calculado. NÃO chame esta seção de 'tríade'; ela é uma dupla Sol/Lua. "
+                "NÃO use frases do tipo 'como você chega', 'como se apresenta', 'primeira impressão' — essas "
+                "descrevem o Ascendente e não se aplicam aqui.\n\n"
+                "Termine com uma ou duas frases de orientação sobre como trabalhar com a tensão central Sol/Lua."
+            ),
+            "depth_instruction": DEPTH_TIER_3,
+        }
+    else:
+        _abertura_section = {
             "name": "abertura",
             "title": "Abertura",
             "queries": [
@@ -702,8 +817,8 @@ def build_sections(chart):
                 "usando uma afirmação direta em vez da estrutura negativa/positiva."
             ),
             "depth_instruction": DEPTH_TIER_3,
-        },
-        {
+        }
+        _triade_section = {
             "name": "triade",
             "title": "Sua Tríade: Sol, Lua e Ascendente",
             "queries": [
@@ -721,7 +836,11 @@ def build_sections(chart):
                 "dessa seção."
             ),
             "depth_instruction": DEPTH_TIER_3,
-        },
+        }
+
+    _sections_unordered = [
+        _abertura_section,
+        _triade_section,
         {
             "name": "mercurio",
             "title": "Mercúrio: Como Você Pensa",
@@ -733,16 +852,56 @@ def build_sections(chart):
             "psychological_frame": "Mercúrio fala de como você processa informação, aprende, se comunica e organiza o pensamento. Interprete o signo, a casa e os aspectos principais de Mercúrio neste mapa.",
             "depth_instruction": DEPTH_TIER_3,
         },
+        # Seção da Lua — três variantes dependendo do que a análise lunar detectou:
+        # (i) hora conhecida OU (ii) hora desconhecida sem ingresso — usa signo + aspectos
+        # (iii) hora desconhecida COM ingresso — usa APENAS aspectos, signo é indeterminado
         {
             "name": "lua",
             "title": "Lua: Suas Raízes Emocionais",
-            "queries": [
-                f"Lua em {moon['sign_pt']} casa {moon['house']} mãe infância",
-                f"figura materna {moon['sign_pt']} padrões emocionais família",
-                f"Lua aspectos {moon_aspects_text}",
-            ],
+            "queries": (
+                # Quando o signo da Lua é INDETERMINADO (ingress no dia), buscamos
+                # material por AFECTOS, sem âncora em signo — os aspectos são o
+                # que temos de sólido.
+                [
+                    f"Lua aspectos vida emocional figura materna padrões",
+                    f"Lua aspectos {moon_aspects_text}",
+                    f"figura materna padrões emocionais família aspectos lunares",
+                ]
+                if moon_uncertain else
+                [
+                    f"Lua em {moon['sign_pt']} mãe infância" + ("" if time_unknown else f" casa {moon['house']}"),
+                    f"figura materna {moon['sign_pt']} padrões emocionais família",
+                    f"Lua aspectos {moon_aspects_text}",
+                ]
+            ),
             "planets_filter": ["Lua"],
-            "psychological_frame": "A Lua fala da figura materna ou do cuidador principal na infância, do ambiente familiar, das memórias e dos padrões emocionais que moldaram como você navega o mundo.",
+            "psychological_frame": (
+                # (iii) hora desconhecida + Lua mudou de signo no dia
+                (
+                    "A Lua fala da figura materna ou do cuidador principal na infância, do ambiente familiar, das "
+                    "memórias e dos padrões emocionais que moldaram como você navega o mundo.\n\n"
+                    "IMPORTANTE: neste mapa a hora de nascimento é desconhecida E a Lua mudou de signo neste dia. "
+                    f"Ela pode ter estado em {moon_meta.get('moon_sign_before')} ou em {moon_meta.get('moon_sign_after')} "
+                    "— não sabemos com certeza. Portanto:\n"
+                    "- NÃO afirme um signo específico para a Lua.\n"
+                    "- NÃO use frases como 'sua Lua em X' ou 'a Lua em X traz'.\n"
+                    "- Trabalhe APENAS com os ASPECTOS lunares — o que eles revelam sobre a vida emocional, "
+                    "a figura materna, os padrões herdados — independentemente do signo.\n"
+                    "- NÃO mencione casas (a hora é desconhecida).\n"
+                    "- Uma leitura condensada dos dois signos possíveis será apresentada em seguida (não escreva "
+                    "essa parte — outro trecho do sistema fará isso)."
+                ) if moon_uncertain else
+                # (ii) hora desconhecida, Lua ficou no mesmo signo
+                (
+                    "A Lua fala da figura materna ou do cuidador principal na infância, do ambiente familiar, "
+                    "das memórias e dos padrões emocionais que moldaram como você navega o mundo.\n\n"
+                    "IMPORTANTE: a hora de nascimento é desconhecida. Interprete a Lua pelo SIGNO e pelos "
+                    "ASPECTOS — NÃO mencione a casa da Lua (não pôde ser calculada). Felizmente a Lua "
+                    f"esteve em {moon['sign_pt']} durante todo o dia do nascimento, então o signo é confiável."
+                ) if time_unknown else
+                # (i) hora conhecida — comportamento original
+                "A Lua fala da figura materna ou do cuidador principal na infância, do ambiente familiar, das memórias e dos padrões emocionais que moldaram como você navega o mundo."
+            ),
             "depth_instruction": DEPTH_TIER_1,
         },
         {
@@ -944,7 +1103,18 @@ def build_sections(chart):
         raise RuntimeError(f"SECTION_ORDER references missing section names: {missing}")
     if extra:
         raise RuntimeError(f"Section definitions present but absent from SECTION_ORDER: {extra}")
-    return [by_name[n] for n in SECTION_ORDER]
+
+    ordered = [by_name[n] for n in SECTION_ORDER]
+
+    # Se a hora é desconhecida, PULAR seções que dependem inteiramente da hora:
+    # - casa_4: a lista de planetas na casa 4 e o IC não podem ser determinados
+    #   sem hora — qualquer texto que essa seção produzisse estaria trabalhando
+    #   com um cálculo default (meio-dia) que não tem correspondência com o
+    #   mapa real da pessoa. Melhor omitir do que gerar conteúdo enganoso.
+    if time_unknown:
+        ordered = [s for s in ordered if s["name"] not in ("casa_4",)]
+
+    return ordered
 
 
 # ============================================================
@@ -1483,6 +1653,49 @@ def generate_report(
     skip_fio = bool(sections_only) or bool(limit) or no_fio
 
     full_report = f"# Mapa Natal — {name}\n\n"
+
+    # Disclaimer sobre hora desconhecida — inserido no topo, ANTES de qualquer
+    # seção que dependa da hora. Duas variantes conforme a Lua tenha ou não
+    # mudado de signo no dia (moon_meta vem do endpoint via chart["_moon_meta"]).
+    if _time_is_unknown(chart):
+        _mm = _moon_ingress_meta(chart)
+        if _mm.get("moon_sign_uncertain"):
+            full_report += (
+                "## Uma nota importante sobre este mapa\n\n"
+                "Você não informou o horário exato de nascimento, então este relatório foi elaborado sem "
+                "os pontos que dependem dele. Especificamente:\n\n"
+                "- **O Ascendente e as casas astrológicas não puderam ser calculados.** Nenhuma seção fala "
+                "sobre como você se apresenta ao mundo, sobre a divisão dos setores da vida por casa, ou "
+                "sobre a posição por casa de cada planeta.\n"
+                "- **A posição planetária nos signos permanece confiável** para todos os planetas — Sol, "
+                "Mercúrio, Vênus, Marte, Júpiter, Saturno, Urano, Netuno, Plutão, Quíron, Lilith, nodos e "
+                "asteróides. Esses cálculos independem da hora.\n"
+                "- **A Lua exige uma nota separada.** No dia do seu nascimento, ela mudou de signo — "
+                f"esteve em **{_mm.get('moon_sign_before')}** até as **{_mm.get('moon_sign_local_time', _mm.get('moon_ingress_local_time'))}** "
+                f"(horário local), e depois passou para **{_mm.get('moon_sign_after')}**. Sem a hora exata, "
+                "não é possível dizer com certeza em qual dos dois signos ela se encontra no seu mapa. "
+                "A seção da Lua, mais adiante, apresenta as duas leituras possíveis para você reconhecer qual "
+                "ressoa com sua experiência interior.\n\n"
+                "Se em algum momento você recuperar o horário exato — em certidão, registro de maternidade, "
+                "com familiares —, todo o mapa pode ser refeito com precisão.\n"
+            )
+        else:
+            full_report += (
+                "## Uma nota importante sobre este mapa\n\n"
+                "Você não informou o horário exato de nascimento, então este relatório foi elaborado sem "
+                "os pontos que dependem dele. Especificamente:\n\n"
+                "- **O Ascendente e as casas astrológicas não puderam ser calculados.** Nenhuma seção fala "
+                "sobre como você se apresenta ao mundo, sobre a divisão dos setores da vida por casa, ou "
+                "sobre a posição por casa de cada planeta.\n"
+                "- **A posição planetária nos signos permanece confiável** — Sol, Lua, Mercúrio, Vênus, "
+                "Marte, Júpiter, Saturno, Urano, Netuno, Plutão, Quíron, Lilith, nodos e asteróides. Esses "
+                "cálculos independem da hora.\n"
+                f"- **A Lua, felizmente, permaneceu em {_mm.get('moon_sign')} durante todo o dia do seu "
+                "nascimento**, de modo que a leitura da vida emocional pode ser feita com segurança.\n\n"
+                "Se em algum momento você recuperar o horário exato — em certidão, registro de maternidade, "
+                "com familiares —, todo o mapa pode ser refeito com precisão.\n"
+            )
+
     section_texts: dict = {}
     section_lookup = {s["name"]: s for s in sections}
     start = time.time()
