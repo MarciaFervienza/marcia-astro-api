@@ -1069,15 +1069,21 @@ def generate_report_endpoint():
         "aries", "taurus", "gemini", "cancer", "leo", "virgo",
         "libra", "scorpio", "sagittarius", "capricorn", "aquarius", "pisces",
     ]
-    _ASPECT_ANGLES = {
-        "conjunction": 0, "sextile": 60, "square": 90,
-        "trine": 120, "opposition": 180,
-    }
+    # Só três tipos são considerados para asteróides e Nodos:
+    # conjunção, oposição, quadratura. Trígono e sextil desses corpos
+    # NÃO são interpretados na prática da Marcia — não computar.
     _ASPECT_PT_LABELS = {
         "conjunction": "conjunção", "sextile": "sextil", "square": "quadratura",
         "trine": "trígono", "opposition": "oposição",
     }
-    _INIT_MAX_ORB = 12.0  # generoso — a cascata do filtro reduz depois
+    # Ângulos + orbes máximos para o cálculo manual dos aspectos ausentes.
+    # Para asteróides/Nodos: conj 6° · opp 6° · quadratura 4°. Trígono/
+    # sextil ficam de fora deliberadamente.
+    _MANUAL_ASPECT_SPECS = [
+        ("conjunction",   0, 6.0),
+        ("opposition",  180, 6.0),
+        ("square",       90, 4.0),
+    ]
 
     def _abs_pos(pdict):
         """Retorna a posição absoluta em graus 0-360 a partir de sign + degrees."""
@@ -1093,24 +1099,22 @@ def generate_report_endpoint():
             return None
 
     def _compute_missing_aspects(points):
-        """Computa aspectos que o Kerykeion não gera. Retorna lista no mesmo
-        formato dos aspectos do payload — planet_a, planet_b, type, type_pt,
-        orb, applying=None."""
+        """Computa aspectos que o Kerykeion não gera. Só conjunção/oposição/
+        quadratura, com orbes 6°/6°/4° — trígono e sextil de asteróides e
+        Nodos não são interpretados na prática da Marcia. Retorna lista no
+        mesmo formato dos aspectos do payload."""
         ASTEROIDS = ["ceres", "vesta", "juno", "pallas"]
         MAIN_PLANETS = ["sun", "moon", "mercury", "venus", "mars",
                         "jupiter", "saturn", "uranus", "neptune", "pluto"]
         NODES = ["north_node", "south_node"]
 
         pairs = []
-        # asteróide × planeta (evitando duplicar par)
         for a in ASTEROIDS:
             for p in MAIN_PLANETS:
                 pairs.append((a, p))
-        # Nodo × planeta
         for n in NODES:
             for p in MAIN_PLANETS:
                 pairs.append((n, p))
-        # Nodo × asteróide
         for n in NODES:
             for a in ASTEROIDS:
                 pairs.append((n, a))
@@ -1122,29 +1126,30 @@ def generate_report_endpoint():
             if pos_a is None or pos_b is None:
                 continue
 
-            # Distância angular circular (menor das duas direções)
+            # Distância angular circular
             raw = abs(pos_a - pos_b)
             dist = min(raw, 360.0 - raw)
 
-            # Cada par de corpos forma no máximo UM aspecto — o mais próximo
-            # de um dos ângulos ptolomaicos. Escolher o de menor orbe.
-            best_type = None
-            best_orb = None
-            for atype, angle in _ASPECT_ANGLES.items():
+            # Testar SÓ conjunção/oposição/quadratura contra a distância.
+            # Escolher o de menor orbe entre os três; se nenhum estiver
+            # dentro do seu orbe máximo específico, o par não forma aspecto.
+            best = None  # (type, orb, max_orb)
+            for atype, angle, max_orb in _MANUAL_ASPECT_SPECS:
                 orb = abs(dist - angle)
-                if best_orb is None or orb < best_orb:
-                    best_orb = orb
-                    best_type = atype
+                if orb <= max_orb:
+                    if best is None or orb < best[1]:
+                        best = (atype, orb, max_orb)
 
-            if best_type is None or best_orb > _INIT_MAX_ORB:
+            if best is None:
                 continue
 
+            atype, orb, _max = best
             out.append({
                 "planet_a": pa_key,
                 "planet_b": pb_key,
-                "type": best_type,
-                "type_pt": _ASPECT_PT_LABELS[best_type],
-                "orb": round(best_orb, 2),
+                "type": atype,
+                "type_pt": _ASPECT_PT_LABELS[atype],
+                "orb": round(orb, 2),
                 "applying": None,  # sem velocidade nos points do payload
             })
         return out
@@ -1204,7 +1209,19 @@ def generate_report_endpoint():
     _TRANSPERSONAL = {"uranus","neptune","pluto"}
     _ASTEROIDS = {"ceres","vesta","juno","pallas"}
     _CHIRON_LILITH = {"chiron","lilith"}
-    _MINOR_SPECIAL = {"chiron","lilith","north_node","south_node"}
+    _NODES = {"north_node","south_node"}
+    # Corpos "menor" nos quais a conjunção com planeta é limitada a 5°.
+    # (Nodos e asteróides tinham regra específica no bloco antigo, mas agora
+    # são interceptados no bloco novo com orbes 6°/6°/4°.)
+    _MINOR_SPECIAL = {"chiron","lilith"}
+
+    # Regras específicas de asteróides/Nodos:
+    #   · SÓ conjunção (max 6°), oposição (max 6°), quadratura (max 4°)
+    #   · Trígono e sextil NÃO são interpretados na prática da Marcia
+    #   · applying=None NÃO descarta esses aspectos (orbes já apertadas
+    #     tornam o critério aplicativo irrelevante)
+    _ASTEROID_NODE_ALL = _ASTEROIDS | _NODES
+    _ASTEROID_NODE_ORB_MAX = {"conjunction": 6.0, "opposition": 6.0, "square": 4.0}
 
     # Orbe padrão máximo por tipo de aspecto (planetas entre si)
     _ORB_MAX = {
@@ -1279,26 +1296,62 @@ def generate_report_endpoint():
             _drop(a, "forbidden_pair_asteroid_x_chiron_or_lilith")
             continue
 
-        # Etapa 3: orbe máximo por tipo de aspecto (padrão entre planetas)
+        # Etapa 3: INTERCEPTAR aspectos envolvendo asteróide ou Nodo — regras
+        # específicas se aplicam ANTES da cascata geral:
+        #   · SÓ conjunção (max 6°) / oposição (max 6°) / quadratura (max 4°)
+        #   · Trígono e sextil descartados por não serem interpretados
+        #   · applying=None NÃO descarta (orbes apertadas já garantem
+        #     relevância — critério aplicativo fica irrelevante aqui)
+        #   · Salta a etapa 5 (applying threshold) — não se aplica
+        if pa in _ASTEROID_NODE_ALL or pb in _ASTEROID_NODE_ALL:
+            allowed = _ASTEROID_NODE_ORB_MAX.get(atype)
+            if allowed is None:
+                # Trígono ou sextil (ou tipo desconhecido) — não interpretar
+                _drop(a, "asteroid_or_node_aspect_type_not_used",
+                      aspect_type=atype,
+                      allowed=list(_ASTEROID_NODE_ORB_MAX.keys()))
+                continue
+            if orb > allowed:
+                _drop(a, "asteroid_or_node_orb_exceeded",
+                      limit=allowed, aspect_type=atype)
+                continue
+            # Passou. Peso e força; applying é preservado como veio (geralmente
+            # None nos calculados manualmente, ou o valor do payload se veio).
+            weight, strength = _weight_and_strength(orb)
+            kept.append({
+                **a,
+                "applying": applying,
+                "weight": weight,
+                "strength": strength,
+            })
+            continue
+
+        # Etapa 4: orbe máximo por tipo de aspecto (padrão entre planetas /
+        # Quíron / Lilith — asteróides e Nodos já foram tratados acima)
         max_orb_std = _ORB_MAX.get(atype)
         if max_orb_std is None:
             _drop(a, "unknown_aspect_type")
             continue
 
         # Etapa 4: restrições específicas de PARES DE CORPOS
-        # 4a — conjunção entre asteróides: máx 4°
+        # (Asteróides e Nodos já foram tratados na etapa 3 acima — aqui
+        # tratamos apenas Quíron/Lilith e pares planeta-planeta.)
+        #
+        # 4a — conjunção entre asteróides: regra INATIVA na prática atual
+        # porque não computamos asteróide × asteróide. Documentada para
+        # o caso de aparecer via payload; se aparecer, aplica máx 4°.
         if atype == "conjunction" and pa in _ASTEROIDS and pb in _ASTEROIDS:
             if orb > 4.0:
                 _drop(a, "asteroid_conj_orb_over_4", limit=4.0)
                 continue
 
-        # 4b — conjunção de PLANETA com Quíron/Lilith/Nodo/Asteróide: máx 5°
+        # 4b — conjunção de PLANETA com Quíron ou Lilith: máx 5°
         elif atype == "conjunction" and (
-            (pa in _PLANETS and (pb in _MINOR_SPECIAL or pb in _ASTEROIDS)) or
-            (pb in _PLANETS and (pa in _MINOR_SPECIAL or pa in _ASTEROIDS))
+            (pa in _PLANETS and pb in _MINOR_SPECIAL) or
+            (pb in _PLANETS and pa in _MINOR_SPECIAL)
         ):
             if orb > 5.0:
-                _drop(a, "planet_x_minor_conj_orb_over_5", limit=5.0)
+                _drop(a, "planet_x_chiron_or_lilith_conj_orb_over_5", limit=5.0)
                 continue
 
         # 4c — QUALQUER aspecto entre dois transpessoais: máx 5°
