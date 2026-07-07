@@ -1208,6 +1208,12 @@ def generate_report_endpoint():
             "aspects_raw_count": len(_raw_aspects),
             "aspects_in_sign_count": len(_in_sign_aspects),
             "aspects_dropped": body.get("_dropped_aspects", []),
+            # Divergências entre afirmações de "[planeta] em [signo]" no texto
+            # gerado e os dados reais do chart. Cada item foi CORRIGIDO no
+            # texto antes de sair (signo substituído; ou "em X" removido se
+            # for a Lua num mapa moon_uncertain). Lista fica exposta pro
+            # operador auditar cada correção feita.
+            "sign_divergences": result.get("sign_divergences", []),
             # Geocoded location (lat/lng + resolved IANA zone name) so the
             # caller can verify the geocode landed where they expect.
             "birth_city": birth_city,

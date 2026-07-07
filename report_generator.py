@@ -727,10 +727,59 @@ def section_chart_context(section_name, chart):
         )
 
     if section_name == "nodos":
+        # Descobrir dinamicamente que outros corpos compartilham signo com
+        # cada Nodo, para o Claude ter DADOS reais em vez de inventar. Se
+        # nenhum outro corpo compartilha, o Claude não pode inventar — a
+        # linha abaixo dirá isso explicitamente.
+        ns_sign = p["south_node"]["sign_pt"]
+        nn_sign = p["north_node"]["sign_pt"]
+        shared_with_ns = [
+            PLANET_LABEL_PT.get(k, k)
+            for k in ("sun","moon","mercury","venus","mars","jupiter","saturn",
+                      "uranus","neptune","pluto","chiron","lilith","ceres",
+                      "vesta","juno","pallas")
+            if p.get(k, {}).get("sign_pt") == ns_sign
+        ]
+        shared_with_nn = [
+            PLANET_LABEL_PT.get(k, k)
+            for k in ("sun","moon","mercury","venus","mars","jupiter","saturn",
+                      "uranus","neptune","pluto","chiron","lilith","ceres",
+                      "vesta","juno","pallas")
+            if p.get(k, {}).get("sign_pt") == nn_sign
+        ]
+        # Se a hora é desconhecida e a Lua tem signo indeterminado, ela NÃO
+        # pode aparecer como "compartilhando signo" com nada — o signo dela
+        # ao meio-dia default pode ser diferente do real.
+        if moon_uncertain:
+            moon_pt = PLANET_LABEL_PT.get("moon", "Lua")
+            shared_with_ns = [x for x in shared_with_ns if x != moon_pt]
+            shared_with_nn = [x for x in shared_with_nn if x != moon_pt]
+
+        def _fmt_shared(shared, sign):
+            if not shared:
+                return f"NENHUM outro corpo do mapa está em {sign}. NÃO invente compartilhamentos."
+            return f"Também está(ão) em {sign}: {', '.join(shared)}."
+
         return _tunk_prefix + (
             f"Nodo Sul: {_pl(p['south_node'])}\n"
+            f"  ↳ {_fmt_shared(shared_with_ns, ns_sign)}\n"
             f"Nodo Norte: {_pl(p['north_node'])}\n"
-            f"Aspectos relevantes dos Nodos (filtrados): {aspects_line}"
+            f"  ↳ {_fmt_shared(shared_with_nn, nn_sign)}\n"
+            f"Aspectos relevantes dos Nodos (filtrados): {aspects_line}\n\n"
+            f"[REGRA CRÍTICA ANTI-ALUCINAÇÃO PARA ESTA SEÇÃO] Só é permitido "
+            f"afirmar que um corpo compartilha signo com o Nodo Sul ou Nodo "
+            f"Norte se esse corpo estiver EXPLICITAMENTE listado acima como "
+            f"'Também está(ão) em <signo>'. Se a linha diz 'NENHUM outro "
+            f"corpo do mapa está em <signo>', NÃO invente compartilhamentos, "
+            f"não escreva 'a Lua também está em X', 'Quíron reforça esse "
+            f"padrão', 'Vênus vibra no mesmo signo', ou qualquer variação "
+            f"que sugira coincidência de signos entre corpos que os dados "
+            f"não confirmam. Trabalhe apenas com o Nodo Sul e o Nodo Norte "
+            f"nos seus signos verdadeiros. Também: NUNCA escreva '[planeta] "
+            f"em [signo]' para um planeta específico com signo específico a "
+            f"não ser que esse planeta esteja de fato nesse signo no chart "
+            f"(dados fornecidos no início desta seção e nos POSICIONAMENTOS "
+            f"ASTROLÓGICOS)."
         )
 
     if section_name == "asteroides":
@@ -1160,13 +1209,17 @@ def build_sections(chart):
             ],
             "planets_filter": ["Nodo Norte", "Nodo Sul"],
             "psychological_frame": (
-                "O Nodo Sul é sua zona de conforto — o que você faz em excesso, o que lhe vem naturalmente mas onde "
-                "você tende a se refugiar. O Nodo Norte é o desafio evolutivo — o que você veio aprender, onde você "
-                "precisa crescer mesmo que seja desconfortável.\n\n"
-                "Se possível, mencione que o Nodo Sul em Áries compartilha esse signo com a Lua e com Quíron — o "
-                "padrão de ação impulsiva e exposição pública vai além do Nodo, está tecido em outras camadas do mapa. "
-                "Para o Nodo Norte em Libra, mencione que Plutão também está em Libra — o desafio do encontro com o "
-                "outro carrega peso plutoniano, não é um aprendizado suave."
+                "O Nodo Sul é sua zona de conforto — o que você faz em excesso, o que lhe vem naturalmente mas "
+                "onde você tende a se refugiar. O Nodo Norte é o desafio evolutivo — o que você veio aprender, "
+                "onde você precisa crescer mesmo que seja desconfortável.\n\n"
+                "REGRA ANTI-ALUCINAÇÃO: os dados no início desta seção listam explicitamente que outros corpos "
+                "(se houver) estão no mesmo signo do Nodo Sul e do Nodo Norte. Você SÓ pode mencionar "
+                "compartilhamento de signo entre Nodo e outro corpo se esse corpo estiver EXPLICITAMENTE listado. "
+                "Se a linha 'Também está(ão) em X: ...' diz 'NENHUM outro corpo do mapa está em X', você NÃO PODE "
+                "escrever frases como 'a Lua também está em Áries', 'Quíron compartilha esse signo', 'Vênus "
+                "reforça esse padrão', ou qualquer variação sugerindo coincidência de signos que os dados não "
+                "confirmam. Isso é uma regra absoluta — a alucinação de posicionamento planetário é o erro mais "
+                "grave possível num relatório astrológico e não é aceitável em nenhuma forma."
             ),
             "depth_instruction": DEPTH_TIER_3,
         },
@@ -1238,7 +1291,7 @@ Alternativas concretas para o padrão "não é X, é Y":
   · Em vez de "não é fraqueza, é sensibilidade" → "é sensibilidade" ou "essa sensibilidade é um recurso, não uma vulnerabilidade"
 Sempre dá para dizer o que se quer afirmar SEM negar antes o oposto. Reescreva.
 
-TAMBÉM PROIBIDO: (f) usar "nomear" como verbo padrão para tudo — varie com "identificar", "reconhecer", "colocar em palavras", "articular", "perceber", "distinguir"; (g) [reforço da alínea d] a construção "Não é X, é Y" em QUALQUER forma — inclusive versões alongadas ("Isso não é apenas X, é também Y"), invertidas ("Y, e não X"), ou com negação em outra ordem ("Aqui não há X, há Y") — TODAS são proibidas; (h) "retrógrada" como substantivo feminino — o planeta está sempre "retrógrado", nunca "a retrógrada"; (i) qualquer palavra em inglês não traduzida, especialmente "retrograde" — sempre "retrógrado"; (j) qualificadores defensivos desnecessários como "não porque seja naturalmente ambiciosa no sentido frio da palavra" — faça a afirmação diretamente sem recuar dela; (k) repetir o mesmo padrão interpretativo em seções diferentes — se a proteção emocional via controle já foi descrita na seção da Lua, a seção de Plutão não deve repetir a mesma ideia com outras palavras.
+TAMBÉM PROIBIDO: (f) usar "nomear" como verbo padrão para tudo — varie com "identificar", "reconhecer", "colocar em palavras", "articular", "perceber", "distinguir"; (g) [reforço da alínea d] a construção "Não é X, é Y" em QUALQUER forma — inclusive versões alongadas ("Isso não é apenas X, é também Y"), invertidas ("Y, e não X"), ou com negação em outra ordem ("Aqui não há X, há Y") — TODAS são proibidas; (h) "retrógrada" como substantivo feminino — o planeta está sempre "retrógrado", nunca "a retrógrada"; (i) qualquer palavra em inglês não traduzida, especialmente "retrograde" — sempre "retrógrado"; (j) qualificadores defensivos desnecessários como "não porque seja naturalmente ambiciosa no sentido frio da palavra" — faça a afirmação diretamente sem recuar dela; (k) repetir o mesmo padrão interpretativo em seções diferentes — se a proteção emocional via controle já foi descrita na seção da Lua, a seção de Plutão não deve repetir a mesma ideia com outras palavras; (l) [REGRA ABSOLUTA — ALUCINAÇÃO DE POSICIONAMENTO] JAMAIS afirmar que um planeta ou ponto está em um signo se esse dado não vier do bloco "DADOS DO MAPA PARA ESTA SEÇÃO" fornecido no início desta chamada, ou dos POSICIONAMENTOS ASTROLÓGICOS listados. NUNCA escrever "Sol em X", "Lua em Y", "Vênus em Z", "Quíron em W", etc. com um signo que não conste explicitamente nos dados. NUNCA escrever que um planeta "compartilha signo com" outro, "reforça o padrão de", "vibra no mesmo tom que", "faz eco a" outro planeta a não ser que os SIGNOS DE AMBOS estejam explicitamente informados no bloco de dados e coincidam. A alucinação de posicionamento é o erro mais grave possível num relatório astrológico. Em caso de dúvida — omita.
 
 CONVENÇÕES DE LINGUAGEM: Use sempre "em oposição", "em quadratura", "em trígono", "em conjunção", "em sextil" — nunca "na oposição", "na quadratura" etc. Planetas retrógrados são sempre descritos como "retrógrado" — nunca "a retrógrada". Mantenha "se regenerar rapidamente" em vez de "se regenerar rápido"."""
 
@@ -1508,6 +1561,143 @@ _CASA_NORMALIZATION_RES = [
     (re.compile(rf"\b(C|c)asa {word}\b", flags=re.IGNORECASE), rf"\1asa {digit}")
     for word, digit in _HOUSE_WORD_TO_DIGIT
 ]
+
+
+_SIGN_LABELS_PT = {
+    "Áries", "Aries", "Touro", "Gêmeos", "Gemeos", "Câncer", "Cancer",
+    "Leão", "Leao", "Virgem", "Libra", "Escorpião", "Escorpiao",
+    "Sagitário", "Sagitario", "Capricórnio", "Capricornio",
+    "Aquário", "Aquario", "Peixes",
+}
+
+_SIGN_CANONICAL_PT = {
+    "aries": "Áries", "touro": "Touro", "gêmeos": "Gêmeos", "gemeos": "Gêmeos",
+    "câncer": "Câncer", "cancer": "Câncer", "leão": "Leão", "leao": "Leão",
+    "virgem": "Virgem", "libra": "Libra", "escorpião": "Escorpião",
+    "escorpiao": "Escorpião", "sagitário": "Sagitário", "sagitario": "Sagitário",
+    "capricórnio": "Capricórnio", "capricornio": "Capricórnio",
+    "aquário": "Aquário", "aquario": "Aquário", "peixes": "Peixes",
+}
+
+_PLANET_PT_TO_KEY = {
+    "Sol": "sun", "Lua": "moon", "Mercúrio": "mercury", "Mercurio": "mercury",
+    "Vênus": "venus", "Venus": "venus", "Marte": "mars", "Júpiter": "jupiter",
+    "Jupiter": "jupiter", "Saturno": "saturn", "Urano": "uranus",
+    "Netuno": "neptune", "Plutão": "pluto", "Plutao": "pluto",
+    "Quíron": "chiron", "Quiron": "chiron", "Lilith": "lilith",
+    "Nodo Norte": "north_node", "Nodo Sul": "south_node",
+    "Ceres": "ceres", "Vesta": "vesta", "Juno": "juno",
+    "Palas": "pallas", "Pallas": "pallas",
+}
+
+
+def verify_planet_signs(text, chart, moon_uncertain=False):
+    """Varre o texto do relatório procurando toda afirmação da forma
+    '[planeta] em [signo]' e a confronta com o `chart["points"]`. Retorna
+    uma lista de divergências (cada uma com o snippet, o planeta, o signo
+    afirmado e o signo real) mais o texto CORRIGIDO — cada afirmação
+    incorreta tem o signo substituído pelo signo real.
+
+    Casos especiais:
+    - Se `moon_uncertain=True`, qualquer afirmação de signo para a Lua é
+      considerada divergência (o signo é indeterminado) — a substituição
+      remove o "em X" e deixa só o nome do planeta.
+    - Constatações genéricas do tipo "quem tem Sol em Câncer" ou "Sol em
+      Câncer é..." em contexto arquetípico (não referente ao mapa da
+      pessoa) NÃO são flagadas — só quando o texto se refere ao mapa da
+      pessoa via "seu/sua/o seu/a sua" ou "sua" antes do planeta, ou
+      quando não há artigo pessoal mas o contexto é claramente do mapa
+      (nas frases "Seu Sol em X" / "A sua Lua em Y").
+
+    Retorna (corrected_text, list_of_divergences).
+    """
+    if not text or not chart:
+        return text, []
+
+    points = chart.get("points") or {}
+    divergences = []
+
+    # Regex: (opcional artigo/possessivo) + Planeta + em + Signo
+    # Só considera o padrão como "referente ao mapa da pessoa" quando
+    # precedido de "seu/sua/o seu/a sua" OU quando o planeta começa com
+    # maiúscula (indicando início de frase ou nome próprio referente a
+    # este mapa).
+    planet_alt = "|".join(sorted(_PLANET_PT_TO_KEY.keys(), key=len, reverse=True))
+    sign_alt = "|".join(sorted(_SIGN_LABELS_PT, key=len, reverse=True))
+    # Grupo 1: prefixo possessivo (opcional)
+    # Grupo 2: nome do planeta (canônico)
+    # Grupo 3: signo afirmado
+    pattern = re.compile(
+        rf"(?P<prefix>(?:[Ss]eu|[Ss]ua|[Oo] seu|[Aa] sua)\s+)?"
+        rf"(?P<planet>{planet_alt})\s+em\s+"
+        rf"(?P<sign>{sign_alt})",
+    )
+
+    def _canon_planet_key(name):
+        # Recuperar a chave canônica insensível a caso
+        for pt_name, key in _PLANET_PT_TO_KEY.items():
+            if name.lower() == pt_name.lower():
+                return key, pt_name
+        return None, name
+
+    corrected = text
+    # Trabalhar de trás para frente para não invalidar posições após slice
+    matches = list(pattern.finditer(text))
+    for m in reversed(matches):
+        planet_pt_written = m.group("planet")
+        claimed_sign_written = m.group("sign")
+        prefix = m.group("prefix") or ""
+        key, planet_pt_canon = _canon_planet_key(planet_pt_written)
+        if not key:
+            continue
+        actual_sign = points.get(key, {}).get("sign_pt")
+        if not actual_sign:
+            continue
+
+        # Normalizar signos afirmados (acentos podem estar diferentes)
+        claimed_norm = _SIGN_CANONICAL_PT.get(
+            claimed_sign_written.lower(),
+            claimed_sign_written,
+        )
+
+        # Regra especial: se moon_uncertain e o planeta é Lua, QUALQUER
+        # signo afirmado é divergência — o signo é indeterminado.
+        if moon_uncertain and key == "moon":
+            snippet_start = max(0, m.start() - 60)
+            snippet_end = min(len(text), m.end() + 60)
+            divergences.append({
+                "planet": planet_pt_canon,
+                "claimed_sign": claimed_norm,
+                "actual_sign": "INDETERMINADO (moon_uncertain)",
+                "context": text[snippet_start:snippet_end].replace("\n", " ").strip(),
+                "match": m.group(0),
+                "action": "stripped_sign",
+            })
+            # Substituir "em X" por "" — mantém o planeta, remove a
+            # afirmação de signo.
+            replacement = f"{prefix}{planet_pt_written}"
+            corrected = corrected[:m.start()] + replacement + corrected[m.end():]
+            continue
+
+        if claimed_norm == actual_sign:
+            continue  # Bate — sem divergência
+
+        # Divergência: signo afirmado ≠ signo real do mapa
+        snippet_start = max(0, m.start() - 60)
+        snippet_end = min(len(text), m.end() + 60)
+        divergences.append({
+            "planet": planet_pt_canon,
+            "claimed_sign": claimed_norm,
+            "actual_sign": actual_sign,
+            "context": text[snippet_start:snippet_end].replace("\n", " ").strip(),
+            "match": m.group(0),
+            "action": "sign_replaced",
+        })
+        # Substituir apenas o signo, preservando prefixo e nome do planeta
+        replacement = f"{prefix}{planet_pt_written} em {actual_sign}"
+        corrected = corrected[:m.start()] + replacement + corrected[m.end():]
+
+    return corrected, divergences
 
 
 def cleanup_pass(text: str):
@@ -1893,6 +2083,23 @@ def generate_report(
     if verbose:
         _print_cleanup_report(cleanup_changes)
 
+    # Verificação anti-alucinação de posicionamento planetário.
+    # Varre TODAS as afirmações "[planeta] em [signo]" contra os dados
+    # reais do chart e (a) reescreve o signo quando afirmado errado,
+    # (b) remove afirmações de signo para a Lua quando o signo é
+    # indeterminado. Divergências são retornadas para o meta da resposta
+    # via app.py, para o operador saber que uma alucinação foi capturada.
+    _mm = _moon_ingress_meta(chart)
+    _moon_uncertain = _time_is_unknown(chart) and bool(_mm.get("moon_sign_uncertain"))
+    full_report, sign_divergences = verify_planet_signs(
+        full_report, chart, moon_uncertain=_moon_uncertain,
+    )
+    if sign_divergences and verbose:
+        print(f"\n[VERIFICADOR DE SIGNOS] {len(sign_divergences)} divergência(s) corrigida(s):")
+        for d in sign_divergences:
+            print(f"  · {d['planet']}: afirmado '{d['claimed_sign']}', real '{d['actual_sign']}' — ação: {d['action']}")
+            print(f"    contexto: …{d['context'][:100]}…")
+
     # Optionally save to disk
     if write_file:
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -1938,6 +2145,7 @@ def generate_report(
         "elapsed_seconds": elapsed,
         "aspect_audit": aspect_audit,
         "cleanup_changes": cleanup_changes,
+        "sign_divergences": sign_divergences,
     }
 
 
