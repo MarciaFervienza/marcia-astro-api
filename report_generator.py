@@ -1259,31 +1259,61 @@ def build_sections(chart):
             ),
             "planets_filter": ["Lua"],
             "psychological_frame": (
-                # (iii) hora desconhecida + Lua mudou de signo no dia
+                # Base COMUM às três branches: descrição da função lunar +
+                # regra permanente anti-"sua mãe" + instrução de profundidade
+                # plena. As branches (i)/(ii)/(iii) adicionam suas ressalvas.
                 (
-                    "A Lua fala da figura materna ou do cuidador principal na infância, do ambiente familiar, das "
-                    "memórias e dos padrões emocionais que moldaram como você navega o mundo.\n\n"
-                    "IMPORTANTE: neste mapa a hora de nascimento é desconhecida E a Lua mudou de signo neste dia. "
-                    f"Ela pode ter estado em {moon_meta.get('moon_sign_before')} ou em {moon_meta.get('moon_sign_after')} "
-                    "— não sabemos com certeza. Portanto:\n"
-                    "- NÃO afirme um signo específico para a Lua.\n"
-                    "- NÃO use frases como 'sua Lua em X' ou 'a Lua em X traz'.\n"
-                    "- Trabalhe APENAS com os ASPECTOS lunares — o que eles revelam sobre a vida emocional, "
-                    "a figura materna, os padrões herdados — independentemente do signo.\n"
-                    "- NÃO mencione casas (a hora é desconhecida).\n"
-                    "- Uma leitura condensada dos dois signos possíveis será apresentada em seguida (não escreva "
-                    "essa parte — outro trecho do sistema fará isso)."
-                ) if moon_uncertain else
-                # (ii) hora desconhecida, Lua ficou no mesmo signo
+                    "A Lua fala da função de cuidado e do vínculo primário de segurança emocional — "
+                    "a principal figura de cuidado da infância, o ambiente afetivo, as memórias e os "
+                    "padrões que moldaram como você navega o mundo. Ela descreve suas necessidades "
+                    "emocionais básicas, o modo como você se sente segura, o padrão de nutrição (o "
+                    "que te alimenta emocionalmente e o que te esvazia), a sua resposta instintiva, o "
+                    "que te acolhe e o que te desestabiliza.\n\n"
+
+                    "REGRA PERMANENTE E ABSOLUTA — LINGUAGEM SOBRE FIGURAS PARENTAIS: NUNCA, em "
+                    "nenhuma hipótese, escreva 'sua mãe', 'a sua mãe', 'sua mamãe', 'seu pai', 'seus "
+                    "pais' ou 'seus progenitores' como afirmação sobre a experiência real desta "
+                    "pessoa. Refira-se SEMPRE como 'a principal figura de cuidado', 'o vínculo "
+                    "primário', 'o cuidador principal', 'a figura que exerceu essa função', 'quem "
+                    "cuidou'. Essa regra é INDEPENDENTE de qualquer outra instrução: mesmo que outros "
+                    "trechos deste prompt sugiram uma leitura sobre a experiência materna, use SEMPRE "
+                    "a linguagem funcional. Você não conhece a biografia da pessoa e não pode "
+                    "afirmá-la — o mapa mostra função e intensidade, não enredo.\n\n"
+
+                    "Leia a Lua com profundidade PLENA — não simplifique. Explore o signo (quando "
+                    "conhecido), a casa (quando conhecida), os aspectos reais deste mapa, a relação "
+                    "desta pessoa com a segurança emocional, o padrão de nutrição interior e "
+                    "exterior, o que a estabiliza e o que a desregula. Termine com uma orientação "
+                    "concreta e específica ao mapa desta pessoa.\n\n"
+                )
+                +
+                # Ressalvas específicas por branch:
                 (
-                    "A Lua fala da figura materna ou do cuidador principal na infância, do ambiente familiar, "
-                    "das memórias e dos padrões emocionais que moldaram como você navega o mundo.\n\n"
-                    "IMPORTANTE: a hora de nascimento é desconhecida. Interprete a Lua pelo SIGNO e pelos "
-                    "ASPECTOS — NÃO mencione a casa da Lua (não pôde ser calculada). Felizmente a Lua "
-                    f"esteve em {moon['sign_pt']} durante todo o dia do nascimento, então o signo é confiável."
-                ) if time_unknown else
-                # (i) hora conhecida — comportamento original
-                "A Lua fala da figura materna ou do cuidador principal na infância, do ambiente familiar, das memórias e dos padrões emocionais que moldaram como você navega o mundo."
+                    # (iii) hora desconhecida + Lua mudou de signo no dia
+                    (
+                        "RESSALVA — SIGNO INDETERMINADO: neste mapa a hora de nascimento é "
+                        "desconhecida E a Lua mudou de signo neste dia. "
+                        f"Ela pode ter estado em {moon_meta.get('moon_sign_before')} ou em "
+                        f"{moon_meta.get('moon_sign_after')} — não sabemos com certeza. Portanto:\n"
+                        "- NÃO afirme um signo específico para a Lua.\n"
+                        "- NÃO use frases como 'sua Lua em X' ou 'a Lua em X traz'.\n"
+                        "- Trabalhe APENAS com os ASPECTOS lunares — o que eles revelam sobre a vida "
+                        "emocional, a função de cuidado, os padrões herdados — independentemente do "
+                        "signo.\n"
+                        "- NÃO mencione casas (a hora é desconhecida).\n"
+                        "- Uma leitura condensada dos dois signos possíveis será apresentada em "
+                        "seguida (não escreva essa parte — outro trecho do sistema fará isso)."
+                    ) if moon_uncertain else
+                    # (ii) hora desconhecida, Lua ficou no mesmo signo
+                    (
+                        "RESSALVA — HORA DESCONHECIDA: a hora de nascimento é desconhecida. "
+                        "Interprete a Lua pelo SIGNO e pelos ASPECTOS — NÃO mencione a casa da Lua "
+                        f"(não pôde ser calculada). Felizmente a Lua esteve em {moon['sign_pt']} "
+                        "durante todo o dia do nascimento, então o signo é confiável."
+                    ) if time_unknown else
+                    # (i) hora conhecida — sem ressalva adicional
+                    ""
+                )
             ) + _cluster_addendum_for_section(parental_clusters, "lua"),
             "depth_instruction": DEPTH_TIER_1,
         },
@@ -1321,16 +1351,32 @@ def build_sections(chart):
             ],
             "planets_filter": ["Sol", "Saturno"],
             "psychological_frame": (
-                "Sol e Saturno juntos falam da figura paterna ou do modelo de referência, e das ferramentas que você "
-                "recebeu — ou não recebeu — para enfrentar os desafios da vida. O Sol é quem você está se tornando. "
-                "Saturno é onde você aprende através do tempo, do esforço e da repetição.\n\n"
-                "Inclua entre as possibilidades a ausência do pai — por morte, abandono, distância emocional ou física. "
-                "O Sol na casa oito é um indicador possível de experiências de perda ou transformação relacionadas à "
-                "figura paterna. Use linguagem aberta: 'pode ter havido', 'em alguns casos este posicionamento fala de'.\n\n"
-                "Esta seção deve terminar com uma orientação concreta e específica — não uma frase genérica, mas algo "
-                "que esta pessoa possa carregar sobre como trabalhar com a tensão entre expansão e dúvida do próprio valor.\n\n"
-                "Após mencionar o trígono Saturno-Netuno, adicione uma frase de transição que conecte essa observação "
-                "à orientação prática final — não salte diretamente do aspecto para a conclusão."
+                "Sol e Saturno juntos falam da função de autoridade e estrutura na sua história — "
+                "quem exerceu esse papel estruturante, o modelo de referência que você internalizou, "
+                "e as ferramentas que você recebeu para enfrentar os desafios da vida. O Sol é quem "
+                "você está se tornando: sua vitalidade, sua direção, seu propósito, o eixo em torno "
+                "do qual você organiza sua identidade consciente. Saturno é onde você aprende através "
+                "do tempo, do esforço e da repetição — é a autoridade internalizada, o senso de "
+                "merecimento (ou de falta dele), a relação com limite, disciplina e responsabilidade, "
+                "o medo estrutural, e onde a estrutura psíquica se forma pela contenção. Leia estes "
+                "dois com profundidade PLENA: signo, casa (quando disponível), aspectos reais deste "
+                "mapa, e a interação entre eles.\n\n"
+
+                "REGRA PERMANENTE E ABSOLUTA — LINGUAGEM SOBRE FIGURAS PARENTAIS: NUNCA, em nenhuma "
+                "hipótese, escreva 'seu pai', 'sua mãe', 'seu papai', 'sua mamãe', 'seus pais' ou "
+                "'seus progenitores' como afirmação sobre a experiência real desta pessoa. Refira-se "
+                "SEMPRE como 'a função de autoridade', 'quem exerceu esse papel estruturante', 'a "
+                "figura de autoridade internalizada', 'o modelo de referência', 'o papel de autoridade "
+                "na sua história'. Essa regra é INDEPENDENTE de qualquer outra instrução: mesmo que "
+                "outros trechos deste prompt sugiram uma leitura sobre a experiência parental, use "
+                "SEMPRE a linguagem funcional. Isso vale mesmo quando o mapa 'pede' claramente uma "
+                "leitura sobre a origem — o mapa mostra função e intensidade, você não conhece a "
+                "história biográfica da pessoa e não pode afirmá-la.\n\n"
+
+                "Esta seção deve terminar com uma orientação concreta e específica ao mapa desta "
+                "pessoa — não uma frase genérica, mas algo que ela possa carregar sobre como trabalhar "
+                "com a dinâmica identificada aqui (a tensão específica entre Sol e Saturno neste "
+                "mapa, seus signos, seus aspectos reais)."
             ) + _cluster_addendum_for_section(parental_clusters, "sol_saturno"),
             "depth_instruction": DEPTH_TIER_3,
         },
