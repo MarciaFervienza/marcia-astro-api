@@ -691,40 +691,54 @@ def _apply_moon_note(report_text, moon_meta, time_estimated):
     """
     try:
         if moon_meta.get("moon_sign_uncertain"):
-            # Branch A — hora desconhecida + Lua mudou de signo. A seção da Lua
-            # já foi gerada pelo Claude com um psychological_frame que fala só
-            # de aspectos (via report_generator). Aqui apenas ANEXAMOS os dois
-            # blurbs de signo ao final da seção da Lua — não substituímos o
-            # corpo. O disclaimer geral no topo do report (também vindo do
-            # report_generator) já cobre "mapa sem hora / Ascendente ausente".
+            # Branch A — hora desconhecida + Lua mudou de signo.
+            #
+            # O relatório vem do report_generator já com um placeholder
+            # <<MOON_BLURBS>> DENTRO do disclaimer no topo. Aqui geramos os
+            # dois blurbs de signo e substituímos o placeholder por eles.
+            # Colocar as descrições dos dois signos no TOPO (dentro da nota
+            # importante) — e não numa seção separada — é essencial porque:
+            #  (i) elas contextualizam TODAS as seções seguintes com a
+            #      leitura correta ("seu signo lunar pode ser X ou Y"), em vez
+            #      de a informação aparecer só depois de Abertura/Triade/Sol
+            #      terem sido lidas;
+            #  (ii) evitam que a leitora leia a Abertura pressupondo um dos
+            #      signos e depois descubra na Lua que era o outro.
             before = moon_meta["moon_sign_before"]
             after = moon_meta["moon_sign_after"]
-            appendix_header = (
-                "\n\n### Os dois signos possíveis\n\n"
-                f"Como sua Lua pode estar em {before} ou em {after}, "
-                "abaixo estão duas descrições breves da vida emocional de cada "
-                "possibilidade — leia as duas e perceba qual ressoa mais com "
-                "a sua experiência interior.\n"
-            )
             try:
                 blurb_before, blurb_after = _generate_moon_sign_blurbs(before, after)
-                appendix = appendix_header + _MOON_BLURB_APPENDIX.format(
+                blurbs_block = _MOON_BLURB_APPENDIX.format(
                     moon_sign_before=before,
                     moon_blurb_before=blurb_before,
                     moon_sign_after=after,
                     moon_blurb_after=blurb_after,
-                )
+                ).strip()
             except Exception as e:
                 logger.warning(
                     "Moon sign blurbs failed for %s / %s (%s); "
-                    "shipping Branch A without appendix",
+                    "shipping Branch A with placeholder stripped",
                     before, after, e,
                 )
-                appendix = ""
+                blurbs_block = ""
 
-            if not appendix:
-                return report_text
-            modified = _append_to_lua_section(report_text, appendix)
+            # Substituir <<MOON_BLURBS>> pelo bloco (ou remover o marcador
+            # de vez se a geração falhou — a nota permanece coerente).
+            if "<<MOON_BLURBS>>" in report_text:
+                modified = report_text.replace("<<MOON_BLURBS>>", blurbs_block)
+                # Se removemos totalmente o marcador vazio, também tirar as
+                # linhas em branco extras que sobraram.
+                if not blurbs_block:
+                    import re as _re
+                    modified = _re.sub(r"\n\n\n+", "\n\n", modified)
+            else:
+                # Fallback: se por algum motivo o placeholder não veio do
+                # report_generator, cair no comportamento antigo (anexar à Lua).
+                logger.warning("<<MOON_BLURBS>> placeholder missing; falling back to Lua-append")
+                if blurbs_block:
+                    modified = _append_to_lua_section(report_text, "\n\n" + blurbs_block)
+                else:
+                    modified = report_text
 
             # Safety-net cleanup — re-scan the full modified report so any
             # "Não é X, é Y" leaked into the blurbs is caught by the same
@@ -1074,6 +1088,7 @@ def generate_report_endpoint():
             chart_image_url=chart_svg_path,
             aspects=body.get("aspects", []),
             points=body.get("points", {}),
+            time_unknown=unknown_birth_time,
         )
         pdf_b64 = base64.b64encode(pdf_bytes).decode("ascii")
     except Exception as e:

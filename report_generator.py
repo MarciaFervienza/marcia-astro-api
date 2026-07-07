@@ -557,8 +557,27 @@ def section_chart_context(section_name, chart):
     aspects_line = fmt_filtered_aspects(filtered_aspects)
 
     if section_name == "abertura":
+        if moon_uncertain:
+            # Ascendente ausente E signo da Lua indeterminado. Não podemos
+            # apresentar tensão Sol×Lua (dependeria de saber o signo da Lua)
+            # nem coerência entre eles. Foco só no Sol.
+            return _tunk_prefix + (
+                f"Sol: {fmt_position(p['sun'])}\n"
+                f"[Lua: signo INDETERMINADO — pode estar em "
+                f"{moon_meta.get('moon_sign_before')} ou em "
+                f"{moon_meta.get('moon_sign_after')}. A nota no topo do "
+                f"relatório já apresentou as duas leituras possíveis.]\n\n"
+                f"[REGRA CRÍTICA PARA ESTA ABERTURA: NÃO nomeie um signo "
+                f"específico para a Lua em nenhum momento. NÃO declare "
+                f"'tensão entre Sol e Lua' nem 'coerência entre Sol e Lua' — "
+                f"qualquer afirmação assim tomaria partido por um dos dois "
+                f"signos possíveis. Escreva uma abertura calorosa focada na "
+                f"direção e qualidade do Sol. Se tocar a vida emocional, "
+                f"refira-a genericamente ('sua sensibilidade interior', "
+                f"'sua vida afetiva') sem ancorar em signo lunar.]"
+            )
         if time_unknown:
-            # Sem Ascendente/MC — mapa sem hora não tem esses pontos.
+            # Lua estável no dia — signo é confiável, só casas/Asc ausentes.
             return _tunk_prefix + (
                 f"Sol: {fmt_position(p['sun'])}\n"
                 f"Lua: {fmt_position(p['moon'])}\n"
@@ -574,8 +593,21 @@ def section_chart_context(section_name, chart):
         )
 
     if section_name == "triade":
+        if moon_uncertain:
+            # Vira uma seção SOMENTE do Sol — a Lua está indeterminada e não
+            # dá pra sintetizar dupla Sol×Lua sem escolher um signo.
+            return _tunk_prefix + (
+                f"Sol: {fmt_position(p['sun'])}\n\n"
+                f"Aspectos relevantes do Sol (filtrados): {aspects_line}\n\n"
+                f"[REGRA CRÍTICA: escreva SOMENTE sobre o Sol nesta seção — "
+                f"sua vitalidade, direção de vida, identidade consciente, "
+                f"o herói interno. NÃO mencione a Lua com um signo específico. "
+                f"Se precisar tocar 'de onde você vem' emocionalmente, use "
+                f"linguagem genérica sem ancorar em signo lunar. Termine com "
+                f"uma orientação sobre como habitar essa direção solar.]"
+            )
         if time_unknown:
-            # Vira "Sol e Lua" — sem Ascendente.
+            # Lua estável — dá para fazer Sol+Lua sem Ascendente.
             return _tunk_prefix + (
                 f"Sol: {fmt_position(p['sun'])}\n"
                 f"Lua: {fmt_position(p['moon'])}\n\n"
@@ -774,7 +806,57 @@ def build_sections(chart):
     )
 
     # Abertura + Tríade dependem se a hora é conhecida — cada uma tem duas variantes.
-    if time_unknown:
+    if moon_uncertain:
+        # Ingresso lunar + hora desconhecida: signo da Lua é indeterminado.
+        # Abertura foca no Sol e evita tomar partido de qualquer signo lunar.
+        # Triade vira uma seção SOMENTE do Sol (dupla Sol×Lua não é possível
+        # sem saber o signo da Lua).
+        _abertura_section = {
+            "name": "abertura",
+            "title": "Abertura",
+            "queries": [
+                f"Sol em {sun['sign_pt']} identidade vitalidade direção",
+                f"quem é essa pessoa {sun['sign_pt']}",
+            ],
+            "planets_filter": ["Sol"],
+            "psychological_frame": (
+                "Escreva uma abertura calorosa focada na direção e qualidade do Sol. "
+                "O primeiro parágrafo deve criar reconhecimento — como se alguém que te conhece "
+                "profundamente estivesse dizendo 'eu te vejo'. Tom íntimo, acolhedor.\n\n"
+                "REGRA CRÍTICA: este mapa foi calculado SEM horário de nascimento E a Lua mudou "
+                "de signo no dia — o signo da Lua é INDETERMINADO. NÃO mencione um signo específico "
+                "para a Lua em nenhum momento. NÃO declare 'tensão entre Sol e Lua' nem 'coerência "
+                "entre Sol e Lua' — qualquer afirmação assim tomaria partido por um dos signos "
+                "possíveis. Se precisar tocar a vida emocional, refira-a genericamente "
+                "('sua sensibilidade interior', 'sua vida afetiva'). Também NÃO mencione o "
+                "Ascendente. Evite 'Não é X. É Y'."
+            ),
+            "depth_instruction": DEPTH_TIER_3,
+        }
+        _triade_section = {
+            "name": "triade",
+            "title": "Sol: Sua Vitalidade e Direção",
+            "queries": [
+                f"Sol em {sun['sign_pt']} direção de vida vitalidade",
+                f"Sol em {sun['sign_pt']} identidade consciente propósito",
+                f"quem é essa pessoa Sol em {sun['sign_pt']}",
+            ],
+            "planets_filter": ["Sol"],
+            "psychological_frame": (
+                "Interprete o Sol como o herói interno — a vitalidade, a direção de vida, a identidade "
+                "consciente, o eixo onde a pessoa se desenvolve.\n\n"
+                "REGRA CRÍTICA: escreva SOMENTE sobre o Sol. NÃO mencione um signo específico para a "
+                "Lua — o signo lunar é indeterminado neste mapa (a Lua mudou de signo no dia e a hora "
+                "é desconhecida). NÃO chame esta seção de 'tríade' nem 'dupla Sol/Lua'. Se precisar "
+                "referir-se ao que a Lua representa (vida emocional, sensibilidade, herança materna), "
+                "use termos genéricos sem ancorar em signo lunar.\n\n"
+                "Termine com uma ou duas frases de orientação sobre como habitar essa direção solar."
+            ),
+            "depth_instruction": DEPTH_TIER_3,
+        }
+    elif time_unknown:
+        # Hora desconhecida mas a Lua ficou no mesmo signo o dia todo —
+        # dá pra fazer Sol+Lua sem o Ascendente.
         _abertura_section = {
             "name": "abertura",
             "title": "Abertura",
@@ -1147,9 +1229,16 @@ def build_sections(chart):
 # call sites — and cleanup_pass — need to stay in sync.
 SECTION_STYLE_RULES = """PROIBIDO: metáforas dramáticas ou imagens poéticas forçadas como "corta o ar como lâmina", "chama que arde", "abismo interior", "navega as profundezas" ou qualquer linguagem que soe como inteligência artificial tentando ser literária. A voz de Marcia é psicologicamente precisa e direta — ela não ornamenta, ela nomeia. Use linguagem íntima e direta, não eloquência performática.
 
-TAMBÉM PROIBIDO: (a) a palavra "funda" — use sempre "profunda"; (b) a expressão "que sustenta" sem especificar o que sustenta; (c) a palavra "presença" como substantivo vago — use apenas quando indispensável e com referente claro; (d) a construção repetitiva "Não é X. É Y." — pode aparecer no máximo uma vez por seção; (e) "emoção que age antes de pensar" — prefira "emoções que emergem impulsivamente".
+TAMBÉM PROIBIDO: (a) a palavra "funda" — use sempre "profunda"; (b) a expressão "que sustenta" sem especificar o que sustenta; (c) a palavra "presença" como substantivo vago — use apenas quando indispensável e com referente claro; (d) a construção antitética "Não é X. É Y." ou "não é X, é Y" — **ZERO ocorrências permitidas por relatório** (essa cadência é uma marca clássica de escrita gerada por IA; use uma afirmação direta ou reformule totalmente); (e) "emoção que age antes de pensar" — prefira "emoções que emergem impulsivamente".
 
-TAMBÉM PROIBIDO: (f) usar "nomear" como verbo padrão para tudo — varie com "identificar", "reconhecer", "colocar em palavras", "articular", "perceber", "distinguir"; (g) a construção "Não é X, é Y" — está limitada a UMA ocorrência por relatório inteiro, não por seção; (h) "retrógrada" como substantivo feminino — o planeta está sempre "retrógrado", nunca "a retrógrada"; (i) qualquer palavra em inglês não traduzida, especialmente "retrograde" — sempre "retrógrado"; (j) qualificadores defensivos desnecessários como "não porque seja naturalmente ambiciosa no sentido frio da palavra" — faça a afirmação diretamente sem recuar dela; (k) repetir o mesmo padrão interpretativo em seções diferentes — se a proteção emocional via controle já foi descrita na seção da Lua, a seção de Plutão não deve repetir a mesma ideia com outras palavras.
+Alternativas concretas para o padrão "não é X, é Y":
+  · Em vez de "não é frescura, é o que sustenta" → "é o que genuinamente te sustenta" ou "isso te sustenta de verdade"
+  · Em vez de "não é frieza, é filtro" → "funciona como um filtro" ou "opera como um filtro racional"
+  · Em vez de "não é ingenuidade, é inteligência" → "é uma inteligência específica" ou "essa forma de olhar é uma inteligência real"
+  · Em vez de "não é fraqueza, é sensibilidade" → "é sensibilidade" ou "essa sensibilidade é um recurso, não uma vulnerabilidade"
+Sempre dá para dizer o que se quer afirmar SEM negar antes o oposto. Reescreva.
+
+TAMBÉM PROIBIDO: (f) usar "nomear" como verbo padrão para tudo — varie com "identificar", "reconhecer", "colocar em palavras", "articular", "perceber", "distinguir"; (g) [reforço da alínea d] a construção "Não é X, é Y" em QUALQUER forma — inclusive versões alongadas ("Isso não é apenas X, é também Y"), invertidas ("Y, e não X"), ou com negação em outra ordem ("Aqui não há X, há Y") — TODAS são proibidas; (h) "retrógrada" como substantivo feminino — o planeta está sempre "retrógrado", nunca "a retrógrada"; (i) qualquer palavra em inglês não traduzida, especialmente "retrograde" — sempre "retrógrado"; (j) qualificadores defensivos desnecessários como "não porque seja naturalmente ambiciosa no sentido frio da palavra" — faça a afirmação diretamente sem recuar dela; (k) repetir o mesmo padrão interpretativo em seções diferentes — se a proteção emocional via controle já foi descrita na seção da Lua, a seção de Plutão não deve repetir a mesma ideia com outras palavras.
 
 CONVENÇÕES DE LINGUAGEM: Use sempre "em oposição", "em quadratura", "em trígono", "em conjunção", "em sextil" — nunca "na oposição", "na quadratura" etc. Planetas retrógrados são sempre descritos como "retrógrado" — nunca "a retrógrada". Mantenha "se regenerar rapidamente" em vez de "se regenerar rápido"."""
 
@@ -1428,26 +1517,26 @@ def cleanup_pass(text: str):
     """
     changes = []
 
-    # ---------- 1. "Não é X. É Y" / "Não é X, é Y" — keep first, rewrite rest ----------
+    # ---------- 1. "Não é X. É Y" / "Não é X, é Y" — strip ALL ----------
+    # Antes deixávamos a PRIMEIRA ocorrência passar e reescrevíamos as demais,
+    # mas a Marcia reportou que mesmo uma única aparição desse padrão em cada
+    # relatório está lida como marca de IA (Claude adora essa cadência
+    # antitética). Zerar totalmente: cada ocorrência vira só a afirmação Y,
+    # descartando a negação X, preservando a caixa do 'é'/'É'.
     matches = list(_NEG_AFFIRM_RE.finditer(text))
-    if len(matches) > 1:
-        # Work in reverse so positions stay valid as we slice.
-        for m in reversed(matches[1:]):
-            orig = m.group(0)
-            y = m.group(4).strip()
-            ending = m.group(5)
-            # Drop the "Não é X[.,] " portion. Preserve the case of the
-            # affirming particle — "É" for sentence-starts, "é" for
-            # mid-sentence occurrences — so the rewrite is grammatical.
-            affirm = m.group(3)
-            rewritten = f"{affirm} {y}{ending}"
-            text = text[:m.start()] + rewritten + text[m.end():]
-            changes.append({
-                "type": "negative_construction",
-                "before": orig,
-                "after": rewritten,
-                "auto_fixed": True,
-            })
+    for m in reversed(matches):
+        orig = m.group(0)
+        y = m.group(4).strip()
+        ending = m.group(5)
+        affirm = m.group(3)
+        rewritten = f"{affirm} {y}{ending}"
+        text = text[:m.start()] + rewritten + text[m.end():]
+        changes.append({
+            "type": "negative_construction",
+            "before": orig,
+            "after": rewritten,
+            "auto_fixed": True,
+        })
 
     # ---------- 2. English "retrograde" → "retrógrado" ----------
     for m in list(_EN_RETROGRADE_RE.finditer(text))[::-1]:
@@ -1677,6 +1766,12 @@ def generate_report(
     if _time_is_unknown(chart):
         _mm = _moon_ingress_meta(chart)
         if _mm.get("moon_sign_uncertain"):
+            # A Lua tem dois signos possíveis. As duas descrições ficam AQUI,
+            # no topo, para não contaminar Abertura/Sol-Lua/Lua com premissa
+            # contraditória. Os blurbs em si (condensados de trechos autorais)
+            # são gerados depois em _apply_moon_note (app.py, Branch A), que
+            # substitui o marcador <<MOON_BLURBS>>. Se a geração dos blurbs
+            # falhar, o marcador é apenas removido e a nota fica íntegra.
             full_report += (
                 "## Uma nota importante sobre este mapa\n\n"
                 "Você não informou o horário exato de nascimento, então este relatório foi elaborado sem "
@@ -1684,17 +1779,20 @@ def generate_report(
                 "- **O Ascendente e as casas astrológicas não puderam ser calculados.** Nenhuma seção fala "
                 "sobre como você se apresenta ao mundo, sobre a divisão dos setores da vida por casa, ou "
                 "sobre a posição por casa de cada planeta.\n"
-                "- **A posição planetária nos signos permanece confiável** para todos os planetas — Sol, "
-                "Mercúrio, Vênus, Marte, Júpiter, Saturno, Urano, Netuno, Plutão, Quíron, Lilith, nodos e "
-                "asteróides. Esses cálculos independem da hora.\n"
-                "- **A Lua exige uma nota separada.** No dia do seu nascimento, ela mudou de signo — "
-                f"esteve em **{_mm.get('moon_sign_before')}** até as **{_mm.get('moon_sign_local_time', _mm.get('moon_ingress_local_time'))}** "
-                f"(horário local), e depois passou para **{_mm.get('moon_sign_after')}**. Sem a hora exata, "
-                "não é possível dizer com certeza em qual dos dois signos ela se encontra no seu mapa. "
-                "A seção da Lua, mais adiante, apresenta as duas leituras possíveis para você reconhecer qual "
-                "ressoa com sua experiência interior.\n\n"
-                "Se em algum momento você recuperar o horário exato — em certidão, registro de maternidade, "
-                "com familiares —, todo o mapa pode ser refeito com precisão.\n"
+                "- **A posição planetária nos signos permanece confiável** para o Sol, Mercúrio, Vênus, "
+                "Marte, Júpiter, Saturno, Urano, Netuno, Plutão, Quíron, Lilith, nodos e asteróides. "
+                "Esses cálculos independem da hora.\n"
+                "- **A Lua muda de signo no dia do seu nascimento** e o signo específico dela é "
+                "indeterminado sem a hora exata. Ela pode ter estado em "
+                f"**{_mm.get('moon_sign_before')}** (até as **{_mm.get('moon_ingress_local_time')}** "
+                f"horário local) ou em **{_mm.get('moon_sign_after')}** (a partir desse horário). "
+                "Nenhuma seção deste relatório assume um desses dois signos — nem a abertura, nem a "
+                "seção do Sol, nem a seção da Lua. A vida emocional é lida pelos aspectos que a Lua "
+                "faz (que independem do signo). Abaixo estão as duas descrições possíveis do signo "
+                "da Lua para você reconhecer qual ressoa com sua experiência interior.\n\n"
+                "<<MOON_BLURBS>>\n\n"
+                "Se em algum momento você recuperar o horário exato — em certidão, registro de "
+                "maternidade, com familiares —, todo o mapa pode ser refeito com precisão.\n"
             )
         else:
             full_report += (

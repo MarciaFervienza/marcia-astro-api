@@ -402,6 +402,35 @@ def _escape(text: str) -> str:
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
 
 
+def _render_body_xml(text: str) -> str:
+    """Convert a small subset of markdown in a body paragraph into ReportLab
+    Paragraph XML, safely.
+
+    Handles:
+      · **bold text** → <b>bold text</b>
+      · leading '- ' on a line → '• ' (bullet character) with a small
+        indent (implemented via a non-breaking space after the bullet)
+
+    All other XML-special chars (&<>) still get escaped, so text authored
+    without markdown flows through unchanged. Bold markers are protected
+    from escape via a placeholder swap so the surviving <b>/</b> tags are
+    the ONLY markup in the output.
+    """
+    import re as _re
+    # Step 1 — placeholder-mark the **bold** spans BEFORE escaping.
+    # \x00/\x01 are ASCII control chars that will not appear in Marcia's
+    # authored text nor in Claude output, so they're safe delimiters.
+    text = _re.sub(r"\*\*(.+?)\*\*", "\x00\\1\x01", text)
+    # Step 2 — escape everything.
+    text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    # Step 3 — restore protected bold spans as ReportLab-recognized tags.
+    text = text.replace("\x00", "<b>").replace("\x01", "</b>")
+    # Step 4 — leading '- ' on its own line becomes a bullet + nbsp for
+    # a bit of visual indent. Multiple hyphens like '--' are left alone.
+    text = _re.sub(r"(^|\n)- ", r"\1• ", text)
+    return text
+
+
 # ============================================================
 # PAGE CHROME (background + footer, drawn on every page)
 # ============================================================
@@ -987,12 +1016,20 @@ _PT_PLANET_TO_KEY = {
 }
 
 
-def _subtitle_from_prefix(prefix: str, points: dict) -> str:
+def _subtitle_from_prefix(prefix: str, points: dict, time_unknown: bool = False) -> str:
     """Produce a Portuguese astrological subtitle from a section-title
     prefix like 'Mercúrio' or 'Sol e Saturno'. Uses the client's actual
     positions from `points` (already computed upstream). Returns an empty
     string when the prefix doesn't map to any known planet — the caller
     then uses the original title as-is with no subtitle line.
+
+    When `time_unknown=True`, the '· Casa N' segment is omitted from each
+    piece (casa depends on birth time and is meaningless in that case).
+    Additionally, when the prefix is 'Sol e Lua' and time is unknown, the
+    Moon's sign is intentionally omitted from the subtitle because a
+    moon-ingress on the birth date makes the Moon's sign indeterminate;
+    naming a specific sign in the subtitle would silently commit to one
+    of the two possibilities and contradict the report's own disclaimer.
     """
     if not points:
         return ""
@@ -1007,10 +1044,15 @@ def _subtitle_from_prefix(prefix: str, points: dict) -> str:
         key = _PT_PLANET_TO_KEY.get(part)
         if not key:
             continue
+        # Suppress Lua entirely from subtitles when time is unknown — the
+        # Moon's sign may or may not be determinate depending on ingress,
+        # and the safest floor is to not name it in the visual header.
+        if time_unknown and key == "moon":
+            continue
         p = points.get(key) or {}
         sign_pt = p.get("sign_pt") or ""
         house = p.get("house")
-        if sign_pt and house is not None:
+        if sign_pt and house is not None and not time_unknown:
             pieces.append(f"{part} em {sign_pt} · Casa {house}")
         elif sign_pt:
             pieces.append(f"{part} em {sign_pt}")
@@ -1018,7 +1060,7 @@ def _subtitle_from_prefix(prefix: str, points: dict) -> str:
     return "   ·   ".join(pieces)
 
 
-def _split_section_title(title: str, points: dict):
+def _split_section_title(title: str, points: dict, time_unknown: bool = False):
     """Split a section title into (main_heading, subtitle).
 
     - 'Mercúrio: Como Você Pensa' → ('Como Você Pensa',
@@ -1038,7 +1080,7 @@ def _split_section_title(title: str, points: dict):
     prefix, _, rest = title.partition(":")
     prefix = prefix.strip()
     main = rest.strip() or title
-    subtitle = _subtitle_from_prefix(prefix, points)
+    subtitle = _subtitle_from_prefix(prefix, points, time_unknown=time_unknown)
     if not subtitle:
         # Prefix is a non-planet label (Casa 4, Asteróides, Sua Tríade, Nodo Sul e Nodo Norte).
         # Show it as-is under the main heading so the reader still has the
@@ -1047,7 +1089,7 @@ def _split_section_title(title: str, points: dict):
     return main, subtitle
 
 
-def _section_flowables(title: str, paragraphs: list, styles, points: dict):
+def _section_flowables(title: str, paragraphs: list, styles, points: dict, time_unknown: bool = False):
     """Build the flowables for one section.
 
     Header layout (per redesign spec):
@@ -1058,7 +1100,7 @@ def _section_flowables(title: str, paragraphs: list, styles, points: dict):
        first paragraph
     """
     flow = []
-    main_heading, subtitle = _split_section_title(title, points)
+    main_heading, subtitle = _split_section_title(title, points, time_unknown=time_unknown)
 
     header_parts = [
         Paragraph(_escape(main_heading), styles["section_title"]),
@@ -1076,14 +1118,14 @@ def _section_flowables(title: str, paragraphs: list, styles, points: dict):
         header_parts.append(Paragraph(_escape(subtitle), styles["section_subtitle"]))
 
     if paragraphs:
-        header_parts.append(Paragraph(_escape(paragraphs[0]), styles["body"]))
+        header_parts.append(Paragraph(_render_body_xml(paragraphs[0]), styles["body"]))
         rest = paragraphs[1:]
     else:
         rest = []
 
     flow.append(KeepTogether(header_parts))
     for p in rest:
-        flow.append(Paragraph(_escape(p), styles["body"]))
+        flow.append(Paragraph(_render_body_xml(p), styles["body"]))
 
     return flow
 
@@ -1100,6 +1142,7 @@ def generate_pdf(
     chart_image_url: str = "",
     aspects: list = None,
     points: dict = None,
+    time_unknown: bool = False,
     chart_svg_url: str = "",  # backwards-compatible alias, deprecated
 ) -> bytes:
     """
@@ -1180,7 +1223,7 @@ def generate_pdf(
     sections = _parse_sections(report_text)
     _skip_breather_after = {"abertura", "fio condutor"}
     for i, (title, paragraphs) in enumerate(sections):
-        story.extend(_section_flowables(title, paragraphs, styles, parsed_points))
+        story.extend(_section_flowables(title, paragraphs, styles, parsed_points, time_unknown=time_unknown))
 
         # Insert a breather page after this section? Every fourth non-terminal
         # section counting from Abertura, but never immediately before Fio
