@@ -1617,85 +1617,158 @@ def verify_planet_signs(text, chart, moon_uncertain=False):
     points = chart.get("points") or {}
     divergences = []
 
-    # Regex: (opcional artigo/possessivo) + Planeta + em + Signo
-    # Só considera o padrão como "referente ao mapa da pessoa" quando
-    # precedido de "seu/sua/o seu/a sua" OU quando o planeta começa com
-    # maiúscula (indicando início de frase ou nome próprio referente a
-    # este mapa).
     planet_alt = "|".join(sorted(_PLANET_PT_TO_KEY.keys(), key=len, reverse=True))
     sign_alt = "|".join(sorted(_SIGN_LABELS_PT, key=len, reverse=True))
-    # Grupo 1: prefixo possessivo (opcional)
-    # Grupo 2: nome do planeta (canônico)
-    # Grupo 3: signo afirmado
-    pattern = re.compile(
-        rf"(?P<prefix>(?:[Ss]eu|[Ss]ua|[Oo] seu|[Aa] sua)\s+)?"
-        rf"(?P<planet>{planet_alt})\s+em\s+"
-        rf"(?P<sign>{sign_alt})",
+
+    # PADRÃO A — "Planeta em Signo" e "Planeta está/estão em Signo"
+    #   Exemplos: "Sol em Câncer", "Sua Lua em Áries", "Mercúrio está em Gêmeos"
+    pattern_forward = re.compile(
+        rf"(?P<prefix>(?:[Ss]eu|[Ss]ua|[Oo] seu|[Aa] sua|[Oo]|[Aa])\s+)?"
+        rf"(?P<planet>{planet_alt})"
+        rf"(?:\s+est(?:á|ão))?\s+em\s+"
+        rf"(?P<sign>{sign_alt})"
+        rf"(?!\w)"
+    )
+
+    # PADRÃO B — "Signo no/na Planeta" (invertido, contração em+o/em+a)
+    #   Exemplos: "Libra no Nodo Sul", "Áries na Lua", "Câncer no Sol"
+    pattern_reverse = re.compile(
+        rf"(?P<sign>{sign_alt})\s+n[oa]s?\s+"
+        rf"(?P<planet>{planet_alt})"
+        rf"(?!\w)"
+    )
+
+    # PADRÃO C — "Planeta1, Planeta2 e Planeta3 (também) (estão) em Signo"
+    #   Exemplos: "Marte, Ceres e Vesta em Libra"
+    #             "A Lua e Quíron também estão em Áries"
+    pattern_multi = re.compile(
+        rf"(?P<group>(?:{planet_alt})(?:\s*,\s*(?:{planet_alt}))+"
+        rf"(?:\s+e\s+(?:{planet_alt}))?"
+        rf"|(?:{planet_alt})\s+e\s+(?:{planet_alt}))"
+        rf"(?:\s+(?:tamb[ée]m))?"
+        rf"(?:\s+est(?:á|ão))?\s+em\s+"
+        rf"(?P<sign>{sign_alt})"
+        rf"(?!\w)",
     )
 
     def _canon_planet_key(name):
-        # Recuperar a chave canônica insensível a caso
         for pt_name, key in _PLANET_PT_TO_KEY.items():
             if name.lower() == pt_name.lower():
                 return key, pt_name
         return None, name
 
+    def _canon_sign(s):
+        return _SIGN_CANONICAL_PT.get(s.lower(), s)
+
     corrected = text
-    # Trabalhar de trás para frente para não invalidar posições após slice
-    matches = list(pattern.finditer(text))
-    for m in reversed(matches):
-        planet_pt_written = m.group("planet")
-        claimed_sign_written = m.group("sign")
-        prefix = m.group("prefix") or ""
-        key, planet_pt_canon = _canon_planet_key(planet_pt_written)
+
+    # Helper: registrar divergência e aplicar substituição
+    def _handle_claim(match_start, match_end, planet_written, claimed_sign, prefix=""):
+        key, planet_pt_canon = _canon_planet_key(planet_written)
         if not key:
-            continue
+            return None
         actual_sign = points.get(key, {}).get("sign_pt")
         if not actual_sign:
-            continue
+            return None
+        claimed_norm = _canon_sign(claimed_sign)
 
-        # Normalizar signos afirmados (acentos podem estar diferentes)
-        claimed_norm = _SIGN_CANONICAL_PT.get(
-            claimed_sign_written.lower(),
-            claimed_sign_written,
-        )
-
-        # Regra especial: se moon_uncertain e o planeta é Lua, QUALQUER
-        # signo afirmado é divergência — o signo é indeterminado.
+        # Moon uncertain: qualquer signo afirmado à Lua é divergência
         if moon_uncertain and key == "moon":
-            snippet_start = max(0, m.start() - 60)
-            snippet_end = min(len(text), m.end() + 60)
+            snippet = text[max(0, match_start-60):min(len(text), match_end+60)].replace("\n", " ").strip()
             divergences.append({
                 "planet": planet_pt_canon,
                 "claimed_sign": claimed_norm,
                 "actual_sign": "INDETERMINADO (moon_uncertain)",
-                "context": text[snippet_start:snippet_end].replace("\n", " ").strip(),
-                "match": m.group(0),
+                "context": snippet,
+                "match": text[match_start:match_end],
                 "action": "stripped_sign",
             })
-            # Substituir "em X" por "" — mantém o planeta, remove a
-            # afirmação de signo.
-            replacement = f"{prefix}{planet_pt_written}"
-            corrected = corrected[:m.start()] + replacement + corrected[m.end():]
-            continue
+            # Substituição: só o planeta, sem afirmação de signo
+            return f"{prefix}{planet_written}"
 
         if claimed_norm == actual_sign:
-            continue  # Bate — sem divergência
+            return None  # Confere
 
-        # Divergência: signo afirmado ≠ signo real do mapa
-        snippet_start = max(0, m.start() - 60)
-        snippet_end = min(len(text), m.end() + 60)
+        snippet = text[max(0, match_start-60):min(len(text), match_end+60)].replace("\n", " ").strip()
         divergences.append({
             "planet": planet_pt_canon,
             "claimed_sign": claimed_norm,
             "actual_sign": actual_sign,
-            "context": text[snippet_start:snippet_end].replace("\n", " ").strip(),
-            "match": m.group(0),
+            "context": snippet,
+            "match": text[match_start:match_end],
             "action": "sign_replaced",
         })
-        # Substituir apenas o signo, preservando prefixo e nome do planeta
-        replacement = f"{prefix}{planet_pt_written} em {actual_sign}"
-        corrected = corrected[:m.start()] + replacement + corrected[m.end():]
+        return f"{prefix}{planet_written} em {actual_sign}"
+
+    # Ordem de aplicação: primeiro multi (mais específico), depois reverse,
+    # depois forward. Todas trabalham de trás para frente sobre o texto
+    # sempre re-lido para evitar cascatas.
+    for pattern in (pattern_multi, pattern_reverse, pattern_forward):
+        matches = list(pattern.finditer(corrected))
+        for m in reversed(matches):
+            claimed_sign = m.group("sign")
+            if pattern is pattern_multi:
+                # Múltiplos planetas na mesma afirmação — verificar CADA UM
+                group_text = m.group("group")
+                planets_raw = re.split(r"\s*,\s*|\s+e\s+", group_text)
+                any_wrong = False
+                fixed_planets = []
+                for pw in planets_raw:
+                    key, canon = _canon_planet_key(pw)
+                    if not key:
+                        fixed_planets.append(pw)
+                        continue
+                    actual = points.get(key, {}).get("sign_pt")
+                    claimed_norm = _canon_sign(claimed_sign)
+                    if moon_uncertain and key == "moon":
+                        # Registrar e MARCAR pra remoção do grupo
+                        divergences.append({
+                            "planet": canon,
+                            "claimed_sign": claimed_norm,
+                            "actual_sign": "INDETERMINADO (moon_uncertain)",
+                            "context": corrected[max(0, m.start()-60):min(len(corrected), m.end()+60)].replace("\n", " ").strip(),
+                            "match": m.group(0),
+                            "action": "removed_from_multi",
+                        })
+                        any_wrong = True
+                        continue  # remove esse planeta do grupo
+                    if actual and actual != claimed_norm:
+                        divergences.append({
+                            "planet": canon,
+                            "claimed_sign": claimed_norm,
+                            "actual_sign": actual,
+                            "context": corrected[max(0, m.start()-60):min(len(corrected), m.end()+60)].replace("\n", " ").strip(),
+                            "match": m.group(0),
+                            "action": "removed_from_multi",
+                        })
+                        any_wrong = True
+                        continue  # remove esse planeta do grupo
+                    fixed_planets.append(pw)
+                if any_wrong:
+                    # Reconstruir a afirmação só com os planetas que de fato
+                    # estão nesse signo. Se sobrar 0 ou 1, ajusta redação.
+                    if not fixed_planets:
+                        # Ninguém está nesse signo — remove a claim inteira
+                        replacement = "[afirmação removida: nenhum corpo neste signo]"
+                    elif len(fixed_planets) == 1:
+                        replacement = f"{fixed_planets[0]} está em {_canon_sign(claimed_sign)}"
+                    else:
+                        replacement = ", ".join(fixed_planets[:-1]) + f" e {fixed_planets[-1]} estão em {_canon_sign(claimed_sign)}"
+                    corrected = corrected[:m.start()] + replacement + corrected[m.end():]
+                continue
+            # PADRÃO forward ou reverse — trata cada match individualmente
+            planet_written = m.group("planet")
+            prefix = ""
+            try:
+                prefix = m.group("prefix") or ""
+            except (IndexError, re.error):
+                prefix = ""
+            replacement = _handle_claim(
+                m.start(), m.end(),
+                planet_written, claimed_sign, prefix=prefix,
+            )
+            if replacement is not None:
+                corrected = corrected[:m.start()] + replacement + corrected[m.end():]
 
     return corrected, divergences
 
