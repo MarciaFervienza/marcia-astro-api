@@ -469,6 +469,28 @@ def aspects_for_planet(chart, planet_key):
     return out
 
 
+def find_aspect(chart, key_a, key_b, aspect_type):
+    """Retorna o dict do aspecto entre key_a e key_b do tipo aspect_type se
+    ele existir na lista chart["aspects"] (já filtrada in-sign), em qualquer
+    ordem. Caso contrário retorna None.
+
+    Usado por instruções condicionais em build_sections que só devem ser
+    emitidas quando o aspecto REALMENTE existe no mapa — evitando a família
+    de erro em que uma instrução hardcoded referia um aspecto do Cliente
+    Teste como se todo mapa tivesse.
+    """
+    if not aspect_type:
+        return None
+    for a in chart.get("aspects", []):
+        if a.get("type") != aspect_type:
+            continue
+        pa = a.get("planet_a")
+        pb = a.get("planet_b")
+        if (pa == key_a and pb == key_b) or (pa == key_b and pb == key_a):
+            return a
+    return None
+
+
 def fmt_aspects(aspects):
     if not aspects:
         return "(sem aspectos maiores listados)"
@@ -1110,10 +1132,23 @@ def build_sections(chart):
             "planets_filter": ["Vênus", "Marte"],
             "psychological_frame": (
                 "Vênus fala de como você ama, o que você valoriza e como você se relaciona. Marte fala de como você "
-                "age, deseja e luta pelo que quer. Juntos descrevem a dinâmica afetiva e relacional desta pessoa.\n\n"
-                "O sextil Vênus-Júpiter deve ser interpretado não como abundância financeira mas como uma facilidade "
-                "genuína em criar vínculos e em ser reconhecida pelo que oferece relacionalmente. NÃO conecte esse "
-                "aspecto a dinheiro — isso cria contradição com o que foi dito sobre Saturno na casa dois."
+                "age, deseja e luta pelo que quer. Juntos descrevem a dinâmica afetiva e relacional desta pessoa."
+                + (
+                    # Só emite a instrução do sextil Vênus-Júpiter se ele
+                    # EXISTIR na lista de aspectos in-sign deste mapa. A
+                    # referência hardcoded a "Saturno na casa 2" (que era
+                    # específica ao Cliente Teste) foi removida — a diretriz
+                    # de não interpretar esse sextil como abundância
+                    # financeira é regra geral da tradição da Marcia, não
+                    # depende de outro planeta.
+                    "\n\nO sextil Vênus-Júpiter (orbe "
+                    f"{find_aspect(chart, 'venus', 'jupiter', 'sextile')['orb']:.1f}°) presente neste mapa "
+                    "deve ser interpretado NÃO como abundância financeira, mas como uma facilidade genuína "
+                    "em criar vínculos e em ser reconhecida pelo que se oferece relacionalmente. Não conecte "
+                    "esse aspecto a dinheiro nem a sorte material."
+                    if find_aspect(chart, "venus", "jupiter", "sextile")
+                    else ""
+                )
             ),
             "depth_instruction": DEPTH_TIER_3,
         },
@@ -1236,12 +1271,28 @@ def build_sections(chart):
             "psychological_frame": (
                 "Interprete cada asteróide brevemente mas com precisão: Ceres fala de como você nutre e precisa ser "
                 "nutrido. Vesta fala de onde você dedica sua chama sagrada. Juno fala de como você se compromete em "
-                "parcerias. Palas fala de sua sabedoria estratégica e criativa.\n\n"
-                "Ceres está em conjunção com Plutão neste mapa (4 graus de orbe). Essa conjunção deve ser interpretada: "
-                "o cuidado e a nutrição (Ceres) estão profundamente entrelaçados com dinâmicas de poder, transformação "
-                "e o não-dito (Plutão). O cuidado que você recebeu — e que oferece — raramente é simples ou descomplicado.\n\n"
-                "Para Vesta, Juno e Palas, inclua uma frase adicional além da descrição básica — algo que conecte o "
-                "posicionamento a um desafio ou recurso concreto para esta pessoa específica, baseado no signo e casa."
+                "parcerias. Palas fala de sua sabedoria estratégica e criativa."
+                + (
+                    # Só emite a instrução da conjunção Ceres-Plutão se ela
+                    # EXISTIR na lista de aspectos in-sign deste mapa. A
+                    # versão anterior (hardcoded) instruía o modelo a
+                    # interpretar essa conjunção como fato em TODOS os mapas
+                    # — enquanto ela existe só no Cliente Teste. Se não
+                    # existe, Ceres é lida normalmente pelos aspectos e
+                    # posicionamento reais dela.
+                    "\n\nCeres está em conjunção com Plutão neste mapa (orbe "
+                    f"{find_aspect(chart, 'ceres', 'pluto', 'conjunction')['orb']:.1f}°). Essa "
+                    "conjunção deve ser interpretada: o cuidado e a nutrição (Ceres) estão profundamente "
+                    "entrelaçados com dinâmicas de poder, transformação e o não-dito (Plutão). O cuidado "
+                    "que você recebeu — e que oferece — raramente é simples ou descomplicado."
+                    if find_aspect(chart, "ceres", "pluto", "conjunction")
+                    else ""
+                )
+                + (
+                    "\n\nPara Vesta, Juno e Palas, inclua uma frase adicional além da descrição básica — algo que "
+                    "conecte o posicionamento a um desafio ou recurso concreto para esta pessoa específica, baseado no "
+                    "signo e casa."
+                )
             ),
             "depth_instruction": DEPTH_TIER_3,
         },
