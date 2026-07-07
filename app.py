@@ -1039,6 +1039,39 @@ def generate_report_endpoint():
     body["_unknown_birth_time"] = unknown_birth_time
     body["_moon_meta"] = moon_meta
 
+    # ------------------------------------------------------------------
+    # Filtrar aspectos dissociados (fora de signo).
+    #
+    # A prática da Marcia não reconhece aspectos que estão dentro do orbe mas
+    # cujos signos NÃO formam o par natural do aspecto (ex.: conjunção entre
+    # Lua em Leão e Júpiter em Câncer, mesmo com orbe < 5°). Antes desta
+    # linha, `body["aspects"]` continha todos os aspectos que o cálculo do
+    # cliente (Kerykeion / astro engine) produziu, dissociados inclusive; o
+    # report_generator então iterava sobre TODOS eles em
+    # `aspects_for_section_filtered` e `aspects_for_planet`, e o Claude
+    # acabava interpretando aspectos que na tradição da Marcia não existem.
+    #
+    # A função `get_in_sign_aspects` (report_generator.py:125) já implementa
+    # a lógica de distância circular por signos:
+    #   conjunção → 0 signos · sextil → 2 · quadratura → 3 · trígono → 4 · oposição → 6
+    # Chamando aqui, todo o pipeline downstream (texto interpretativo E tabela
+    # do PDF) vê a mesma lista já filtrada — fonte única de verdade.
+    from report_generator import get_in_sign_aspects as _in_sign_filter
+    _raw_aspects = body.get("aspects") or []
+    _in_sign_aspects = _in_sign_filter(_raw_aspects, body.get("points") or {})
+    n_dropped = len(_raw_aspects) - len(_in_sign_aspects)
+    if n_dropped:
+        # Capturar os aspectos descartados para auditoria/debug — vão pro meta
+        # da resposta para que possamos verificar visualmente que cada drop é
+        # legítimo (i.e., é de fato dissociado, não um falso descarte).
+        _in_sign_keys = {(a.get("planet_a"), a.get("planet_b"), a.get("type")) for a in _in_sign_aspects}
+        dropped = [a for a in _raw_aspects
+                   if (a.get("planet_a"), a.get("planet_b"), a.get("type")) not in _in_sign_keys]
+        body["_dropped_aspects"] = dropped
+        logger.info("dropped %d dissociated aspects out of %d raw aspects",
+                    n_dropped, len(_raw_aspects))
+    body["aspects"] = _in_sign_aspects
+
     try:
         result = rg.generate_report(
             body,
@@ -1168,6 +1201,13 @@ def generate_report_endpoint():
             "chart_svg_error": chart_error or None,
             "chart_style": CHART_STYLE,
             "time_estimated": time_estimated,
+            # Auditoria do filtro in-sign — quantos aspectos vieram no payload
+            # bruto e quantos foram descartados por serem dissociados, mais a
+            # lista completa dos descartados (par de corpos, tipo, orbe) para
+            # verificação visual.
+            "aspects_raw_count": len(_raw_aspects),
+            "aspects_in_sign_count": len(_in_sign_aspects),
+            "aspects_dropped": body.get("_dropped_aspects", []),
             # Geocoded location (lat/lng + resolved IANA zone name) so the
             # caller can verify the geocode landed where they expect.
             "birth_city": birth_city,
