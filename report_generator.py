@@ -947,9 +947,27 @@ def section_chart_context(section_name, chart):
         )
 
     if section_name == "lilith":
+        # Se a Lua tem signo indeterminado, aspectos Lua-Lilith são
+        # intrinsecamente incertos e não devem chegar ao Claude nesta seção.
+        # Filtramos aqui para que a única lista visível seja confiável.
+        lilith_aspects = filtered_aspects
+        if moon_uncertain:
+            lilith_aspects = [
+                a for a in filtered_aspects
+                if "moon" not in (a.get("planet_a"), a.get("planet_b"))
+            ]
+        lilith_line = fmt_filtered_aspects(lilith_aspects)
         return _tunk_prefix + (
             f"Lilith: {_pl(p['lilith'])}\n"
-            f"Aspectos relevantes de Lilith (filtrados): {aspects_line}"
+            f"Aspectos relevantes de Lilith (filtrados): {lilith_line}"
+            + (
+                "\n[Aspectos com a Lua foram omitidos porque o signo da Lua "
+                "é indeterminado neste mapa.]"
+                if moon_uncertain and any(
+                    "moon" in (a.get("planet_a"), a.get("planet_b"))
+                    for a in filtered_aspects
+                ) else ""
+            )
         )
 
     if section_name == "nodos":
@@ -1323,21 +1341,38 @@ def build_sections(chart):
             "queries": casa4_queries,
             "planets_filter": h4_planets_pt if h4_planets_pt else None,
             "psychological_frame": (
-                "A Casa 4 é a fundação invisível — a casa interior, a família de origem em seu sentido mais arquetípico, "
-                "o lugar de onde você veio e que ainda te habita. É a memória anterior à memória, o solo emocional do qual "
-                "você emergiu psiquicamente. Esta seção complementa a Lua: enquanto a Lua é a relação direta com a figura "
-                "materna e os padrões emocionais herdados, a Casa 4 é o ambiente, a atmosfera, o terreno do qual essa "
-                "relação brotou.\n\n"
-                "Se houver planetas na casa 4, interprete-os como forças que moldaram o ambiente da infância e o senso "
-                "de lar e pertencimento. Se a casa estiver vazia, interprete o signo da cúspide (IC) e o planeta que rege "
-                "esse signo como a chave do ambiente doméstico e familiar. Em qualquer caso, NÃO repita interpretações que "
-                "já apareceram na seção de Plutão ou de qualquer outro planeta — aqui o foco é o ambiente, a atmosfera, "
-                "o terreno emocional da infância, não a força planetária em si.\n\n"
-                "IMPORTANTE: A interpretação da casa quatro em Libra com Plutão não deve assumir harmonia como única "
-                "possibilidade. Apresente DUAS manifestações possíveis: (a) um ambiente que mantinha uma aparência de "
-                "harmonia por fora enquanto dinâmicas de poder operavam por baixo; (b) um ambiente de conflito aberto, "
-                "frequentemente criado por uma figura parental dominante. Use linguagem como 'pode ter sido' ou "
-                "'alternativamente' para apresentar as duas possibilidades sem impor uma única leitura."
+                "A Casa 4 é a fundação invisível — a casa interior, a família de origem em seu sentido "
+                "mais arquetípico, o lugar de onde você veio e que ainda te habita. É a memória anterior "
+                "à memória, o solo emocional do qual você emergiu psiquicamente. Esta seção complementa "
+                "a Lua: enquanto a Lua fala da função de cuidado e do vínculo primário, a Casa 4 é o "
+                "ambiente, a atmosfera, o terreno do qual esse vínculo brotou.\n\n"
+
+                "REGRA CRÍTICA ANTI-ALUCINAÇÃO: os dados no início desta seção listam explicitamente "
+                "qual é o signo do IC (cúspide da Casa 4) NESTE mapa, e quais planetas (se algum) "
+                "estão de fato posicionados na Casa 4. Você SÓ pode interpretar o que está listado. "
+                "NUNCA assuma um signo diferente do IC listado. NUNCA assuma planetas na Casa 4 que "
+                "não estejam listados. Se a listagem diz 'Casa 4: sem planetas listados', trabalhe com "
+                "o IC e o planeta regente do signo do IC — não invente Plutão, Saturno ou qualquer "
+                "outro corpo na Casa 4.\n\n"
+
+                "Se HOUVER planetas na Casa 4 (listados nos dados), interprete-os como forças que "
+                "moldaram o ambiente da infância e o senso de lar e pertencimento. Se a casa estiver "
+                "VAZIA, interprete o signo da cúspide (IC) e o planeta que rege esse signo como a "
+                "chave do ambiente doméstico e familiar. Em qualquer caso, NÃO repita interpretações "
+                "que já apareceram na seção de Plutão ou de qualquer outro planeta — aqui o foco é o "
+                "ambiente, a atmosfera, o terreno emocional da infância, não a força planetária em "
+                "si.\n\n"
+
+                "Se algum planeta REALMENTE presente na Casa 4 tem múltiplas manifestações possíveis "
+                "(Plutão pode indicar harmonia aparente sobre dinâmicas de poder OU conflito "
+                "explícito; Saturno pode indicar estrutura rígida OU frieza afetiva; Urano pode "
+                "indicar instabilidade OU liberdade genuína; Netuno pode indicar difusão OU "
+                "espiritualidade familiar), apresente as manifestações possíveis sem impor uma única "
+                "leitura. Use linguagem como 'pode ter sido' ou 'alternativamente'.\n\n"
+
+                "LINGUAGEM: use 'a principal figura de cuidado', 'quem exerceu esse papel', 'o "
+                "vínculo primário', 'quem cuidou' — NUNCA 'seu pai', 'sua mãe', 'seus pais'. Regra "
+                "permanente que vale para esta seção."
             ),
             "depth_instruction": DEPTH_TIER_1,
         },
@@ -1480,17 +1515,54 @@ def build_sections(chart):
         {
             "name": "lilith",
             "title": "Lilith: Onde Você Deve Insistir em Ser Você",
-            "queries": [
-                f"Lilith em {lilith['sign_pt']} casa {lilith['house']}",
-                f"silenciada empurrada para fora insistir caminho próprio {lilith['sign_pt']}",
-            ],
+            "queries": (
+                # Sem hora: só signo. Com hora: signo + casa como âncora da busca.
+                [
+                    f"Lilith em {lilith['sign_pt']}",
+                    f"silenciada empurrada para fora insistir caminho próprio {lilith['sign_pt']}",
+                ]
+                if time_unknown else
+                [
+                    f"Lilith em {lilith['sign_pt']} casa {lilith['house']}",
+                    f"silenciada empurrada para fora insistir caminho próprio {lilith['sign_pt']}",
+                ]
+            ),
             "planets_filter": ["Lilith"],
             "psychological_frame": (
-                "Lilith marca o lugar onde você percebe que algo em você é considerado 'errado' pelo mundo — onde o "
-                "mundo tenta te silenciar, te normalizar, te empurrar para fora. É exatamente aqui que você deve "
-                "insistir em fazer do seu jeito.\n\n"
-                "Termine a seção com uma frase conclusiva sobre o que significa, em termos práticos e concretos, ter "
-                "Lilith em Touro na casa onze — o que essa pessoa deve parar de negociar e o que deve insistir em preservar."
+                "Lilith marca o lugar onde você percebe que algo em você é considerado 'errado' pelo "
+                "mundo — onde o mundo tenta te silenciar, te normalizar, te empurrar para fora. É "
+                "exatamente aqui que você deve insistir em fazer do seu jeito.\n\n"
+
+                "REGRA CRÍTICA ANTI-ALUCINAÇÃO: os dados desta seção listam o signo real de Lilith "
+                "NESTE mapa"
+                + (" (a casa NÃO está disponível — hora desconhecida)"
+                   if time_unknown else " e sua casa real")
+                + ", e a lista de aspectos in-sign que Lilith de fato faz. Você SÓ pode trabalhar com "
+                "esses dados. NUNCA assuma Lilith em Touro nem em casa 11 (configurações de mapas "
+                "específicos, não deste). Leia o signo real, "
+                + ("os aspectos reais (sem casa)"
+                   if time_unknown else "a casa real e os aspectos reais")
+                + " deste mapa.\n\n"
+
+                + (
+                    "RESSALVA — HORA DESCONHECIDA: a hora não é conhecida, portanto NÃO afirme casa "
+                    "para Lilith. Trabalhe por signo + aspectos.\n\n"
+                    if time_unknown else ""
+                )
+                + (
+                    "RESSALVA ADICIONAL — LUA INCERTA: neste mapa a Lua tem signo indeterminado (ela "
+                    "mudou de signo no dia do nascimento). Se algum dos aspectos listados envolve "
+                    "Lua-Lilith, IGNORE esse aspecto específico — ele é intrinsecamente incerto pela "
+                    "mesma razão que o signo da Lua é. Trabalhe apenas com aspectos de Lilith com "
+                    "outros corpos (não a Lua).\n\n"
+                    if moon_uncertain else ""
+                )
+                + "Termine a seção com uma frase conclusiva sobre o que significa, em termos "
+                "práticos e concretos, ter Lilith no SIGNO real deste mapa"
+                + (" (sem afirmar casa)" if time_unknown else " e na CASA real deste mapa")
+                + " — o que essa pessoa deve parar de negociar e o que deve insistir em preservar. A "
+                "conclusão deve derivar dos dados REAIS listados no início desta seção, nunca de uma "
+                "configuração assumida."
             ),
             "depth_instruction": DEPTH_TIER_3,
         },
