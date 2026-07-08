@@ -767,7 +767,27 @@ def section_chart_context(section_name, chart):
     # Colocar isso na frente de cada bloco de contexto é a garantia de que a
     # regra chegue à consciência do modelo em cada chamada, não só nas seções
     # de abertura/triade/lua onde a NOTA aparece explicitamente.
-    _tunk_prefix = (
+    # SIGNOS REAIS de todos os planetas — visível em cada seção como
+    # referência anti-alucinação. Sem isso o modelo pode escrever "Plutão
+    # em Escorpião" por associação com regência quando o Plutão real está
+    # em outro signo. Também suprime a Lua quando o signo é indeterminado.
+    _signs_ref_bits = []
+    for _k in ("sun","moon","mercury","venus","mars","jupiter","saturn",
+               "uranus","neptune","pluto","chiron","lilith",
+               "north_node","south_node","ceres","vesta","juno","pallas"):
+        if _k not in p:
+            continue
+        if _k == "moon" and moon_uncertain:
+            _signs_ref_bits.append("Lua INDETERMINADO")
+            continue
+        _signs_ref_bits.append(f"{PLANET_LABEL_PT.get(_k, _k)} {p[_k]['sign_pt']}")
+    _signs_ref_prefix = (
+        "[SIGNOS REAIS DE TODOS OS PLANETAS NESTE MAPA — use SEMPRE estes "
+        "signos, NUNCA o signo de regência/domicílio/exaltação]: "
+        + ", ".join(_signs_ref_bits) + ".\n\n"
+    )
+
+    _tunk_prefix = _signs_ref_prefix + ((
         "[REGRA ABSOLUTA PARA ESTA SEÇÃO] O horário de nascimento é desconhecido. "
         "NUNCA mencione a casa astrológica de nenhum planeta ou ponto — não escreva "
         "'na casa X', 'da casa X', 'casa X', nem versões por extenso ('casa quatro', "
@@ -776,7 +796,7 @@ def section_chart_context(section_name, chart):
         "aspectos. Interprete o que os trechos dizem sobre o planeta em geral, "
         "descartando qualquer referência a casa. Também NÃO mencione o "
         "Ascendente, Meio-do-Céu, Descendente ou Fundo do Céu (Imum Coeli).\n\n"
-    ) if time_unknown else ""
+    ) if time_unknown else "")
 
     # Compute filtered aspects for this section once (also records into _section_aspect_audit)
     filtered_aspects = aspects_for_section_filtered(section_name, chart)
@@ -1675,6 +1695,8 @@ Sempre dá para dizer o que se quer afirmar SEM negar antes o oposto. Reescreva.
 
 TAMBÉM PROIBIDO: (f) usar "nomear" como verbo padrão para tudo — varie com "identificar", "reconhecer", "colocar em palavras", "articular", "perceber", "distinguir"; (g) [reforço da alínea d] a construção "Não é X, é Y" em QUALQUER forma — inclusive versões alongadas ("Isso não é apenas X, é também Y"), invertidas ("Y, e não X"), ou com negação em outra ordem ("Aqui não há X, há Y") — TODAS são proibidas; (h) "retrógrada" como substantivo feminino — o planeta está sempre "retrógrado", nunca "a retrógrada"; (i) qualquer palavra em inglês não traduzida, especialmente "retrograde" — sempre "retrógrado"; (j) qualificadores defensivos desnecessários como "não porque seja naturalmente ambiciosa no sentido frio da palavra" — faça a afirmação diretamente sem recuar dela; (k) repetir o mesmo padrão interpretativo em seções diferentes — se a proteção emocional via controle já foi descrita na seção da Lua, a seção de Plutão não deve repetir a mesma ideia com outras palavras; (l) [REGRA ABSOLUTA — ALUCINAÇÃO DE POSICIONAMENTO] JAMAIS afirmar que um planeta ou ponto está em um signo se esse dado não vier do bloco "DADOS DO MAPA PARA ESTA SEÇÃO" fornecido no início desta chamada, ou dos POSICIONAMENTOS ASTROLÓGICOS listados. NUNCA escrever "Sol em X", "Lua em Y", "Vênus em Z", "Quíron em W", etc. com um signo que não conste explicitamente nos dados. NUNCA escrever que um planeta "compartilha signo com" outro, "reforça o padrão de", "vibra no mesmo tom que", "faz eco a" outro planeta a não ser que os SIGNOS DE AMBOS estejam explicitamente informados no bloco de dados e coincidam. A alucinação de posicionamento é o erro mais grave possível num relatório astrológico. Em caso de dúvida — omita.
 
+(m) [REGÊNCIA ≠ POSIÇÃO REAL] A regência, o domicílio, a exaltação, a queda ou o exílio de um planeta NUNCA devem ser confundidos com o signo em que esse planeta está POSICIONADO neste mapa. Plutão rege Escorpião — isso NÃO significa que Plutão está em Escorpião. Marte é domiciliado em Áries e exaltado em Capricórnio — isso NÃO significa que Marte está em Áries ou em Capricórnio. Vênus rege Touro e Libra — isso NÃO significa que Vênus está em Touro ou Libra. Quíron não tem regência canônica — nunca associe Quíron a Áries "por default". O signo real de CADA planeta e ponto vem SEMPRE do bloco "DADOS DO MAPA PARA ESTA SEÇÃO" acima e da lista POSICIONAMENTOS ASTROLÓGICOS. Se você se pegar escrevendo o signo de regência de um planeta em vez do signo real dele, PARE, releia os dados, e corrija. Este é o vetor mais comum de alucinação: substituir a posição real por associação simbólica genérica. NUNCA fazer isso.
+
 CONVENÇÕES DE LINGUAGEM: Use sempre "em oposição", "em quadratura", "em trígono", "em conjunção", "em sextil" — nunca "na oposição", "na quadratura" etc. Planetas retrógrados são sempre descritos como "retrógrado" — nunca "a retrógrada". Mantenha "se regenerar rapidamente" em vez de "se regenerar rápido"."""
 
 
@@ -1744,7 +1766,7 @@ Mantenha o gênero gramaticalmente consistente em todo o texto — use exclusiva
 
 PROIBIDO também aqui: metáforas dramáticas, "corta o ar como lâmina", "abismo", "chama que arde", "funda" (use "profunda"), construção repetitiva "Não é X. É Y.", "presença" como substantivo vago.
 
-TAMBÉM PROIBIDO: (f) usar "nomear" como verbo padrão para tudo — varie com "identificar", "reconhecer", "colocar em palavras", "articular", "perceber", "distinguir"; (g) a construção "Não é X, é Y" — está limitada a UMA ocorrência por relatório inteiro, não por seção; (h) "retrógrada" como substantivo feminino — o planeta está sempre "retrógrado", nunca "a retrógrada"; (i) qualquer palavra em inglês não traduzida, especialmente "retrograde" — sempre "retrógrado"; (j) qualificadores defensivos desnecessários como "não porque seja naturalmente ambiciosa no sentido frio da palavra" — faça a afirmação diretamente sem recuar dela; (k) repetir o mesmo padrão interpretativo em seções diferentes.
+TAMBÉM PROIBIDO: (f) usar "nomear" como verbo padrão para tudo — varie com "identificar", "reconhecer", "colocar em palavras", "articular", "perceber", "distinguir"; (g) a construção "Não é X, é Y" — está limitada a UMA ocorrência por relatório inteiro, não por seção; (h) "retrógrada" como substantivo feminino — o planeta está sempre "retrógrado", nunca "a retrógrada"; (i) qualquer palavra em inglês não traduzida, especialmente "retrograde" — sempre "retrógrado"; (j) qualificadores defensivos desnecessários como "não porque seja naturalmente ambiciosa no sentido frio da palavra" — faça a afirmação diretamente sem recuar dela; (k) repetir o mesmo padrão interpretativo em seções diferentes; (m) [REGÊNCIA ≠ POSIÇÃO REAL] NUNCA confundir regência/domicílio/exaltação com signo real de posição. Plutão rege Escorpião mas pode estar em qualquer signo; use SEMPRE o signo real listado no RESUMO DO MAPA acima, jamais o signo de regência.
 
 CONVENÇÕES DE LINGUAGEM: Use sempre "em oposição", "em quadratura", "em trígono", "em conjunção", "em sextil" — nunca "na oposição", "na quadratura" etc. Planetas retrógrados são sempre descritos como "retrógrado" — nunca "a retrógrada". Mantenha "se regenerar rapidamente" em vez de "se regenerar rápido".
 
