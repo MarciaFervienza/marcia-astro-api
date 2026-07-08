@@ -2308,6 +2308,135 @@ def verify_planet_signs(text, chart, moon_uncertain=False):
     return corrected, divergences
 
 
+def apply_correction_rewrites(text, divergences, chart):
+    """Segundo passe do anti-alucinação: quando verify_planet_signs corrigiu
+    a menção do signo por substituição mecânica ("Plutão em Escorpião" →
+    "Plutão em Câncer"), o parágrafo ao redor pode continuar argumentando
+    com base no signo errado (ex.: falando de intensidade escorpiana quando
+    o real é Câncer). Este passe reescreve o parágrafo inteiro com a
+    leitura astrológica correta, preservando tom, extensão e demais dados.
+
+    Só atua sobre divergências com action='sign_replaced'. Ignora
+    'stripped_sign' (Lua indeterminada — o corretor já removeu a afirmação)
+    e 'removed_from_multi' (o corretor removeu o corpo do grupo, o resto
+    do grupo pode continuar coerente).
+
+    Múltiplas divergências que caem no mesmo parágrafo geram UMA única
+    chamada de reescrita — o parágrafo é reescrito uma vez cobrindo todas.
+
+    Retorna (novo_texto, lista_de_reescritas). Se não houver divergências
+    do tipo relevante, retorna (text, []) sem chamadas de LLM.
+    """
+    if not divergences or not text:
+        return text, []
+    to_rewrite = [d for d in divergences if d.get("action") == "sign_replaced"]
+    if not to_rewrite:
+        return text, []
+
+    p = (chart or {}).get("points") or {}
+    paragraphs = text.split("\n\n")
+    # Mapear cada divergência ao índice do parágrafo em que ficou o texto corrigido.
+    para_to_divs = {}
+    for d in to_rewrite:
+        planet_pt = d["planet"]
+        real_sign = d["actual_sign"]
+        needle = f"{planet_pt} em {real_sign}"
+        idx = None
+        for i, para in enumerate(paragraphs):
+            if needle in para:
+                idx = i
+                break
+        if idx is None:
+            # fallback: procurar só pelo nome do planeta
+            for i, para in enumerate(paragraphs):
+                if planet_pt in para:
+                    idx = i
+                    break
+        if idx is not None:
+            para_to_divs.setdefault(idx, []).append(d)
+
+    rewrites = []
+    for i in sorted(para_to_divs.keys()):
+        divs = para_to_divs[i]
+        original = paragraphs[i]
+
+        corrections_summary = "\n".join(
+            f"- {d['planet']}: o texto originalmente afirmou '{d['claimed_sign']}' (ERRO), "
+            f"mas o signo REAL neste mapa é '{d['actual_sign']}'."
+            for d in divs
+        )
+        body_data_bits = []
+        for d in divs:
+            key = _PLANET_PT_TO_KEY.get(d["planet"])
+            info = p.get(key, {}) if key else {}
+            bits = [f"signo real {info.get('sign_pt', d['actual_sign'])}"]
+            h = info.get("house")
+            if h:
+                bits.append(f"casa {h}")
+            if info.get("retrograde"):
+                bits.append("retrógrado")
+            body_data_bits.append(f"- {d['planet']}: {', '.join(bits)}")
+        body_data_str = "\n".join(body_data_bits)
+
+        prompt = (
+            "Você é Marcia Fervienza, astróloga com formação em psicologia "
+            "profunda. Um parágrafo do relatório de mapa natal que você "
+            "escreveu contém um erro de posicionamento planetário: você "
+            "afirmou um signo errado para um ou mais planetas. A menção do "
+            "signo foi corrigida mecanicamente no texto, mas a argumentação "
+            "astrológica do parágrafo pode ainda estar desenvolvida com base "
+            "no signo errado. Sua tarefa é REESCREVER o parágrafo com a "
+            "leitura correta.\n\n"
+            f"CORREÇÃO(ÕES) APLICADA(S):\n{corrections_summary}\n\n"
+            f"DADOS REAIS DO(S) CORPO(S) AFETADO(S):\n{body_data_str}\n\n"
+            "PARÁGRAFO A REESCREVER (com a menção do signo já corrigida "
+            "mecanicamente, mas possivelmente com argumentação incoerente):\n"
+            "\"\"\"\n"
+            f"{original}\n"
+            "\"\"\"\n\n"
+            "REESCREVA este parágrafo:\n"
+            "- Mantenha o mesmo tema, tom, voz e extensão aproximada.\n"
+            "- Substitua a argumentação arquetípica do signo errado por uma "
+            "leitura psicológica coerente com o(s) signo(s) REAL(is) acima. "
+            "Ex.: se o texto desenvolvia intensidade e transformação escorpianas "
+            "para um planeta que na verdade está em Câncer, reescreva em "
+            "chave de raiz, pertencimento, segurança emocional (temas de "
+            "Câncer) — mantendo o corpo em questão como sujeito.\n"
+            "- Preserve tudo o que já estava correto: aspectos mencionados, "
+            "casa (se citada), outros planetas, orientação prática final.\n"
+            "- Voz: íntima, direta, precisa. NUNCA use construção 'não é X, é Y', "
+            "'funda' (use 'profunda'), metáforas dramáticas ('corta o ar como "
+            "lâmina', 'abismo', 'chama que arde'), 'presença' como substantivo "
+            "vago, 'retrógrada' como substantivo feminino ('retrógrado' sempre), "
+            "ou qualquer palavra em inglês.\n"
+            "- NUNCA volte a afirmar o signo errado.\n\n"
+            "Retorne APENAS o parágrafo reescrito — sem aspas, sem introdução, "
+            "sem título."
+        )
+
+        try:
+            rewritten = call_claude(prompt, max_tokens=1200)
+        except Exception as e:
+            rewrites.append({
+                "paragraph_index": i,
+                "divergences": [d["planet"] for d in divs],
+                "original": original,
+                "rewritten": None,
+                "error": str(e),
+            })
+            continue
+
+        paragraphs[i] = rewritten
+        rewrites.append({
+            "paragraph_index": i,
+            "divergences": [d["planet"] for d in divs],
+            "original": original,
+            "rewritten": rewritten,
+        })
+
+    return "\n\n".join(paragraphs), rewrites
+
+
 def cleanup_pass(text: str):
     """
     Run report-wide cleanup on the fully-assembled text.
@@ -2708,6 +2837,18 @@ def generate_report(
             print(f"  · {d['planet']}: afirmado '{d['claimed_sign']}', real '{d['actual_sign']}' — ação: {d['action']}")
             print(f"    contexto: …{d['context'][:100]}…")
 
+    # Segundo passe: reescreve o parágrafo quando a substituição mecânica
+    # deixou a argumentação astrológica incoerente com o signo real. Só
+    # dispara se houver divergência do tipo 'sign_replaced'. Reescritas
+    # deduplicadas por parágrafo (múltiplos corpos afetados = 1 chamada).
+    full_report, correction_rewrites = apply_correction_rewrites(
+        full_report, sign_divergences, chart,
+    )
+    if correction_rewrites and verbose:
+        print(f"\n[SEGUNDO PASSE] {len(correction_rewrites)} parágrafo(s) reescrito(s) para coerência astrológica:")
+        for rw in correction_rewrites:
+            print(f"  · parágrafo #{rw['paragraph_index']} — corpos: {rw['divergences']}")
+
     # Optionally save to disk
     if write_file:
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -2754,6 +2895,7 @@ def generate_report(
         "aspect_audit": aspect_audit,
         "cleanup_changes": cleanup_changes,
         "sign_divergences": sign_divergences,
+        "correction_rewrites": correction_rewrites,
         "parental_clusters": chart.get("_parental_clusters"),
     }
 
