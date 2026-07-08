@@ -919,36 +919,6 @@ def env_check():
     }), 200
 
 
-@app.route("/test-rewrite", methods=["POST"])
-def test_rewrite_endpoint():
-    """DEV-ONLY: exercita o segundo passe com um parágrafo injetado.
-    Body: {"paragraph": str, "chart": {"points": {...}}}
-    Roda verify_planet_signs + apply_correction_rewrites e retorna os
-    três estados (original, após-substituição, após-segundo-passe)."""
-    import hmac
-    presented_key = request.headers.get("X-API-Key", "")
-    if not API_SECRET_KEY or not presented_key \
-            or not hmac.compare_digest(presented_key, API_SECRET_KEY):
-        return jsonify({"error": "unauthorized"}), 401
-    from report_generator import verify_planet_signs, apply_correction_rewrites
-    body = request.get_json(force=True) or {}
-    para = body.get("paragraph", "")
-    chart = body.get("chart", {}) or {}
-    moon_uncertain = bool(body.get("moon_uncertain", False))
-    wrapped = f"[abertura]\n\n{para}\n\n[fechamento]"
-    corrected, divs = verify_planet_signs(wrapped, chart, moon_uncertain=moon_uncertain)
-    after_verify = corrected.split("\n\n")[1] if len(corrected.split("\n\n")) > 1 else corrected
-    final, rewrites = apply_correction_rewrites(corrected, divs, chart)
-    after_rewrite = final.split("\n\n")[1] if len(final.split("\n\n")) > 1 else final
-    return jsonify({
-        "original": para,
-        "divergences": divs,
-        "after_mechanical_substitution": after_verify,
-        "rewrites": rewrites,
-        "after_second_pass": after_rewrite,
-    }), 200
-
-
 @app.route("/generate-report", methods=["POST"])
 def generate_report_endpoint():
     """Accept chart JSON, generate the report, return as JSON.
