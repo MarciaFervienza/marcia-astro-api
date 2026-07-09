@@ -932,10 +932,20 @@ def generate_report_endpoint():
         "no_fio":        bool
     """
     # Shared-secret auth. Fail-closed: if API_SECRET_KEY isn't set on the
-    # server, every request is rejected. Constant-time compare on the
-    # header to avoid timing-side-channel leaks of the key.
+    # server, every request is rejected. Constant-time compare via
+    # hmac.compare_digest to avoid timing side-channel leaks.
+    #
+    # A chave pode chegar em duas posições, nessa ordem:
+    #   1) header HTTP `X-API-Key` (padrão preferido, usado pelos testes)
+    #   2) campo `api_key` no corpo JSON (fallback para clientes que não
+    #      suportam headers customizados — ex.: Wix Automations)
+    #
+    # Se veio pelo body, é IMEDIATAMENTE removida via body.pop antes de
+    # qualquer downstream, para não vazar em logs/eco de payload.
     import hmac
-    presented_key = request.headers.get("X-API-Key", "")
+    body = request.get_json(silent=True) or {}
+    key_from_body = body.pop("api_key", None) if isinstance(body, dict) else None
+    presented_key = request.headers.get("X-API-Key") or key_from_body or ""
     if not API_SECRET_KEY or not presented_key \
             or not hmac.compare_digest(presented_key, API_SECRET_KEY):
         return jsonify({
@@ -950,11 +960,8 @@ def generate_report_endpoint():
             "message": f"Server misconfigured — missing env vars: {missing}",
         }), 500
 
-    try:
-        body = request.get_json(silent=True)
-    except Exception:
-        body = None
-    if not isinstance(body, dict):
+    # `body` já foi obtido na auth acima (com api_key removida via pop).
+    if not isinstance(body, dict) or not body:
         return jsonify({
             "status": "error",
             "message": "Request body must be valid JSON object with chart data.",
