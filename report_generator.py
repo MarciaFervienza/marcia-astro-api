@@ -1707,6 +1707,13 @@ DADOS DO MAPA PARA ESTA SEÇÃO:
 
 PASSAGENS RELEVANTES DO SEU ARQUIVO DE CONSULTAS E AULAS:
 {retrieved_chunks_text}
+
+REGRA DE FRONTEIRA — TRECHO vs MAPA-FONTE:
+Cada passagem acima é a leitura que você fez para OUTRO mapa. Dentro de cada passagem, distinga:
+(a) o que decorre da POSIÇÃO CONSULTADA nesta seção (o planeta, o signo e a casa listados nos DADOS DO MAPA acima);
+(b) o que é CIRCUNSTÂNCIA do mapa original — menções a outras casas, outros planetas, outros signos, cúspides, regências ou configurações que não pertencem à posição consultada.
+Use apenas (a). Qualquer afirmação que dependa de (b) é intransferível e deve ser descartada, mesmo que pareça enriquecer a leitura. Se uma passagem mistura (a) e (b) de forma inseparável, descarte a passagem inteira.
+
 {section_context_block}
 INSTRUÇÕES PARA ESTA SEÇÃO ({section_title}):
 {psychological_frame}
