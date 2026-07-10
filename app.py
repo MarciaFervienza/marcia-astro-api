@@ -131,6 +131,67 @@ logging.basicConfig(level=os.environ.get("LOG_LEVEL", "INFO"))
 logger = logging.getLogger("natal-api")
 
 
+# ============================================================
+# RATE LIMIT — janela deslizante de 24h por e-mail e por IP.
+# Estado em memória (dict → deque de timestamps). Aceitável nesta fase:
+# Railway roda instância única e resetar em redeploy não é problema —
+# quem estourou o limite pode esperar o próximo dia.
+# ============================================================
+from collections import deque as _deque
+from threading import Lock as _Lock
+import time as _time
+
+_RATE_WINDOW_SECS = 24 * 3600
+_RATE_MAX_PER_EMAIL = 2
+_RATE_MAX_PER_IP = 4
+_RATE_EXEMPT_EMAILS = {
+    "marcia.fervienza@gmail.com",
+    "executivo@marciafervienza.com",
+}
+_rate_email_hits = {}   # email_normalized → deque[timestamp]
+_rate_ip_hits    = {}   # ip → deque[timestamp]
+_rate_lock = _Lock()
+
+
+def _rate_check(email_norm, ip):
+    """Consulta e REGISTRA um hit para o par (email, ip). Retorna None se
+    permitido, ou uma string com o motivo do bloqueio se estourou o limite.
+    Emails de teste em _RATE_EXEMPT_EMAILS pulam tanto a contagem por
+    e-mail quanto a por IP (para não bloquear nossos testes durante o dia).
+    """
+    if email_norm and email_norm in _RATE_EXEMPT_EMAILS:
+        return None
+    now = _time.time()
+    cutoff = now - _RATE_WINDOW_SECS
+    with _rate_lock:
+        # Prune + count e-mail
+        if email_norm:
+            dq_e = _rate_email_hits.setdefault(email_norm, _deque())
+            while dq_e and dq_e[0] < cutoff:
+                dq_e.popleft()
+            if len(dq_e) >= _RATE_MAX_PER_EMAIL:
+                return f"email:{email_norm} atingiu {_RATE_MAX_PER_EMAIL} em 24h ({len(dq_e)} hits registrados)"
+        # Prune + count IP
+        if ip and ip != "?":
+            dq_i = _rate_ip_hits.setdefault(ip, _deque())
+            while dq_i and dq_i[0] < cutoff:
+                dq_i.popleft()
+            if len(dq_i) >= _RATE_MAX_PER_IP:
+                return f"ip:{ip} atingiu {_RATE_MAX_PER_IP} em 24h ({len(dq_i)} hits registrados)"
+        # Passou: registra o hit em ambos
+        if email_norm:
+            _rate_email_hits[email_norm].append(now)
+        if ip and ip != "?":
+            _rate_ip_hits[ip].append(now)
+    return None
+
+
+_RATE_LIMIT_MESSAGE_PT = (
+    "Limite de relatórios atingido. Escreva para "
+    "executivo@marciafervienza.com se precisar de ajuda."
+)
+
+
 def _missing_required_keys():
     """Return a list of required env vars that are missing or empty."""
     missing = []
@@ -1111,6 +1172,18 @@ def generate_report_endpoint():
         (body.get("birth_city") or "")[:80],
         _client_ip, _ua, _key_via,
     )
+
+    # Rate-limit por e-mail e IP (janela deslizante de 24h). Aplicado ANTES
+    # de geocoding/kerykeion/geração/e-mail — se estourou, nada de trabalho
+    # nem de disparo. E-mails de teste (Marcia/executivo) são isentos.
+    _email_norm = (body.get("email") or "").strip().lower()
+    _rate_reason = _rate_check(_email_norm, _client_ip)
+    if _rate_reason:
+        logger.warning("RATE 429 %s ua=%s", _rate_reason, _ua)
+        return jsonify({
+            "status": "error",
+            "message": _RATE_LIMIT_MESSAGE_PT,
+        }), 429
 
     # Geocode birth_city → (lat, lng, IANA tz name). Always geocoded fresh
     # from the city string; any latitude/longitude/timezone the caller may
