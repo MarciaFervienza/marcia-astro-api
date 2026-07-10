@@ -192,6 +192,88 @@ _RATE_LIMIT_MESSAGE_PT = (
 )
 
 
+# ============================================================
+# FAILURE ALERT — quando o pipeline de geração levanta exceção
+# não tratada, mandamos um e-mail para executivo@marciafervienza.com
+# com o contexto suficiente pra diagnosticar. Dedupe por assinatura
+# (tipo + linha final da stack) em janela de 10 min evita rajada.
+# Fire-and-forget: falha no envio do alerta é só logada.
+# ============================================================
+_ALERT_RECIPIENT = "executivo@marciafervienza.com"
+_ALERT_DEDUPE_WINDOW_SECS = 10 * 60
+_alert_last_sent = {}     # signature → timestamp
+_alert_dedupe_lock = _Lock()
+
+
+def _send_failure_alert(stage, exc, request_ctx):
+    """Envia alerta de falha para _ALERT_RECIPIENT via SendGrid HTTPS.
+    stage: string ("generate_report" | "generate_pdf" | outro).
+    exc: a exceção capturada.
+    request_ctx: dict com {name,email,birth_date,birth_city,ip,ua}.
+    Nunca levanta. Deduplica por assinatura em janela curta."""
+    try:
+        import traceback as _tb
+        tb_str = _tb.format_exc()
+        # Assinatura pra dedupe: tipo + última linha significativa
+        _tb_lines = [ln for ln in tb_str.strip().splitlines() if ln.strip()]
+        _sig = f"{stage}:{type(exc).__name__}:{_tb_lines[-1][:200] if _tb_lines else ''}"
+        now = _time.time()
+        with _alert_dedupe_lock:
+            last = _alert_last_sent.get(_sig, 0)
+            if now - last < _ALERT_DEDUPE_WINDOW_SECS:
+                logger.info("failure alert deduped (sig sent %ds ago)", int(now - last))
+                return
+            _alert_last_sent[_sig] = now
+        if not SENDGRID_API_KEY or not EMAIL_FROM_ADDRESS:
+            logger.warning("failure alert not sent: SendGrid/from not configured")
+            return
+        from datetime import datetime as _dtu
+        _when = _dtu.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
+        # Últimas ~30 linhas de traceback (suficiente pra diagnóstico, não estoura)
+        _tb_tail = "\n".join(tb_str.strip().splitlines()[-30:])
+        _text = (
+            f"Falha no pipeline /generate-report — estágio: {stage}\n"
+            f"Timestamp: {_when}\n"
+            f"Exceção: {type(exc).__name__}: {exc}\n\n"
+            f"--- Contexto da requisição ---\n"
+            f"name:       {request_ctx.get('name','?')}\n"
+            f"email:      {request_ctx.get('email','?')}\n"
+            f"birth_date: {request_ctx.get('birth_date','?')}\n"
+            f"birth_city: {request_ctx.get('birth_city','?')}\n"
+            f"ip:         {request_ctx.get('ip','?')}\n"
+            f"ua:         {request_ctx.get('ua','?')}\n\n"
+            f"--- Traceback (últimas 30 linhas) ---\n{_tb_tail}\n"
+        )
+        payload = {
+            "personalizations": [{"to": [{"email": _ALERT_RECIPIENT}]}],
+            "from": {"email": EMAIL_FROM_ADDRESS, "name": EMAIL_FROM_NAME or EMAIL_FROM_ADDRESS},
+            "subject": f"[Mapa Natal API] Falha em {stage} — {type(exc).__name__}",
+            "content": [{"type": "text/plain", "value": _text}],
+        }
+        try:
+            resp = requests.post(
+                "https://api.sendgrid.com/v3/mail/send",
+                json=payload,
+                headers={
+                    "Authorization": f"Bearer {SENDGRID_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                timeout=15,
+            )
+            if 200 <= resp.status_code < 300:
+                logger.info("failure alert sent to %s (stage=%s)", _ALERT_RECIPIENT, stage)
+            else:
+                logger.warning(
+                    "failure alert send failed: HTTP %d %s",
+                    resp.status_code, (resp.text or "")[:200],
+                )
+        except Exception as _send_err:
+            logger.warning("failure alert send raised: %s", _send_err)
+    except Exception as _alert_err:
+        # Nunca deixar o alerta afetar o path principal
+        logger.warning("_send_failure_alert internal error: %s", _alert_err)
+
+
 def _missing_required_keys():
     """Return a list of required env vars that are missing or empty."""
     missing = []
@@ -1687,6 +1769,11 @@ def generate_report_endpoint():
         return jsonify({"status": "error", "message": str(e)}), 400
     except Exception as e:
         logger.exception("generate_report failed")
+        _send_failure_alert("generate_report", e, {
+            "name": body.get("name"), "email": body.get("email"),
+            "birth_date": birth_date_raw, "birth_city": body.get("birth_city"),
+            "ip": _client_ip, "ua": _ua,
+        })
         return jsonify({
             "status": "error",
             "message": f"Generation failed: {e}",
@@ -1729,6 +1816,11 @@ def generate_report_endpoint():
     except Exception as e:
         logger.exception("generate_pdf failed")
         pdf_error = str(e)
+        _send_failure_alert("generate_pdf", e, {
+            "name": body.get("name"), "email": body.get("email"),
+            "birth_date": birth_date_raw, "birth_city": body.get("birth_city"),
+            "ip": _client_ip, "ua": _ua,
+        })
     finally:
         # Clean up the per-request Kerykeion tempdir so we don't leak under /tmp.
         if chart_svg_path:
