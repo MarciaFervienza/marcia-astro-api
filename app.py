@@ -944,6 +944,12 @@ def generate_report_endpoint():
     # qualquer downstream, para não vazar em logs/eco de payload.
     import hmac
     body = request.get_json(silent=True) or {}
+    # Wix Automations "Send HTTP" envelopa o corpo em {"data": {...}}. Se
+    # detectarmos exatamente essa forma (uma única chave 'data' que é
+    # dict), desembrulhamos in-place antes de tudo — assim o resto do
+    # pipeline não precisa saber a origem.
+    if isinstance(body, dict) and set(body.keys()) == {"data"} and isinstance(body["data"], dict):
+        body = body["data"]
     key_from_body = body.pop("api_key", None) if isinstance(body, dict) else None
     presented_key = request.headers.get("X-API-Key") or key_from_body or ""
     if not API_SECRET_KEY or not presented_key \
