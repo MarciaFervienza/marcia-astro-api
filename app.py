@@ -1747,6 +1747,7 @@ def generate_report_endpoint():
             # operador auditar cada correção feita.
             "sign_divergences": result.get("sign_divergences", []),
             "correction_rewrites": result.get("correction_rewrites", []),
+            "partial_coverage": result.get("partial_coverage", []),
             "parental_clusters": result.get("parental_clusters"),
             # Geocoded location (lat/lng + resolved IANA zone name) so the
             # caller can verify the geocode landed where they expect.

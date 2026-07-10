@@ -288,6 +288,11 @@ described_aspect_themes: set = set()
 # was passed to Claude for each section. Used for verification/debugging.
 _section_aspect_audit: dict = {}
 
+# Registro por relatório das seções que rodaram em modo COBERTURA PARCIAL
+# (nenhum chunk cobre simultaneamente signo × casa da posição consultada).
+# Alimenta a fila de autoria humana de chunks novos.
+_partial_coverage_log: list = []
+
 
 def _planets_for_section(section_name: str, chart: dict) -> list:
     """Return chart planet keys (lowercase English) relevant to a section."""
@@ -438,6 +443,64 @@ def retrieve_chunks(query_text, planets_filter=None, top_k=DEFAULT_TOP_K):
         if len(deduped) >= top_k:
             break
     return deduped
+
+
+# Mapa reverso: label PT (usado em planets_filter) → chave interna do chart
+_PT_LABEL_TO_KEY = {v: k for k, v in PLANET_LABEL_PT.items()}
+
+
+def check_intersection_coverage(section, chart, chunks):
+    """Verifica se ao menos um chunk cobre SIMULTANEAMENTE o signo E a casa
+    da posição consultada nesta seção. Usa os campos de metadata `signs` e
+    `houses` (que já existem em todos os chunks).
+
+    Só aplica a seções com UM planeta primário declarado em planets_filter
+    (jupiter, saturno, quíron, urano, netuno, plutão, lilith, mercúrio, lua).
+    Para seções multi-planeta (abertura/triade/sol_saturno/venus_marte/nodos/
+    asteroides/casa_4) retorna cobertura OK — regra não se aplica.
+
+    Se a hora é desconhecida, a casa não é confiável — cobertura OK
+    (regra não se aplica a mapas sem hora).
+
+    Retorna (coberto: bool, missing: list of (planet_pt, signo_pt, casa)).
+    Quando `coberto=False`, `missing` traz UMA tupla identificando a
+    posição não coberta, pra alimentar o log e o aviso do prompt.
+    """
+    pf = section.get("planets_filter") or []
+    if len(pf) != 1:
+        return True, []
+    planet_pt = pf[0]
+    key = _PT_LABEL_TO_KEY.get(planet_pt)
+    if not key:
+        return True, []
+    if _time_is_unknown(chart):
+        return True, []
+    p = (chart.get("points") or {}).get(key) or {}
+    signo = p.get("sign_pt")
+    casa = p.get("house")
+    if not signo or not casa:
+        return True, []
+    casa_str = str(casa)
+    for c in chunks:
+        meta = getattr(c, "metadata", None) or {}
+        signs = meta.get("signs") or []
+        houses = [str(h) for h in (meta.get("houses") or [])]
+        if signo in signs and casa_str in houses:
+            return True, []
+    return False, [(planet_pt, signo, casa)]
+
+
+COVERAGE_PARTIAL_WARNING = (
+    "AVISO — COBERTURA PARCIAL DA POSIÇÃO CONSULTADA:\n"
+    "Nenhuma das passagens recuperadas descreve simultaneamente o SIGNO e a "
+    "CASA da posição consultada nesta seção. Os trechos disponíveis cobrem o "
+    "signo OU a casa separadamente, mas não a interseção específica. Componha "
+    "a leitura a partir dos elementos separados (o que este signo tende a fazer + "
+    "o que esta casa tende a acolher) e NÃO afirme nada que dependa da "
+    "interseção específica — nenhuma síntese do tipo 'este signo nesta casa "
+    "produz X'. Prefira formulações que tratem signo e casa como camadas "
+    "distintas, sinalizando ao leitor que a leitura articula duas dimensões.\n"
+)
 
 
 def format_chunks_for_prompt(chunks):
@@ -1827,6 +1890,22 @@ def generate_section(section, chart, name, gender, section_context=None, context
     chunks_text = format_chunks_for_prompt(chunks)
     chart_ctx = section_chart_context(section["name"], chart)
 
+    # Sinal de cobertura da interseção signo × casa. Se nenhum chunk cobre a
+    # posição consultada nas duas dimensões, avisa o modelo pra evitar
+    # síntese "signo+casa produz X" sem sustentação.
+    _covered, _missing = check_intersection_coverage(section, chart, chunks)
+    if not _covered:
+        chart_ctx = COVERAGE_PARTIAL_WARNING + "\n" + chart_ctx
+        for planet_pt, signo, casa in _missing:
+            msg = f"[COBERTURA PARCIAL] section={section['name']} planeta={planet_pt} signo={signo} casa={casa}"
+            print(msg, flush=True)
+            _partial_coverage_log.append({
+                "section": section["name"],
+                "planet": planet_pt,
+                "sign": signo,
+                "house": casa,
+            })
+
     # Build optional section-context block
     if section_context and context_instruction:
         section_context_block = (
@@ -2679,6 +2758,7 @@ def generate_report(
     # Reset cross-section tracking for this run (module-level state)
     described_aspect_themes.clear()
     _section_aspect_audit.clear()
+    _partial_coverage_log.clear()
 
     sections = build_sections(chart)
 
@@ -2904,6 +2984,7 @@ def generate_report(
         "sign_divergences": sign_divergences,
         "correction_rewrites": correction_rewrites,
         "parental_clusters": chart.get("_parental_clusters"),
+        "partial_coverage": list(_partial_coverage_log),
     }
 
 
