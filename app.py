@@ -948,6 +948,22 @@ def generate_report_endpoint():
     presented_key = request.headers.get("X-API-Key") or key_from_body or ""
     if not API_SECRET_KEY or not presented_key \
             or not hmac.compare_digest(presented_key, API_SECRET_KEY):
+        # Log de tentativa 401 — nunca inclui a chave, só metadados de
+        # rastreamento pra distinguir "chave ausente" de "chave errada"
+        # e ver de onde veio a chamada.
+        _reason = (
+            "no_key_sent" if not presented_key
+            else "server_key_unset" if not API_SECRET_KEY
+            else "key_mismatch"
+        )
+        _ip = request.headers.get("X-Forwarded-For", request.remote_addr or "?").split(",")[0].strip()
+        _ua = (request.headers.get("User-Agent", "?") or "?")[:120]
+        _key_len = len(presented_key)
+        logger.warning(
+            "AUTH 401 reason=%s key_len=%d ip=%s ua=%s content_type=%s",
+            _reason, _key_len, _ip, _ua,
+            request.headers.get("Content-Type", "?"),
+        )
         return jsonify({
             "status": "error",
             "message": "Unauthorized",
