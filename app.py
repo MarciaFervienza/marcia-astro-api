@@ -959,10 +959,14 @@ def generate_report_endpoint():
         _ip = request.headers.get("X-Forwarded-For", request.remote_addr or "?").split(",")[0].strip()
         _ua = (request.headers.get("User-Agent", "?") or "?")[:120]
         _key_len = len(presented_key)
+        # Logar SÓ as chaves do body (nunca valores) pra descobrir se o
+        # cliente está mandando "apiKey" / "api-key" / algo aninhado.
+        _body_keys = list(body.keys())[:20] if isinstance(body, dict) else "not-json"
         logger.warning(
-            "AUTH 401 reason=%s key_len=%d ip=%s ua=%s content_type=%s",
+            "AUTH 401 reason=%s key_len=%d ip=%s ua=%s content_type=%s body_keys=%r",
             _reason, _key_len, _ip, _ua,
             request.headers.get("Content-Type", "?"),
+            _body_keys,
         )
         return jsonify({
             "status": "error",
