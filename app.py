@@ -996,6 +996,23 @@ def generate_report_endpoint():
     time_estimated = parsed_birth["time_estimated"]
     unknown_time_note = parsed_birth.get("unknown_time_note", "")
 
+    # AUDITORIA DE CHAMADA — registra origem e identidade da requisição para
+    # rastrear payloads misteriosos (ex.: dois "Cliente Teste → executivo@"
+    # em 2026-07-10). NUNCA loga a api_key (já foi extraída de body/header
+    # e não aparece aqui). NUNCA loga o body inteiro (contém pontos do
+    # mapa, potencialmente sensíveis). Só metadados de identidade + origem.
+    _client_ip = request.headers.get("X-Forwarded-For", request.remote_addr or "?").split(",")[0].strip()
+    _ua = (request.headers.get("User-Agent", "?") or "?")[:120]
+    _key_via = "header" if request.headers.get("X-API-Key") else ("body" if key_from_body else "?")
+    logger.info(
+        "REQ /generate-report name=%r email=%r birth_date=%r city=%r ip=%s ua=%s key_via=%s",
+        (body.get("name") or "")[:80],
+        (body.get("email") or "")[:80],
+        birth_date_raw[:20] if birth_date_raw else "",
+        (body.get("birth_city") or "")[:80],
+        _client_ip, _ua, _key_via,
+    )
+
     # Geocode birth_city → (lat, lng, IANA tz name). Always geocoded fresh
     # from the city string; any latitude/longitude/timezone the caller may
     # still be sending in the body is ignored so we have a single source of
