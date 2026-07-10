@@ -919,6 +919,79 @@ def env_check():
     }), 200
 
 
+@app.route("/diag-retrieval", methods=["POST"])
+def diag_retrieval_endpoint():
+    """DEV-ONLY: exercita o retrieval RAW para uma lista de queries.
+    Body: {"queries":[{"q":"...","planets_filter":["Júpiter"] or null}], "top_k":10, "sample_meta":true}
+    Retorna: para cada query, top_k matches com id, score, metadata; e (opcional) 3 chunks de exemplo com metadata completa."""
+    import hmac
+    presented_key = request.headers.get("X-API-Key", "")
+    _body = request.get_json(silent=True) or {}
+    if isinstance(_body, dict) and set(_body.keys()) == {"data"} and isinstance(_body["data"], dict):
+        _body = _body["data"]
+    presented_key = presented_key or _body.pop("api_key", "")
+    if not API_SECRET_KEY or not hmac.compare_digest(presented_key, API_SECRET_KEY):
+        return jsonify({"error":"unauthorized"}),401
+    import report_generator as rg
+    rg.init_clients()
+    top_k = int(_body.get("top_k", 10))
+    queries = _body.get("queries", [])
+    out = []
+    for spec in queries:
+        q = spec.get("q","")
+        pf = spec.get("planets_filter") or None
+        emb = rg._oai.embeddings.create(model=rg.EMBED_MODEL, input=q)
+        qvec = emb.data[0].embedding
+        matches = []
+        # consultation
+        cf = {"reading_type":{"$eq":"natal"}}
+        if pf: cf["planets"] = {"$in": pf}
+        try:
+            r1 = rg._index.query(vector=qvec, top_k=top_k, filter=cf, include_metadata=True)
+            for m in r1.matches:
+                matches.append({"src":"consult","id":m.id,"score":round(m.score,3),"meta":m.metadata or {}})
+        except Exception as e:
+            matches.append({"error":f"consult query failed: {e}"})
+        # class
+        clf = {"content_type":{"$in":["class_lecture","class_foundations"]}}
+        if pf: clf["planets"] = {"$in": pf}
+        try:
+            r2 = rg._index.query(vector=qvec, top_k=top_k, filter=clf, include_metadata=True)
+            for m in r2.matches:
+                matches.append({"src":"class","id":m.id,"score":round(m.score,3),"meta":m.metadata or {}})
+        except Exception as e:
+            matches.append({"error":f"class query failed: {e}"})
+        matches.sort(key=lambda x: x.get("score",0), reverse=True)
+        # For each match, extract identifying fields + text preview
+        summarized = []
+        for m in matches[:top_k]:
+            if "error" in m:
+                summarized.append(m); continue
+            meta = m["meta"] or {}
+            summarized.append({
+                "src": m["src"], "id": m["id"], "score": m["score"],
+                "planets": meta.get("planets"),
+                "signs": meta.get("signs"),
+                "houses": meta.get("houses"),
+                "aspects": meta.get("aspects"),
+                "reading_type": meta.get("reading_type"),
+                "content_type": meta.get("content_type"),
+                "youtube_id": meta.get("youtube_id"),
+                "text_preview": (meta.get("text") or meta.get("chunk_text") or meta.get("content") or "")[:280],
+                "meta_keys": sorted(list(meta.keys())),
+            })
+        out.append({"query": q, "planets_filter": pf, "results": summarized})
+    # Sample metadata structure
+    sample = None
+    if _body.get("sample_meta"):
+        try:
+            r = rg._index.query(vector=[0.0]*1536, top_k=3, include_metadata=True)
+            sample = [{"id": m.id, "meta_keys": sorted(list((m.metadata or {}).keys())), "meta": m.metadata} for m in r.matches]
+        except Exception as e:
+            sample = {"error": str(e)}
+    return jsonify({"queries": out, "sample_meta": sample}), 200
+
+
 @app.route("/generate-report", methods=["POST"])
 def generate_report_endpoint():
     """Accept chart JSON, generate the report, return as JSON.
