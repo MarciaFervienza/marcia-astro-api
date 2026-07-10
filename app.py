@@ -105,16 +105,19 @@ EMAIL_FROM_NAME = os.environ.get("EMAIL_FROM_NAME", "Márcia Fervienza Astrologi
 # remain unprotected so Railway's healthcheck and our own diagnostics keep
 # working.
 API_SECRET_KEY = os.environ.get("API_SECRET_KEY", "").strip()
-EMAIL_SUBJECT = "Seu Relatório de Mapa Natal — Márcia Fervienza"
-EMAIL_BODY_TEMPLATE = """Olá, {client_name}!
+EMAIL_SUBJECT = "Seu Mapa Natal chegou."
+EMAIL_BODY_TEMPLATE = """Olá, {client_name},
 
-Seu Relatório de Mapa Natal está pronto e segue em anexo.
+Que alegria te entregar isso. Seu Mapa Natal está pronto — ele segue em anexo.
 
-Este relatório foi elaborado a partir de anos de consultas reais e do meu \
-framework psicológico integrado à Astrologia. Espero que ele traga clareza, \
-reconhecimento e profundidade para a sua jornada de autoconhecimento.
+Cada seção foi escrita pensando em você. O que está nesse relatório vem \
+de anos de consultas reais e do trabalho que eu venho desenvolvendo há \
+mais de duas décadas, integrando Astrologia e Psicologia profunda. \
+Não é um texto para ser lido com pressa: leia com calma, volte às partes \
+que te tocarem mais de uma vez, deixe as coisas assentarem.
 
-Leia com calma, mais de uma vez se necessário. Cada seção foi escrita para você.
+Espero que traga clareza, reconhecimento e alguma companhia na sua \
+jornada de se conhecer melhor.
 
 Com carinho,
 Márcia Fervienza
