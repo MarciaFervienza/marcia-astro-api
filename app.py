@@ -1074,6 +1074,92 @@ def generate_report_endpoint():
         logger.warning("moon analysis failed: %s", e)
         moon_meta = {"moon_analysis_error": str(e)}
 
+    # Se o payload NÃO trouxer o mapa astral pré-calculado (points/ascendant/
+    # midheaven/aspects) — caso típico de clientes que só sabem os dados de
+    # nascimento crus, como a Wix Automation vinda do form — computamos aqui
+    # server-side via Kerykeion + Swiss Ephemeris, usando as mesmas
+    # coordenadas geocodificadas acima. Requer birth_date + birth_time (ou
+    # unknown_birth_time=True) + birth_city + gender.
+    _needs_chart = any(k not in body for k in ("points", "ascendant", "midheaven", "aspects"))
+    if _needs_chart:
+        try:
+            from kerykeion import AstrologicalSubjectFactory, NatalAspects
+            _ACTIVE = [
+                "Sun","Moon","Mercury","Venus","Mars","Jupiter","Saturn",
+                "Uranus","Neptune","Pluto","Chiron","Mean_Lilith",
+                "Mean_North_Lunar_Node","Mean_South_Lunar_Node",
+                "Ceres","Pallas","Juno","Vesta",
+            ]
+            _SIGN_EN = {"Ari":"aries","Tau":"taurus","Gem":"gemini","Can":"cancer","Leo":"leo","Vir":"virgo","Lib":"libra","Sco":"scorpio","Sag":"sagittarius","Cap":"capricorn","Aqu":"aquarius","Pis":"pisces"}
+            _SIGN_PT = {"Ari":"Áries","Tau":"Touro","Gem":"Gêmeos","Can":"Câncer","Leo":"Leão","Vir":"Virgem","Lib":"Libra","Sco":"Escorpião","Sag":"Sagitário","Cap":"Capricórnio","Aqu":"Aquário","Pis":"Peixes"}
+            _HN = {"First_House":1,"Second_House":2,"Third_House":3,"Fourth_House":4,"Fifth_House":5,"Sixth_House":6,"Seventh_House":7,"Eighth_House":8,"Ninth_House":9,"Tenth_House":10,"Eleventh_House":11,"Twelfth_House":12}
+            _KER_TO_KEY = {"Sun":"sun","Moon":"moon","Mercury":"mercury","Venus":"venus","Mars":"mars","Jupiter":"jupiter","Saturn":"saturn","Uranus":"uranus","Neptune":"neptune","Pluto":"pluto","Chiron":"chiron","Mean_Lilith":"lilith","Mean_North_Lunar_Node":"north_node","Mean_South_Lunar_Node":"south_node","Ceres":"ceres","Vesta":"vesta","Juno":"juno","Pallas":"pallas"}
+            _ASPECT_PT = {"conjunction":"conjunção","opposition":"oposição","trine":"trígono","square":"quadratura","sextile":"sextil"}
+
+            _hour = _dt_obj.hour if not unknown_birth_time else 12
+            _min  = _dt_obj.minute if not unknown_birth_time else 0
+            _subj = AstrologicalSubjectFactory.from_birth_data(
+                (body.get("name") or "Cliente"),
+                _dt_obj.year, _dt_obj.month, _dt_obj.day, _hour, _min,
+                lat=lat, lng=lng, tz_str=tz_str, online=False, active_points=_ACTIVE,
+            )
+            def _pl(p):
+                return {
+                    "sign": _SIGN_EN[p.sign], "sign_pt": _SIGN_PT[p.sign],
+                    "house": _HN.get(p.house, 0),
+                    "degrees": round(float(p.position), 1),
+                    "retrograde": bool(getattr(p, "retrograde", False)),
+                }
+            body["points"] = {
+                "sun":_pl(_subj.sun),"moon":_pl(_subj.moon),"mercury":_pl(_subj.mercury),
+                "venus":_pl(_subj.venus),"mars":_pl(_subj.mars),"jupiter":_pl(_subj.jupiter),
+                "saturn":_pl(_subj.saturn),"uranus":_pl(_subj.uranus),"neptune":_pl(_subj.neptune),
+                "pluto":_pl(_subj.pluto),"chiron":_pl(_subj.chiron),
+                "lilith":_pl(_subj.mean_lilith),
+                "north_node":_pl(_subj.mean_north_lunar_node),
+                "south_node":_pl(_subj.mean_south_lunar_node),
+                "ceres":_pl(_subj.ceres),"vesta":_pl(_subj.vesta),
+                "juno":_pl(_subj.juno),"pallas":_pl(_subj.pallas),
+            }
+            body["ascendant"] = {
+                "sign": _SIGN_EN[_subj.first_house.sign],
+                "sign_pt": _SIGN_PT[_subj.first_house.sign],
+                "degrees": round(float(_subj.first_house.position), 1),
+            }
+            body["midheaven"] = {
+                "sign": _SIGN_EN[_subj.tenth_house.sign],
+                "sign_pt": _SIGN_PT[_subj.tenth_house.sign],
+                "degrees": round(float(_subj.tenth_house.position), 1),
+            }
+            _asps = []
+            for a in NatalAspects(_subj).relevant_aspects:
+                if a.aspect not in _ASPECT_PT:
+                    continue
+                pa = _KER_TO_KEY.get(a.p1_name)
+                pb = _KER_TO_KEY.get(a.p2_name)
+                if not pa or not pb:
+                    continue
+                _mv = getattr(a, "aspect_movement", "") or ""
+                _applying = True if _mv == "Applying" else (False if _mv == "Separating" else None)
+                _asps.append({
+                    "planet_a": pa, "planet_b": pb,
+                    "type": a.aspect, "type_pt": _ASPECT_PT[a.aspect],
+                    "orb": round(float(a.orbit), 2),
+                    "applying": _applying,
+                })
+            body["aspects"] = _asps
+            logger.info(
+                "chart auto-computed: %d points, ASC=%s, MC=%s, %d aspects",
+                len(body["points"]), body["ascendant"]["sign_pt"],
+                body["midheaven"]["sign_pt"], len(_asps),
+            )
+        except Exception as e:
+            logger.exception("chart auto-computation failed")
+            return jsonify({
+                "status": "error",
+                "message": f"Failed to compute chart from birth data: {e}",
+            }), 400
+
     # Validate required fields up front (clearer 400 than a deep stack later)
     for required in ("gender", "points", "ascendant", "aspects"):
         if required not in body:
