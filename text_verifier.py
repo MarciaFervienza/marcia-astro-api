@@ -251,6 +251,191 @@ def _detect_unknown_words(text, chart):
 
 
 # ============================================================
+# 4b/4c — VALIDAÇÃO DE AFIRMAÇÕES SOBRE CÚSPIDES
+# ============================================================
+# Detecta frases que afirmam algo sobre a cúspide de uma casa e valida
+# contra a tabela de cúspides real. Cobre 3 padrões:
+#   (i)   "<signo> na cúspide da casa N" / "cúspide da casa N em <signo>"
+#         / "casa N tem cúspide em <signo>"
+#   (ii)  "casa N em <signo>" quando o sujeito é a CASA (não um planeta)
+#   (iii) "<signo> na casa N" quando o sujeito é a CASA
+# Ação: qualquer discrepância é enviada à reescrita com instrução
+# EXPLÍCITA de REMOVER a menção (não corrigir), preservando o resto do
+# sentido — cúspide "corrigida" pelo modelo é risco maior que a ausência.
+
+_SIGN_NAMES_PT = [
+    "Áries","Aries","Touro","Gêmeos","Gemeos","Câncer","Cancer",
+    "Leão","Leao","Virgem","Libra","Escorpião","Escorpiao",
+    "Sagitário","Sagitario","Capricórnio","Capricornio",
+    "Aquário","Aquario","Peixes",
+]
+_SIGN_CANON = {
+    "Áries":"Áries","Aries":"Áries","Touro":"Touro",
+    "Gêmeos":"Gêmeos","Gemeos":"Gêmeos","Câncer":"Câncer","Cancer":"Câncer",
+    "Leão":"Leão","Leao":"Leão","Virgem":"Virgem","Libra":"Libra",
+    "Escorpião":"Escorpião","Escorpiao":"Escorpião",
+    "Sagitário":"Sagitário","Sagitario":"Sagitário",
+    "Capricórnio":"Capricórnio","Capricornio":"Capricórnio",
+    "Aquário":"Aquário","Aquario":"Aquário","Peixes":"Peixes",
+}
+
+_HOUSE_WORDS = {
+    "1":"1","um":"1","primeira":"1","i":"1",
+    "2":"2","dois":"2","duas":"2","segunda":"2","ii":"2",
+    "3":"3","três":"3","tres":"3","terceira":"3","iii":"3",
+    "4":"4","quatro":"4","quarta":"4","iv":"4",
+    "5":"5","cinco":"5","quinta":"5","v":"5",
+    "6":"6","seis":"6","sexta":"6","vi":"6",
+    "7":"7","sete":"7","sétima":"7","setima":"7","vii":"7",
+    "8":"8","oito":"8","oitava":"8","viii":"8",
+    "9":"9","nove":"9","nona":"9","ix":"9",
+    "10":"10","dez":"10","décima":"10","decima":"10","x":"10",
+    "11":"11","onze":"11","décima primeira":"11","decima primeira":"11","xi":"11",
+    "12":"12","doze":"12","décima segunda":"12","decima segunda":"12","xii":"12",
+}
+
+
+def _extract_house_number(house_word):
+    """Retorna string '1'-'12' ou None se não reconhecido."""
+    if not house_word:
+        return None
+    w = house_word.strip().lower()
+    return _HOUSE_WORDS.get(w)
+
+
+def _get_cusps(chart):
+    """Retorna dict {int_num: sign_canon} pra as 12 casas do mapa, ou None
+    se cúspides não estiverem disponíveis."""
+    cusps = (chart or {}).get("cusps") or {}
+    if not cusps:
+        return None
+    out = {}
+    for k, v in cusps.items():
+        try:
+            n = int(k)
+        except (TypeError, ValueError):
+            continue
+        s = (v or {}).get("sign_pt")
+        if s:
+            out[n] = _SIGN_CANON.get(s, s)
+    return out or None
+
+
+# Padrões pra afirmações sobre cúspide (case-insensitive). Cada padrão
+# tem grupos (signo, casa) OU (casa, signo) — verificar sinônimos.
+def _detect_cusp_claims(text):
+    """Retorna lista de dicts {match, offset, sign_claimed, house_num,
+    pattern_name}."""
+    signs_alt = "|".join(sorted(set(_SIGN_NAMES_PT), key=len, reverse=True))
+    house_alt = "|".join(sorted(set(_HOUSE_WORDS.keys()), key=len, reverse=True))
+    # "casa X" ou "X casa" — ambas variações. Chamamos de HOUSE_LOC
+    # (localização da casa). Grupo 'hn' captura o número/palavra.
+    house_loc = (
+        rf"(?:casa\s+(?P<hn1>{house_alt})|(?P<hn2>{house_alt})\s+casa)"
+    )
+    def _extract_hn_from_match(m):
+        hn = m.groupdict().get("hn1") or m.groupdict().get("hn2")
+        return _extract_house_number(hn) if hn else None
+
+    hits = []
+
+    # (i-a) "<signo> na cúspide da <house_loc>"
+    pat1 = re.compile(
+        rf"({signs_alt})\s+(?:na|em)\s+cúspide\s+da\s+{house_loc}\b",
+        flags=re.IGNORECASE,
+    )
+    for m in pat1.finditer(text):
+        hn = _extract_hn_from_match(m)
+        if hn:
+            hits.append({"match": m.group(0), "offset": m.start(),
+                         "sign_claimed": _SIGN_CANON.get(m.group(1).capitalize(), m.group(1)),
+                         "house_num": int(hn), "pattern": "signo_na_cuspide_casa_N"})
+
+    # (i-b) "cúspide da <house_loc> em <signo>"
+    pat2 = re.compile(
+        rf"cúspide\s+da\s+{house_loc}\s+(?:em|está\s+em|é\s+em)\s+({signs_alt})\b",
+        flags=re.IGNORECASE,
+    )
+    for m in pat2.finditer(text):
+        hn = _extract_hn_from_match(m)
+        if hn:
+            # último grupo nomeado é o signo
+            sign_grp = m.groups()[-1]
+            hits.append({"match": m.group(0), "offset": m.start(),
+                         "sign_claimed": _SIGN_CANON.get(sign_grp.capitalize(), sign_grp),
+                         "house_num": int(hn), "pattern": "cuspide_casa_N_em_signo"})
+
+    # (i-c) "<house_loc> tem cúspide em <signo>"
+    pat3 = re.compile(
+        rf"{house_loc}\s+tem\s+cúspide\s+em\s+({signs_alt})\b",
+        flags=re.IGNORECASE,
+    )
+    for m in pat3.finditer(text):
+        hn = _extract_hn_from_match(m)
+        if hn:
+            sign_grp = m.groups()[-1]
+            hits.append({"match": m.group(0), "offset": m.start(),
+                         "sign_claimed": _SIGN_CANON.get(sign_grp.capitalize(), sign_grp),
+                         "house_num": int(hn), "pattern": "casa_N_tem_cuspide"})
+
+    # (ii) "<house_loc> em <signo>" (subject = house)
+    pat4 = re.compile(
+        rf"\b{house_loc}\s+em\s+({signs_alt})\b",
+        flags=re.IGNORECASE,
+    )
+    for m in pat4.finditer(text):
+        hn = _extract_hn_from_match(m)
+        if hn:
+            sign_grp = m.groups()[-1]
+            hits.append({"match": m.group(0), "offset": m.start(),
+                         "sign_claimed": _SIGN_CANON.get(sign_grp.capitalize(), sign_grp),
+                         "house_num": int(hn), "pattern": "casa_N_em_signo"})
+
+    # (iii) "<signo> na casa N" — sujeito CASA (não planeta). Mas essa
+    # sintaxe é comum pra planeta: "Vênus em Câncer na casa 8" → deve
+    # ser IGNORADA. Só flaga se NÃO houver planeta próximo (janela de
+    # 40 chars antes) que pudesse ser o sujeito. Padrão comum de sujeito-
+    # CASA: "com Gêmeos na casa 8", "há Gêmeos na casa 8".
+    pat5 = re.compile(
+        rf"({signs_alt})\s+na\s+casa\s+({house_alt})\b",
+        flags=re.IGNORECASE,
+    )
+    _planet_names = r"\b(Sol|Lua|Mercúrio|Mercurio|Vênus|Venus|Marte|Júpiter|Jupiter|Saturno|Urano|Netuno|Plutão|Plutao|Quíron|Quiron|Lilith|Ceres|Vesta|Juno|Palas|Pallas|Nodo)\b"
+    for m in pat5.finditer(text):
+        # Janela de 40 chars antes da match — se tem nome de planeta ali
+        # o sujeito PODE ser o planeta (planeta-em-signo-em-casa). Skip.
+        before = text[max(0, m.start()-40):m.start()]
+        if re.search(_planet_names, before, flags=re.IGNORECASE):
+            continue
+        hn = _extract_house_number(m.group(2))
+        if hn:
+            hits.append({"match": m.group(0), "offset": m.start(),
+                         "sign_claimed": _SIGN_CANON.get(m.group(1).capitalize(), m.group(1)),
+                         "house_num": int(hn), "pattern": "signo_na_casa_N"})
+
+    return hits
+
+
+def _validate_cusp_claims(text, chart):
+    """Retorna lista de afirmações sobre cúspide que DIVERGEM da tabela real.
+    Cada item: dict com match, offset, sign_claimed, house_num, sign_real,
+    pattern. Se cúspides não estão disponíveis (chart sem 'cusps'), não flaga
+    nada — melhor não flagar do que flagar sem base."""
+    cusps_by_num = _get_cusps(chart)
+    if not cusps_by_num:
+        return []
+    out = []
+    for claim in _detect_cusp_claims(text):
+        hn = claim["house_num"]
+        real = cusps_by_num.get(hn)
+        if not real:
+            continue
+        if claim["sign_claimed"] != real:
+            out.append({**claim, "sign_real": real})
+    return out
+
+
+# ============================================================
 # SPLIT EM FRASES E LOCALIZAÇÃO DE MATCH → FRASE
 # ============================================================
 def _split_sentences(text):
@@ -315,7 +500,13 @@ def _rewrite_sentence(sentence, violations_here, call_claude_fn):
         "'funda' (use 'profunda'), sem 'presença' como substantivo vago, "
         "sem palavras em inglês.\n"
         "- Se a violação for uma contagem incorreta (ex.: 'três X — A e B'), "
-        "corrija a contagem ou a enumeração para bater.\n\n"
+        "corrija a contagem ou a enumeração para bater.\n"
+        "- Se a violação for uma CÚSPIDE INCORRETA ('casa X em <signo>' ou "
+        "'<signo> na cúspide da casa X' que não bate com a real): você DEVE "
+        "REMOVER completamente a menção à cúspide/casa nessa frase — NÃO "
+        "substitua o signo errado pelo signo certo. Preserve o resto do "
+        "sentido psicológico. Uma frase sem menção à cúspide é sempre "
+        "preferível a uma frase com cúspide corrigida pelo modelo.\n\n"
         f"FRASE A REESCREVER:\n\"\"\"\n{sentence.strip()}\n\"\"\"\n\n"
         "Retorne APENAS a frase reescrita, sem aspas, sem introdução, sem "
         "explicação. Uma única frase (ou 2 frases curtas se o sentido exigir)."
@@ -381,6 +572,26 @@ def run_verifier(text, chart, call_claude_fn):
                  f"palavra fora do dicionário pt-BR; sugestão do corretor: '{sug}'")
     except Exception as e:
         logger.warning("verifier 2e failed: %s", e)
+
+    # 4b/4c — afirmações sobre cúspides validadas contra a tabela real
+    try:
+        for cd in _validate_cusp_claims(text, chart):
+            _add(
+                f"cuspide:divergencia_{cd['pattern']}",
+                cd["match"],
+                cd["offset"],
+                (f"o texto afirma '{cd['sign_claimed']}' para a cúspide da casa "
+                 f"{cd['house_num']}, mas a cúspide real neste mapa é "
+                 f"'{cd['sign_real']}'. AÇÃO: REMOVER a menção à cúspide/casa nesta "
+                 f"frase preservando o resto do sentido. NUNCA substituir "
+                 f"'{cd['sign_claimed']}' por '{cd['sign_real']}' — a correção do "
+                 f"signo por conta própria é risco maior que a ausência da "
+                 f"menção. Reformule a frase eliminando a afirmação sobre a "
+                 f"cúspide (ou sobre 'casa N em <signo>') e mantenha o tema/"
+                 f"conteúdo psicológico do que vinha em torno."),
+            )
+    except Exception as e:
+        logger.warning("verifier 4b/4c failed: %s", e)
 
     if not violations_all:
         return text, []
@@ -471,4 +682,13 @@ def _reverify_sentence(sentence, prior_violations, chart):
             out.append({"kind": "spell:palavra_desconhecida", "match": w,
                         "offset": offset,
                         "suggestion": f"desconhecida; sugestão '{sug}'"})
+    if "cuspide" in kinds:
+        for cd in _validate_cusp_claims(sentence, chart):
+            out.append({
+                "kind": f"cuspide:divergencia_{cd['pattern']}",
+                "match": cd["match"], "offset": cd["offset"],
+                "suggestion": (f"ainda diverge — afirma '{cd['sign_claimed']}' "
+                               f"mas real é '{cd['sign_real']}'. REMOVER "
+                               f"a menção à cúspide/casa por completo."),
+            })
     return out

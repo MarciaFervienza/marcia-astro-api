@@ -873,6 +873,26 @@ def section_chart_context(section_name, chart):
         + ", ".join(_signs_ref_bits) + ".\n\n"
     )
 
+    # Cúspides reais das 12 casas — anti-alucinação de afirmações do tipo
+    # "casa 8 em Gêmeos" quando na verdade a cúspide da casa 8 está em
+    # Câncer. Só entra se hora é conhecida (sem hora, não há cúspides).
+    if not time_unknown:
+        _cusps = chart.get("cusps") or {}
+        if _cusps:
+            _cusps_bits = []
+            for _num in ("1","2","3","4","5","6","7","8","9","10","11","12"):
+                _c = _cusps.get(_num) or _cusps.get(int(_num))
+                if _c:
+                    _cusps_bits.append(f"{_num}={_c.get('degrees','?')}°{_c.get('sign_pt','?')}")
+            if _cusps_bits:
+                _signs_ref_prefix += (
+                    "[CÚSPIDES REAIS DAS 12 CASAS NESTE MAPA — use SEMPRE estes "
+                    "signos ao afirmar qualquer coisa sobre a cúspide de uma casa. "
+                    "NUNCA escrever 'casa N em <signo>' ou '<signo> na cúspide da "
+                    "casa N' sem checar aqui primeiro]: "
+                    + ", ".join(_cusps_bits) + ".\n\n"
+                )
+
     _tunk_prefix = _signs_ref_prefix + ((
         "[REGRA ABSOLUTA PARA ESTA SEÇÃO] O horário de nascimento é desconhecido. "
         "NUNCA mencione a casa astrológica de nenhum planeta ou ponto — não escreva "

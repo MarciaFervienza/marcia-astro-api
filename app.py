@@ -1362,6 +1362,25 @@ def generate_report_endpoint():
                 "sign_pt": _SIGN_PT[_subj.tenth_house.sign],
                 "degrees": round(float(_subj.tenth_house.position), 1),
             }
+            # Cúspides das 12 casas — necessárias para a camada Parte 4
+            # (validação de afirmações "casa N em <signo>" / "<signo> na
+            # cúspide da casa N"). Formato consistente com ascendant/mc.
+            _HOUSES_ATTR = [
+                ("1", _subj.first_house),  ("2", _subj.second_house),
+                ("3", _subj.third_house),  ("4", _subj.fourth_house),
+                ("5", _subj.fifth_house),  ("6", _subj.sixth_house),
+                ("7", _subj.seventh_house),("8", _subj.eighth_house),
+                ("9", _subj.ninth_house),  ("10", _subj.tenth_house),
+                ("11", _subj.eleventh_house),("12", _subj.twelfth_house),
+            ]
+            body["cusps"] = {
+                num: {
+                    "sign":    _SIGN_EN[h.sign],
+                    "sign_pt": _SIGN_PT[h.sign],
+                    "degrees": round(float(h.position), 1),
+                }
+                for num, h in _HOUSES_ATTR
+            }
             _asps = []
             for a in NatalAspects(_subj).relevant_aspects:
                 if a.aspect not in _ASPECT_PT:
