@@ -38,9 +38,30 @@ logger = logging.getLogger("natal-api")
 # ============================================================
 # 2a — LÉXICO PROIBIDO
 # ============================================================
+# Cada entrada: (pattern, categoria, sugestão, [validator opcional]).
+# O validator recebe (full_text, match_obj) e retorna True se o match é
+# uma violação REAL. Se ausente, todo match é violação.
+
+def _pertenca_is_substantive(text, m):
+    """`pertença` é AMBÍGUO em pt-BR:
+       - substantivo (grafia errada de 'pertencimento') → violação
+       - verbo 'pertencer' no subjuntivo presente 3sg ('que pertença',
+         'embora pertença', 'para que pertença') → uso correto
+    Retorna True apenas se o match é o substantivo. Heurística: se as
+    últimas ~4 palavras antes do match contêm um marcador de subjuntivo
+    ('que', 'embora', 'caso', 'talvez', 'quando', 'para que', 'de modo
+    que'), é verbo — ignorar."""
+    start = m.start()
+    window = text[max(0, start - 50):start].lower()
+    # Marcadores comuns de subjuntivo em posição próxima
+    if re.search(r"\b(que|embora|caso|talvez|quando|conquanto|desde\s+que|para\s+que|de\s+modo\s+que|de\s+forma\s+que|sem\s+que|antes\s+que)\s+\S{0,20}$", window):
+        return False
+    return True
+
+
 _FORBIDDEN_LEXICON = [
-    # (pattern, categoria, sugestão para o prompt de reescrita)
-    (r"\bpertença\b", "erro_grafia_pertenca", "pertencimento"),
+    # (pattern, categoria, sugestão, [validator])
+    (r"\bpertença\b", "erro_grafia_pertenca", "pertencimento", _pertenca_is_substantive),
     (r"\bherida\b",    "erro_grafia_herida",   "ferida"),
     (r"\bdesiluso\b",  "erro_grafia_desiluso", "desilusão"),
     (r"os dados não deixam dúvida", "muleta_retorica",
@@ -532,10 +553,14 @@ def run_verifier(text, chart, call_claude_fn):
             "offset": offset, "suggestion": suggestion,
         })
 
-    # 2a — léxico proibido
+    # 2a — léxico proibido (com validator opcional por entrada)
     try:
-        for pat, cat, sugg in _FORBIDDEN_LEXICON:
+        for entry in _FORBIDDEN_LEXICON:
+            pat, cat, sugg = entry[0], entry[1], entry[2]
+            validator = entry[3] if len(entry) > 3 else None
             for m in re.finditer(pat, text, flags=re.IGNORECASE):
+                if validator is not None and not validator(text, m):
+                    continue
                 _add(f"lexico:{cat}", m.group(0), m.start(), sugg)
     except Exception as e:
         logger.warning("verifier 2a failed: %s", e)
@@ -657,8 +682,12 @@ def _reverify_sentence(sentence, prior_violations, chart):
     kinds = {v["kind"].split(":")[0] for v in prior_violations}
     out = []
     if "lexico" in kinds:
-        for pat, cat, sugg in _FORBIDDEN_LEXICON:
+        for entry in _FORBIDDEN_LEXICON:
+            pat, cat, sugg = entry[0], entry[1], entry[2]
+            validator = entry[3] if len(entry) > 3 else None
             for m in re.finditer(pat, sentence, flags=re.IGNORECASE):
+                if validator is not None and not validator(sentence, m):
+                    continue
                 out.append({"kind": f"lexico:{cat}", "match": m.group(0),
                             "offset": m.start(), "suggestion": sugg})
     if "neg_subst" in kinds:
