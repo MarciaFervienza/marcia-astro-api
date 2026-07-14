@@ -498,8 +498,31 @@ COVERAGE_PARTIAL_WARNING = (
     "a leitura a partir dos elementos separados (o que este signo tende a fazer + "
     "o que esta casa tende a acolher) e NÃO afirme nada que dependa da "
     "interseção específica — nenhuma síntese do tipo 'este signo nesta casa "
-    "produz X'. Prefira formulações que tratem signo e casa como camadas "
-    "distintas, sinalizando ao leitor que a leitura articula duas dimensões.\n"
+    "produz X'.\n\n"
+    "FORMULAÇÃO — VARIAR ENTRE SEÇÕES: trate signo e casa como leituras "
+    "separadas que se somam, mas EVITE cair sempre na mesma cadência "
+    "('as duas dimensões funcionam como camadas'). Alterne entre estas "
+    "formas equivalentes ao longo do relatório, escolhendo a que melhor "
+    "conversa com o conteúdo desta seção específica:\n"
+    "  · Traga PRIMEIRO o signo (o que o signo pede/oferece em geral) e "
+    "DEPOIS aterrissa na casa, sem preposição de conexão — deixa o corte "
+    "entre parágrafos ou frases fazer o trabalho.\n"
+    "  · Inverte: começa pela casa (a área da vida onde isso vai se "
+    "encontrar) e chega ao signo como qualidade que colore o modo dessa "
+    "área.\n"
+    "  · Trata como duas frentes complementares, cada uma com sua ação "
+    "verbal (\"o signo pede X; a casa reserva o espaço para Y\"), sem "
+    "afirmar uma fusão.\n"
+    "  · Usa uma imagem de OUTRA ordem — um instrumento e sua caixa "
+    "acústica, um vento e o vale por onde passa, um pigmento e o tecido — "
+    "que preserve a distinção entre o que o signo traz e o que a casa "
+    "oferece como suporte.\n"
+    "  · Nomeia a limitação sem drama (\"aqui a leitura se apoia mais no "
+    "signo/na casa e nos aspectos disponíveis\") e faz o que dá.\n"
+    "A fórmula 'as duas dimensões funcionam como camadas distintas' está "
+    "PROIBIDA — foi usada tantas vezes que virou marca da IA. Escolha uma "
+    "das alternativas acima ou uma variante equivalente que você invente "
+    "no momento.\n"
 )
 
 
@@ -1756,9 +1779,18 @@ Alternativas concretas para o padrão "não é X, é Y":
   · Em vez de "não é fraqueza, é sensibilidade" → "é sensibilidade" ou "essa sensibilidade é um recurso, não uma vulnerabilidade"
 Sempre dá para dizer o que se quer afirmar SEM negar antes o oposto. Reescreva.
 
-TAMBÉM PROIBIDO: (f) usar "nomear" como verbo padrão para tudo — varie com "identificar", "reconhecer", "colocar em palavras", "articular", "perceber", "distinguir"; (g) [reforço da alínea d] a construção "Não é X, é Y" em QUALQUER forma — inclusive versões alongadas ("Isso não é apenas X, é também Y"), invertidas ("Y, e não X"), ou com negação em outra ordem ("Aqui não há X, há Y") — TODAS são proibidas; (h) "retrógrada" como substantivo feminino — o planeta está sempre "retrógrado", nunca "a retrógrada"; (i) qualquer palavra em inglês não traduzida, especialmente "retrograde" — sempre "retrógrado"; (j) qualificadores defensivos desnecessários como "não porque seja naturalmente ambiciosa no sentido frio da palavra" — faça a afirmação diretamente sem recuar dela; (k) repetir o mesmo padrão interpretativo em seções diferentes — se a proteção emocional via controle já foi descrita na seção da Lua, a seção de Plutão não deve repetir a mesma ideia com outras palavras; (l) [REGRA ABSOLUTA — ALUCINAÇÃO DE POSICIONAMENTO] JAMAIS afirmar que um planeta ou ponto está em um signo se esse dado não vier do bloco "DADOS DO MAPA PARA ESTA SEÇÃO" fornecido no início desta chamada, ou dos POSICIONAMENTOS ASTROLÓGICOS listados. NUNCA escrever "Sol em X", "Lua em Y", "Vênus em Z", "Quíron em W", etc. com um signo que não conste explicitamente nos dados. NUNCA escrever que um planeta "compartilha signo com" outro, "reforça o padrão de", "vibra no mesmo tom que", "faz eco a" outro planeta a não ser que os SIGNOS DE AMBOS estejam explicitamente informados no bloco de dados e coincidam. A alucinação de posicionamento é o erro mais grave possível num relatório astrológico. Em caso de dúvida — omita.
+TAMBÉM PROIBIDO: (f) usar "nomear" como verbo padrão para tudo — varie com "identificar", "reconhecer", "colocar em palavras", "articular", "perceber", "distinguir"; (g) [reforço da alínea d, ZERO POR RELATÓRIO] TODA e QUALQUER variante do padrão negação-substituição está PROIBIDA. Isso inclui, entre outras: "não é X, é Y" · "não é X. É Y" · "não é apenas X, é (também) Y" · "não se trata de X, e sim de Y" · "não se trata de X, mas de Y" · "não é tanto X quanto Y" · "menos X e mais Y" · "não é X — é Y" · "Y, e não X" · "aqui não há X, há Y" · "isso não significa X, significa Y" · "não porque X, mas porque Y". Zero por relatório significa zero: nenhuma ocorrência sob NENHUMA sintaxe. Sempre dá para afirmar Y sem passar por "não X primeiro" — reescreva diretamente; (h) "retrógrada" como substantivo feminino — o planeta está sempre "retrógrado", nunca "a retrógrada"; (i) qualquer palavra em inglês não traduzida, especialmente "retrograde" — sempre "retrógrado"; (j) qualificadores defensivos desnecessários como "não porque seja naturalmente ambiciosa no sentido frio da palavra" — faça a afirmação diretamente sem recuar dela; (k) repetir o mesmo padrão interpretativo em seções diferentes — se a proteção emocional via controle já foi descrita na seção da Lua, a seção de Plutão não deve repetir a mesma ideia com outras palavras; (l) [REGRA ABSOLUTA — ALUCINAÇÃO DE POSICIONAMENTO] JAMAIS afirmar que um planeta ou ponto está em um signo se esse dado não vier do bloco "DADOS DO MAPA PARA ESTA SEÇÃO" fornecido no início desta chamada, ou dos POSICIONAMENTOS ASTROLÓGICOS listados. NUNCA escrever "Sol em X", "Lua em Y", "Vênus em Z", "Quíron em W", etc. com um signo que não conste explicitamente nos dados. NUNCA escrever que um planeta "compartilha signo com" outro, "reforça o padrão de", "vibra no mesmo tom que", "faz eco a" outro planeta a não ser que os SIGNOS DE AMBOS estejam explicitamente informados no bloco de dados e coincidam. A alucinação de posicionamento é o erro mais grave possível num relatório astrológico. Em caso de dúvida — omita.
 
 (m) [REGÊNCIA ≠ POSIÇÃO REAL] A regência, o domicílio, a exaltação, a queda ou o exílio de um planeta NUNCA devem ser confundidos com o signo em que esse planeta está POSICIONADO neste mapa. Plutão rege Escorpião — isso NÃO significa que Plutão está em Escorpião. Marte é domiciliado em Áries e exaltado em Capricórnio — isso NÃO significa que Marte está em Áries ou em Capricórnio. Vênus rege Touro e Libra — isso NÃO significa que Vênus está em Touro ou Libra. Quíron não tem regência canônica — nunca associe Quíron a Áries "por default". O signo real de CADA planeta e ponto vem SEMPRE do bloco "DADOS DO MAPA PARA ESTA SEÇÃO" acima e da lista POSICIONAMENTOS ASTROLÓGICOS. Se você se pegar escrevendo o signo de regência de um planeta em vez do signo real dele, PARE, releia os dados, e corrija. Este é o vetor mais comum de alucinação: substituir a posição real por associação simbólica genérica. NUNCA fazer isso.
+
+(n) [SIGNOS DE CORPOS LENTOS = COORTE, NÃO BIOGRAFIA] Para Júpiter, Saturno, Urano, Netuno, Plutão, Quíron e Nodos, o SIGNO NÃO produz biografia individual — descreve uma COORTE. Para os planetas lentos, o signo é o tema que a geração inteira valoriza, teme ou idealiza. Para os Nodos, o signo descreve UM MODO de operar (a maneira, o mecanismo), nunca uma circunstância vivida. Você pode nomear o signo desses corpos em 1–2 frases, marcar explicitamente como compartilhado com a geração/coorte, e passar adiante.
+PROIBIDO com esses corpos: (i) atribuir ao SIGNO qualquer evento, experiência, ambiente ou vivência específica da vida da pessoa; (ii) usar o signo do corpo lento para MODULAR a descrição da casa ("Plutão em Capricórnio na casa 5 traz X à criatividade porque Capricórnio…" — não; a casa 5 é lida por si, o signo é coorte); (iii) fazer COMPARAÇÕES com signos hipotéticos ("Saturno em Peixes acrescenta X, o que Saturno em Câncer não faria"); (iv) dedicar ao SIGNO desse corpo mais texto do que à CASA e aos ASPECTOS somados na mesma seção.
+A individuação para esses corpos vem SEMPRE de: casa ocupada, aspectos com corpos pessoais (Sol/Lua/Mercúrio/Vênus/Marte) ou ângulos (Asc/MC), e regência da casa que o corpo ocupa. EXCEÇÃO ÚNICA: se o corpo lento está em CONJUNÇÃO de orbe apertada (≤ 5°) com um corpo pessoal ou ângulo, o signo pode ser individualizado nessa passagem específica, porque ali ele deixa de ser puramente geracional.
+
+(o) [CLUSTERS PARENTAIS FIXOS] A atribuição simbólica é canônica e imutável:
+  · Sol e Saturno pertencem SEMPRE ao Cluster 1 — autoridade, estrutura, ordem, exigência, contorno.
+  · Lua pertence SEMPRE ao Cluster 2 — cuidado, vínculo, acolhimento, nutrição, base afetiva.
+PROIBIDO em qualquer casa, em qualquer aspecto, em qualquer configuração: atribuir "figura de cuidado" a Saturno, ou atribuir "figura de autoridade" à Lua. Mesmo que a família descrita pareça inverter esses papéis, a linguagem astrológica preserva a atribuição simbólica: Saturno é sempre o eixo autoridade/estrutura; Lua é sempre o eixo cuidado/vínculo. Ausência ou distorção de um desses eixos se descreve pela via do próprio corpo canônico (ex.: "Saturno em quadratura à Lua sugere uma autoridade que se manifestava como escassez de acolhimento"), nunca trocando os corpos.
 
 CONVENÇÕES DE LINGUAGEM: Use sempre "em oposição", "em quadratura", "em trígono", "em conjunção", "em sextil" — nunca "na oposição", "na quadratura" etc. Planetas retrógrados são sempre descritos como "retrógrado" — nunca "a retrógrada". Mantenha "se regenerar rapidamente" em vez de "se regenerar rápido"."""
 
