@@ -1863,6 +1863,7 @@ def generate_report_endpoint():
             aspects=body.get("aspects", []),
             points=body.get("points", {}),
             time_unknown=unknown_birth_time,
+            aspects_row_separators=bool(body.pop("aspects_row_separators", False)),
         )
         pdf_b64 = base64.b64encode(pdf_bytes).decode("ascii")
     except Exception as e:

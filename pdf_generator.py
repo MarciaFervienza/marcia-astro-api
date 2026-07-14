@@ -668,7 +668,7 @@ def _chart_image_flowable(chart_image, target_width_pts: float,
     return img
 
 
-def _aspects_table(in_sign_aspects: list, styles):
+def _aspects_table(in_sign_aspects: list, styles, show_row_separators: bool = False):
     """Build the in-sign aspects table flowable.
 
     Editorial styling:
@@ -743,15 +743,19 @@ def _aspects_table(in_sign_aspects: list, styles):
         ("ALIGN",         (3, 1), (3, -1),  "RIGHT"),
         ("LEFTPADDING",   (0, 0), (-1, -1), 10),
         ("RIGHTPADDING",  (0, 0), (-1, -1), 10),
-        # Padding vertical apertado (3.5pt) — densidade de tabela de
-        # referência, não convite de casamento. Sem separadores cinza,
-        # é o espaçamento que dá coesão.
-        ("TOPPADDING",    (0, 1), (-1, -1), 3.5),
-        ("BOTTOMPADDING", (0, 1), (-1, -1), 3.5),
+        # Padding vertical bem apertado (2pt) — densidade de tabela de
+        # referência técnica, linhas praticamente coladas mas legíveis.
+        ("TOPPADDING",    (0, 1), (-1, -1), 2),
+        ("BOTTOMPADDING", (0, 1), (-1, -1), 2),
         # (sem LINEBELOW no header — a régua HR do título acima já marca.)
-        # (sem LINEBELOW nas linhas do corpo — sem look de tabela do Word.)
         # (sem bold em orbes apertados — todos os aspectos com o mesmo peso.)
     ]
+    if show_row_separators:
+        # Régua leve entre cada linha do corpo — cor ivory-toned pra
+        # marcar sem gritar. Alternativa à densidade pura sem linhas.
+        style_cmds.append(
+            ("LINEBELOW", (0, 1), (-1, -2), 0.25, COLOR_TABLE_GRID)
+        )
     table.setStyle(TableStyle(style_cmds))
     return table
 
@@ -825,7 +829,8 @@ def _wheel_page_flowables(
     return flow
 
 
-def _aspects_page_flowables(aspects: list, points: dict, styles):
+def _aspects_page_flowables(aspects: list, points: dict, styles,
+                            show_row_separators: bool = False):
     """Página seguinte à mandala — tabela de aspectos in-sign + nota de rodapé."""
     flow = []
     in_sign = get_in_sign_aspects(aspects, points) if aspects else []
@@ -845,7 +850,7 @@ def _aspects_page_flowables(aspects: list, points: dict, styles):
         width=3.0 * cm, thickness=0.4, color=COLOR_GOLD,
         spaceBefore=2, spaceAfter=18, hAlign="CENTER", lineCap="round",
     ))
-    flow.append(_aspects_table(in_sign, styles))
+    flow.append(_aspects_table(in_sign, styles, show_row_separators=show_row_separators))
     flow.append(Paragraph(CHART_PAGE_FOOTNOTE, styles["footnote"]))
     flow.append(PageBreak())
     return flow
@@ -877,25 +882,10 @@ def _cover_flowables(client_name: str, birth_date: str, birth_place: str, styles
     # editorial covers rarely start at the very top edge.
     flow.append(Spacer(1, 2.4 * cm))
 
-    # Small gold kicker above the title — plain uppercase "MAPA NATAL",
-    # no letter tracking. Consistent with the untracked section titles
-    # per Marcia's review note. Still reads as a kicker because it's
-    # small (9pt), gold, uppercase, and centered above the display title.
-    #
-    # Prior layout notes preserved for future reference:
-    #  · '&nbsp;' (U+00A0) between the two words renders as a mid-height
-    #    dot glyph in Inter-Medium, which read as a decorative middle dot.
-    #  · Plain ASCII spaces get normalized by ReportLab's Paragraph XML
-    #    parser — runs collapse to single spaces AND the layout engine
-    #    strips inter-letter spacing between single-letter "words", so
-    #    "M A P A    N A T A L" ends up as "MAPANATAL" with no visible
-    #    gaps at all.
-    #
-    #  · Unicode EN + EM spaces preserved inter-letter spacing but Inter-
-    #    Medium renders both widths identically, so the word gap didn't
-    #    read wider than between individual letters — the whole string
-    #    still read as one long tracked word.
-    flow.append(Paragraph("MAPA NATAL", styles["cover_kicker"]))
+    # Kicker "MAPA NATAL" removido: era redundante com o próprio título
+    # "Seu / Mapa Natal" imediatamente abaixo. Se algum dia quiser um
+    # kicker de volta, use styles["cover_kicker"] com outro texto ("2026",
+    # "Interpretação Completa", etc.).
 
     # Two-line serif title, second line in italic terracotta
     flow.append(Paragraph("Seu", styles["cover_title"]))
@@ -1233,6 +1223,7 @@ def generate_pdf(
     aspects: list = None,
     points: dict = None,
     time_unknown: bool = False,
+    aspects_row_separators: bool = False,
     chart_svg_url: str = "",  # backwards-compatible alias, deprecated
 ) -> bytes:
     """
@@ -1311,7 +1302,10 @@ def generate_pdf(
         ))
     # Aspects page (separate) — títutlo + tabela + rodapé.
     if aspects:
-        story.extend(_aspects_page_flowables(aspects, points or {}, styles))
+        story.extend(_aspects_page_flowables(
+            aspects, points or {}, styles,
+            show_row_separators=aspects_row_separators,
+        ))
 
     # Section flow with periodic pull-quote breather pages. Every fourth
     # section (skipping Abertura and Fio Condutor which bookend the report)
