@@ -365,6 +365,36 @@ def _styles():
             spaceAfter=4,
             leading=11,
         ),
+        # Bloco de dados de nascimento no canto superior esquerdo da
+        # página da mandala. Inter pequena, esquerda, cor muted — deixa a
+        # mandala respirar.
+        "wheel_meta_name": ParagraphStyle(
+            name="wheel_meta_name",
+            fontName="EBGaramond-Italic",
+            fontSize=11,
+            textColor=COLOR_CHARCOAL,
+            alignment=TA_LEFT,
+            leading=15,
+            spaceAfter=4,
+        ),
+        "wheel_meta_line": ParagraphStyle(
+            name="wheel_meta_line",
+            fontName="Inter-Regular",
+            fontSize=8.5,
+            textColor=COLOR_GREY,
+            alignment=TA_LEFT,
+            leading=13,
+            spaceAfter=1,
+        ),
+        "wheel_meta_tech": ParagraphStyle(
+            name="wheel_meta_tech",
+            fontName="Inter-Regular",
+            fontSize=7.5,
+            textColor=COLOR_GOLD,
+            alignment=TA_LEFT,
+            leading=11,
+            spaceBefore=4,
+        ),
         "footnote": ParagraphStyle(
             name="footnote",
             fontName="EBGaramond-Italic",
@@ -639,10 +669,30 @@ def _chart_image_flowable(chart_image, target_width_pts: float,
 
 
 def _aspects_table(in_sign_aspects: list, styles):
-    """Build the in-sign aspects table flowable."""
-    header = ["Planeta A", "Aspecto", "Planeta B", "Orbe"]
+    """Build the in-sign aspects table flowable.
+
+    Editorial styling:
+      - Sorted by orb ascending (tightest aspects at the top = most important).
+      - Aspects with orb < 2° are set in Bold (planets in EBGaramond-Bold,
+        aspect name in EBGaramond-BoldItalic) as a subtle visual emphasis.
+      - No inter-row separators (the previous ivory hairline read like a
+        Word table). No sage rule beneath the header either — the header
+        is separated from the body by whitespace + a slight typographic
+        contrast, and the section title already carries a HRFlowable above.
+      - Column widths sized to content, not equidistant: aspect column
+        widest to fit 'sesquiquadratura' comfortably in italic serif.
+    """
+    header = ["Planeta", "Aspecto", "Planeta", "Orbe"]
+
+    # Ordena por orbe crescente — mais apertados = mais importantes = topo
+    sorted_asp = sorted(
+        in_sign_aspects,
+        key=lambda a: (float(a.get("orb") or 999)),
+    )
+
     rows = [header]
-    for a in in_sign_aspects:
+    tight_row_indices = []  # 1-based row idx of rows with orb < 2° (bold)
+    for i, a in enumerate(sorted_asp, start=1):
         pa = a.get("planet_a_pt") or PLANET_LABEL_PT.get(a.get("planet_a", ""), a.get("planet_a", ""))
         pb = a.get("planet_b_pt") or PLANET_LABEL_PT.get(a.get("planet_b", ""), a.get("planet_b", ""))
         asp = (
@@ -654,72 +704,122 @@ def _aspects_table(in_sign_aspects: list, styles):
         except (TypeError, ValueError):
             orb = 0.0
         rows.append([pa, asp, pb, f"{orb:.1f}°"])
+        if orb < 2.0:
+            tight_row_indices.append(i)
 
+    # Larguras proporcionais ao conteúdo real, não fatias iguais:
+    #   Planeta (esq): 2.8 cm — cobre "Nodo Norte" em Garamond 10pt sem apertar.
+    #   Aspecto:       4.2 cm — cobre "sesquiquadratura" em italic serif.
+    #   Planeta (dir): 2.8 cm — igual à coluna esquerda para simetria visual.
+    #   Orbe:          1.6 cm — só precisa caber "N.N°"; deixa a coluna
+    #                          visualmente distinta como coluna numérica.
     table = Table(
         rows,
-        colWidths=[4.6 * cm, 3.6 * cm, 4.6 * cm, 2.4 * cm],
+        colWidths=[2.8 * cm, 4.2 * cm, 2.8 * cm, 1.6 * cm],
         repeatRows=1,
         hAlign="CENTER",
     )
-    table.setStyle(TableStyle([
-        # Header row — quiet sage rule beneath, no colored fill; the
-        # column labels themselves are small-caps Inter in charcoal.
-        ("BACKGROUND",     (0, 0), (-1, 0), COLOR_IVORY),
-        ("TEXTCOLOR",      (0, 0), (-1, 0), COLOR_CHARCOAL),
-        ("FONTNAME",       (0, 0), (-1, 0), "Inter-Medium"),
-        ("FONTSIZE",       (0, 0), (-1, 0), 8.5),
-        ("ALIGN",          (0, 0), (-1, 0), "CENTER"),
-        ("BOTTOMPADDING",  (0, 0), (-1, 0), 10),
-        ("TOPPADDING",     (0, 0), (-1, 0), 8),
-        ("LINEBELOW",      (0, 0), (-1, 0), 0.6, COLOR_SAGE),
 
-        # Body rows — Garamond for the planet names (matches the report's
-        # display voice) and Inter for the orb figure (numeric clarity).
-        ("FONTNAME",       (0, 1), (0, -1), "EBGaramond-Regular"),
-        ("FONTNAME",       (2, 1), (2, -1), "EBGaramond-Regular"),
-        ("FONTNAME",       (1, 1), (1, -1), "EBGaramond-Italic"),  # aspect name in italic serif
-        ("FONTNAME",       (3, 1), (3, -1), "Inter-Regular"),
-        ("FONTSIZE",       (0, 1), (-1, -1), 10),
-        ("TEXTCOLOR",      (0, 1), (-1, -1), COLOR_CHARCOAL),
-        ("ALIGN",          (0, 1), (0, -1), "LEFT"),
-        ("ALIGN",          (1, 1), (1, -1), "CENTER"),
-        ("ALIGN",          (2, 1), (2, -1), "LEFT"),
-        ("ALIGN",          (3, 1), (3, -1), "RIGHT"),
-        ("LEFTPADDING",    (0, 0), (-1, -1), 10),
-        ("RIGHTPADDING",   (0, 0), (-1, -1), 10),
-        ("TOPPADDING",     (0, 1), (-1, -1), 8),
-        ("BOTTOMPADDING",  (0, 1), (-1, -1), 8),
+    style_cmds = [
+        # ---- Header row ----
+        ("BACKGROUND",    (0, 0), (-1, 0), COLOR_IVORY),
+        ("TEXTCOLOR",     (0, 0), (-1, 0), COLOR_CHARCOAL),
+        ("FONTNAME",      (0, 0), (-1, 0), "Inter-Medium"),
+        ("FONTSIZE",      (0, 0), (-1, 0), 8.5),
+        ("ALIGN",         (0, 0), (0, 0),  "LEFT"),
+        ("ALIGN",         (1, 0), (1, 0),  "CENTER"),
+        ("ALIGN",         (2, 0), (2, 0),  "LEFT"),
+        ("ALIGN",         (3, 0), (3, 0),  "RIGHT"),
+        ("BOTTOMPADDING", (0, 0), (-1, 0), 12),
+        ("TOPPADDING",    (0, 0), (-1, 0), 8),
 
-        # Row separators — a thin ivory-toned hairline. No outer box:
-        # editorial tables usually let the type breathe against the page.
-        ("LINEBELOW",      (0, 1), (-1, -2), 0.25, COLOR_TABLE_GRID),
-    ]))
+        # ---- Body rows (defaults; tight rows overridden below) ----
+        ("FONTNAME",      (0, 1), (0, -1), "EBGaramond-Regular"),
+        ("FONTNAME",      (2, 1), (2, -1), "EBGaramond-Regular"),
+        ("FONTNAME",      (1, 1), (1, -1), "EBGaramond-Italic"),
+        ("FONTNAME",      (3, 1), (3, -1), "Inter-Regular"),
+        ("FONTSIZE",      (0, 1), (-1, -1), 10),
+        ("TEXTCOLOR",     (0, 1), (-1, -1), COLOR_CHARCOAL),
+        ("ALIGN",         (0, 1), (0, -1),  "LEFT"),
+        ("ALIGN",         (1, 1), (1, -1),  "CENTER"),
+        ("ALIGN",         (2, 1), (2, -1),  "LEFT"),
+        ("ALIGN",         (3, 1), (3, -1),  "RIGHT"),
+        ("LEFTPADDING",   (0, 0), (-1, -1), 10),
+        ("RIGHTPADDING",  (0, 0), (-1, -1), 10),
+        ("TOPPADDING",    (0, 1), (-1, -1), 7),
+        ("BOTTOMPADDING", (0, 1), (-1, -1), 7),
+        # (sem LINEBELOW no header — a régua HR do título acima já marca.)
+        # (sem LINEBELOW nas linhas do corpo — sem look de tabela do Word.)
+    ]
+
+    # Bold para linhas com orbe < 2° (aspectos apertados = mais peso).
+    for ri in tight_row_indices:
+        style_cmds.append(("FONTNAME", (0, ri), (0, ri), "EBGaramond-Bold"))
+        style_cmds.append(("FONTNAME", (2, ri), (2, ri), "EBGaramond-Bold"))
+        style_cmds.append(("FONTNAME", (1, ri), (1, ri), "EBGaramond-BoldItalic"))
+        # Coluna numérica: Inter-SemiBold pra manter a família e ganhar peso.
+        style_cmds.append(("FONTNAME", (3, ri), (3, ri), "Inter-SemiBold"))
+
+    table.setStyle(TableStyle(style_cmds))
     return table
 
 
-def _chart_page_flowables(
+def _wheel_page_flowables(
     chart_image_url: str,
-    aspects: list,
-    points: dict,
+    client_name: str,
+    birth_date: str,
+    birth_time: str,
+    birth_place: str,
+    latitude,
+    longitude,
     styles,
 ):
-    """Build the second-page flowables: chart wheel image + in-sign aspects
-    table + footnote."""
+    """Página dedicada à mandala.
+
+    Layout:
+       [bloco de dados de nascimento — canto sup. esquerdo, small Inter/serif]
+       [mandala centralizada, ~14.5 cm quadrada, dominando a página]
+    """
     flow = []
 
-    # Gold small-caps kicker before the wheel — sets the tone before the
-    # chart itself lands. Reads as a chapter frontispiece.
-    flow.append(Paragraph("O SEU MAPA", styles["chart_page_kicker"]))
-    flow.append(Spacer(1, 0.2 * cm))
+    # -------- Bloco de dados no canto superior esquerdo --------
+    # Nome em italic serif, dados em Inter cinza, referência técnica em
+    # dourado ainda menor. Como Frame + Story alinha à esquerda por padrão
+    # do ParagraphStyle, "canto superior esquerdo" = topo do frame,
+    # esquerda do texto.
+    if client_name:
+        flow.append(Paragraph(_escape(client_name), styles["wheel_meta_name"]))
+    _lines = []
+    if birth_date:
+        _lines.append(_escape(birth_date))
+    if birth_time:
+        _lines.append(_escape(birth_time))
+    if birth_place:
+        _lines.append(_escape(birth_place))
+    if latitude is not None and longitude is not None:
+        try:
+            _lat = float(latitude); _lng = float(longitude)
+            _ns = "N" if _lat >= 0 else "S"
+            _ew = "E" if _lng >= 0 else "W"
+            _lines.append(f"{abs(_lat):.4f}° {_ns}, {abs(_lng):.4f}° {_ew}")
+        except (TypeError, ValueError):
+            pass
+    for _line in _lines:
+        flow.append(Paragraph(_line, styles["wheel_meta_line"]))
+    # Referência técnica: sistema zodiacal + sistema de casas
+    flow.append(Paragraph(
+        "Zodíaco Tropical · Casas Placidus",
+        styles["wheel_meta_tech"],
+    ))
 
-    # 1) Chart wheel (best-effort — degrades gracefully if the SVG failed).
-    # Cap at 11.5cm square. The bigger new margins mean less horizontal
-    # room on the page, so we can't push the wheel much larger without
-    # squeezing the aspects table below, but 11.5cm still reads
-    # substantially bigger than before because there's more surrounding
-    # white space.
-    target_w_pts = 11.5 * cm
-    target_h_pts = 11.5 * cm
+    # Respiro entre bloco de dados e mandala
+    flow.append(Spacer(1, 1.2 * cm))
+
+    # -------- Mandala centralizada, ampla --------
+    # Largura útil A4 = 15.4cm. Com 14.5cm de mandala centralizada, sobram
+    # ~0.45cm de respiro em cada lado. Não encosta nas margens.
+    target_w_pts = 14.5 * cm
+    target_h_pts = 14.5 * cm
 
     chart_image = _fetch_chart_image(chart_image_url) if chart_image_url else None
     img = (
@@ -728,29 +828,33 @@ def _chart_page_flowables(
     )
     if img is not None:
         flow.append(img)
-    else:
-        # No wheel — keep breathing room so the table doesn't jump to the top
-        flow.append(Spacer(1, 0.6 * cm))
 
-    flow.append(Spacer(1, 1.0 * cm))
+    flow.append(PageBreak())
+    return flow
 
-    # 2) Aspects table (in-sign only)
+
+def _aspects_page_flowables(aspects: list, points: dict, styles):
+    """Página seguinte à mandala — tabela de aspectos in-sign + nota de rodapé."""
+    flow = []
     in_sign = get_in_sign_aspects(aspects, points) if aspects else []
-    if in_sign:
-        flow.append(Paragraph(
-            "Aspectos <font face='EBGaramond-Italic'>principais</font>",
-            styles["chart_page_title"],
-        ))
-        # Fine gold rule beneath the title, matched to the wheel width
-        flow.append(HRFlowable(
-            width=3.0 * cm, thickness=0.4, color=COLOR_GOLD,
-            spaceBefore=2, spaceAfter=14, hAlign="CENTER", lineCap="round",
-        ))
-        flow.append(_aspects_table(in_sign, styles))
+    if not in_sign:
+        return flow
 
-    # 3) Footnote
+    # Kicker + título centralizados
+    flow.append(Paragraph("O SEU MAPA", styles["chart_page_kicker"]))
+    flow.append(Spacer(1, 0.2 * cm))
+    flow.append(Paragraph(
+        "Aspectos <font face='EBGaramond-Italic'>principais</font>",
+        styles["chart_page_title"],
+    ))
+    # Régua única fina (dourado) sob o título — sem régua adicional sob o
+    # header da tabela abaixo, evitando o efeito de "régua dupla".
+    flow.append(HRFlowable(
+        width=3.0 * cm, thickness=0.4, color=COLOR_GOLD,
+        spaceBefore=2, spaceAfter=18, hAlign="CENTER", lineCap="round",
+    ))
+    flow.append(_aspects_table(in_sign, styles))
     flow.append(Paragraph(CHART_PAGE_FOOTNOTE, styles["footnote"]))
-
     flow.append(PageBreak())
     return flow
 
@@ -1139,6 +1243,9 @@ def generate_pdf(
     birth_date: str = "",
     birth_place: str = "",
     birth_note: str = "",
+    birth_time: str = "",
+    latitude=None,
+    longitude=None,
     chart_image_url: str = "",
     aspects: list = None,
     points: dict = None,
@@ -1211,9 +1318,17 @@ def generate_pdf(
     story = []
     story.extend(_cover_flowables(client_name, birth_date, birth_place, styles, birth_note=birth_note))
 
-    # Chart page — only add it if we have something to show
-    if chart_image_url or aspects:
-        story.extend(_chart_page_flowables(chart_image_url, aspects or [], points or {}, styles))
+    # Chart wheel page (own page) — mandala dominates, birth data in the
+    # upper-left corner as a small identity block, technical footer
+    # (Zodíaco Tropical · Casas Placidus) sits under the block.
+    if chart_image_url:
+        story.extend(_wheel_page_flowables(
+            chart_image_url, client_name, birth_date, birth_time,
+            birth_place, latitude, longitude, styles,
+        ))
+    # Aspects page (separate) — títutlo + tabela + rodapé.
+    if aspects:
+        story.extend(_aspects_page_flowables(aspects, points or {}, styles))
 
     # Section flow with periodic pull-quote breather pages. Every fourth
     # section (skipping Abertura and Fio Condutor which bookend the report)

@@ -356,6 +356,7 @@ def _generate_chart_svg(chart_data: dict) -> tuple:
         chart = ChartDrawer(
             chart_data=kerykeion_chart_data,
             aspects_settings=ASPECT_COLORS,
+            transparent_background=bool(chart_data.get("_chart_transparent", False)),
         )
     except Exception as e:
         return None, f"chart data/drawer build failed: {e}"
@@ -1812,6 +1813,9 @@ def generate_report_endpoint():
     # result is a path to an SVG file in a fresh per-request tempdir.
     # pdf_generator's _fetch_chart_image() handles .svg paths via svglib.
     # We rmtree the tempdir after the PDF is built regardless of outcome.
+    # Optional per-request override: {"chart_transparent": true} → mandala
+    # com fundo transparente (mescla no papel ivory da página).
+    body["_chart_transparent"] = bool(body.pop("chart_transparent", False))
     chart_svg_path, chart_error = _generate_chart_svg(body)
 
     # Render the branded PDF. Failures here should NOT poison the response —
@@ -1823,12 +1827,16 @@ def generate_report_endpoint():
         # Se o cliente não passou birth_place explícito, usar a cidade que
         # foi de fato geocoded — dá transparência sobre o que foi calculado.
         cover_place = birth_place or (body.get("birth_city") or "").strip()
+        _birth_time_display = "" if unknown_birth_time else (body.get("birth_time") or "").strip()
         pdf_bytes = pg.generate_pdf(
             report_text=result["report"],
             client_name=result["name"],
             birth_date=birth_date_display,
             birth_place=cover_place,
             birth_note=unknown_time_note,
+            birth_time=_birth_time_display,
+            latitude=body.get("latitude"),
+            longitude=body.get("longitude"),
             chart_image_url=chart_svg_path,
             aspects=body.get("aspects", []),
             points=body.get("points", {}),
