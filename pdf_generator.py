@@ -374,8 +374,8 @@ def _styles():
             fontSize=11,
             textColor=COLOR_CHARCOAL,
             alignment=TA_LEFT,
-            leading=15,
-            spaceAfter=4,
+            leading=13,   # ~1.18× — leading normal, sem esparramar
+            spaceAfter=2,
         ),
         "wheel_meta_line": ParagraphStyle(
             name="wheel_meta_line",
@@ -383,8 +383,8 @@ def _styles():
             fontSize=8.5,
             textColor=COLOR_GREY,
             alignment=TA_LEFT,
-            leading=13,
-            spaceAfter=1,
+            leading=10,   # ~1.17× — linhas coladas, densidade normal
+            spaceAfter=0,
         ),
         "wheel_meta_tech": ParagraphStyle(
             name="wheel_meta_tech",
@@ -392,8 +392,8 @@ def _styles():
             fontSize=7.5,
             textColor=COLOR_GOLD,
             alignment=TA_LEFT,
-            leading=11,
-            spaceBefore=4,
+            leading=9,
+            spaceBefore=6,   # respiro entre o bloco de dados e a linha técnica
         ),
         "footnote": ParagraphStyle(
             name="footnote",
@@ -691,8 +691,7 @@ def _aspects_table(in_sign_aspects: list, styles):
     )
 
     rows = [header]
-    tight_row_indices = []  # 1-based row idx of rows with orb < 2° (bold)
-    for i, a in enumerate(sorted_asp, start=1):
+    for a in sorted_asp:
         pa = a.get("planet_a_pt") or PLANET_LABEL_PT.get(a.get("planet_a", ""), a.get("planet_a", ""))
         pb = a.get("planet_b_pt") or PLANET_LABEL_PT.get(a.get("planet_b", ""), a.get("planet_b", ""))
         asp = (
@@ -704,8 +703,6 @@ def _aspects_table(in_sign_aspects: list, styles):
         except (TypeError, ValueError):
             orb = 0.0
         rows.append([pa, asp, pb, f"{orb:.1f}°"])
-        if orb < 2.0:
-            tight_row_indices.append(i)
 
     # Larguras proporcionais ao conteúdo real, não fatias iguais:
     #   Planeta (esq): 2.8 cm — cobre "Nodo Norte" em Garamond 10pt sem apertar.
@@ -746,20 +743,15 @@ def _aspects_table(in_sign_aspects: list, styles):
         ("ALIGN",         (3, 1), (3, -1),  "RIGHT"),
         ("LEFTPADDING",   (0, 0), (-1, -1), 10),
         ("RIGHTPADDING",  (0, 0), (-1, -1), 10),
-        ("TOPPADDING",    (0, 1), (-1, -1), 7),
-        ("BOTTOMPADDING", (0, 1), (-1, -1), 7),
+        # Padding vertical apertado (3.5pt) — densidade de tabela de
+        # referência, não convite de casamento. Sem separadores cinza,
+        # é o espaçamento que dá coesão.
+        ("TOPPADDING",    (0, 1), (-1, -1), 3.5),
+        ("BOTTOMPADDING", (0, 1), (-1, -1), 3.5),
         # (sem LINEBELOW no header — a régua HR do título acima já marca.)
         # (sem LINEBELOW nas linhas do corpo — sem look de tabela do Word.)
+        # (sem bold em orbes apertados — todos os aspectos com o mesmo peso.)
     ]
-
-    # Bold para linhas com orbe < 2° (aspectos apertados = mais peso).
-    for ri in tight_row_indices:
-        style_cmds.append(("FONTNAME", (0, ri), (0, ri), "EBGaramond-Bold"))
-        style_cmds.append(("FONTNAME", (2, ri), (2, ri), "EBGaramond-Bold"))
-        style_cmds.append(("FONTNAME", (1, ri), (1, ri), "EBGaramond-BoldItalic"))
-        # Coluna numérica: Inter-SemiBold pra manter a família e ganhar peso.
-        style_cmds.append(("FONTNAME", (3, ri), (3, ri), "Inter-SemiBold"))
-
     table.setStyle(TableStyle(style_cmds))
     return table
 
@@ -808,7 +800,7 @@ def _wheel_page_flowables(
         flow.append(Paragraph(_line, styles["wheel_meta_line"]))
     # Referência técnica: sistema zodiacal + sistema de casas
     flow.append(Paragraph(
-        "Zodíaco Tropical · Casas Placidus",
+        "Zodíaco Tropical · Placidus",
         styles["wheel_meta_tech"],
     ))
 

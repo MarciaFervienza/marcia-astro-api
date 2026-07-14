@@ -356,7 +356,11 @@ def _generate_chart_svg(chart_data: dict) -> tuple:
         chart = ChartDrawer(
             chart_data=kerykeion_chart_data,
             aspects_settings=ASPECT_COLORS,
-            transparent_background=bool(chart_data.get("_chart_transparent", False)),
+            # Fixo em True: semanticamente correto (a mandala flutua no
+            # ivory da página). svglib não pinta o background-color do
+            # <svg> root de qualquer forma, então visualmente é idêntico
+            # ao False no PDF, mas o SVG cru fica limpo.
+            transparent_background=True,
         )
     except Exception as e:
         return None, f"chart data/drawer build failed: {e}"
@@ -1813,9 +1817,6 @@ def generate_report_endpoint():
     # result is a path to an SVG file in a fresh per-request tempdir.
     # pdf_generator's _fetch_chart_image() handles .svg paths via svglib.
     # We rmtree the tempdir after the PDF is built regardless of outcome.
-    # Optional per-request override: {"chart_transparent": true} → mandala
-    # com fundo transparente (mescla no papel ivory da página).
-    body["_chart_transparent"] = bool(body.pop("chart_transparent", False))
     chart_svg_path, chart_error = _generate_chart_svg(body)
 
     # Render the branded PDF. Failures here should NOT poison the response —
