@@ -2968,6 +2968,30 @@ def generate_report(
         for rw in correction_rewrites:
             print(f"  · parágrafo #{rw['paragraph_index']} — corpos: {rw['divergences']}")
 
+    # Verificador determinístico pós-síntese — cobre 5 frentes:
+    # léxico proibido / negação-substituição / nomenclatura de aspectos /
+    # contagem anunciada vs enumeração / spellcheck pt-BR. Cada frase
+    # flagrada dispara reescrita direcionada (até 2 tentativas). Nunca
+    # bloqueia a geração — falhas persistentes viram VERIFIER_FAIL no log.
+    try:
+        import text_verifier as _tv
+        # Passar nome do cliente pro chart pra spellcheck ignorar tokens do payload
+        _chart_for_verifier = dict(chart or {})
+        _chart_for_verifier.setdefault("_client_name", name)
+        full_report, verifier_log = _tv.run_verifier(
+            full_report, _chart_for_verifier, call_claude,
+        )
+    except Exception as _ve:
+        log(f"[VERIFICADOR] erro fatal (ignorado): {_ve}")
+        verifier_log = []
+    if verifier_log:
+        _n_corr = sum(1 for v in verifier_log if v.get("status") == "corrected")
+        _n_fail = sum(1 for v in verifier_log if v.get("status") == "failed_kept_original")
+        log(f"[VERIFICADOR] {len(verifier_log)} violação(ões): {_n_corr} corrigida(s), {_n_fail} mantida(s) após falha")
+        if verbose:
+            for v in verifier_log:
+                print(f"  · {v['kind']}: {v['match']!r} → {v['status']} ({v.get('attempts',0)} tent.)")
+
     # Optionally save to disk
     if write_file:
         OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -3015,6 +3039,7 @@ def generate_report(
         "cleanup_changes": cleanup_changes,
         "sign_divergences": sign_divergences,
         "correction_rewrites": correction_rewrites,
+        "verifier_log": verifier_log,
         "parental_clusters": chart.get("_parental_clusters"),
         "partial_coverage": list(_partial_coverage_log),
     }
