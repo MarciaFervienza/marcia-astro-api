@@ -405,6 +405,27 @@ def _generate_chart_svg(chart_data: dict) -> tuple:
             "",
             svg_text,
         )
+        # -------- Leader lines (planeta → posição real no anel) --------
+        # Objetivo: comportamento do Astro Gold — glifos afastados quando
+        # planetas estão próximos em grau (o mecanismo interno de
+        # PLANET_MIN_SEPARATION do Kerykeion continua funcionando), MAS
+        # sem a linha conectando o glifo à posição real. O grau ao lado
+        # de cada glifo revela a posição, e o leitor faz a associação.
+        #
+        # FRÁGIL: este regex depende do padrão específico usado pelo
+        # Kerykeion 5.12.8 (modern draw path — draw_modern.py:_draw_indicator_line)
+        # que emite as leader lines dentro de um <g kr:node='Indicator' ...>
+        # com um <path> dentro. Se a lib for atualizada e o marcador semântico
+        # kr:node mudar (ou se o path passar a viver em outra estrutura),
+        # este regex vira NO-OP silencioso — as linhas voltam a aparecer no
+        # PDF sem quebrar nada. Antes de atualizar kerykeion, rodar um mapa
+        # de teste e conferir visualmente.
+        svg_text = re.sub(
+            r"<g\s+kr:node=['\"]Indicator['\"][^>]*>.*?</g>\s*",
+            "",
+            svg_text,
+            flags=re.DOTALL,
+        )
         with open(svg_path, "w", encoding="utf-8") as f:
             f.write(svg_text)
     except Exception:

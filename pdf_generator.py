@@ -919,20 +919,11 @@ def _cover_flowables(client_name: str, birth_date: str, birth_place: str, styles
     # Client name in EBGaramond italic — reads as a signature
     flow.append(Paragraph(_escape(client_name or "Cliente"), styles["cover_name"]))
 
-    # Birth data — muted Inter with wide letter-spacing feel via smaller size
-    if birth_date:
-        flow.append(Paragraph(_escape(birth_date), styles["cover_birth"]))
-    if birth_place:
-        flow.append(Paragraph(_escape(birth_place), styles["cover_birth"]))
-    # Optional note — used to make explicit that the chart was calculated
-    # without a birth time (defaulted to noon). Rendered in italic serif to
-    # match the muted disclaimer voice used elsewhere.
-    if birth_note:
-        flow.append(Spacer(1, 0.3 * cm))
-        flow.append(Paragraph(
-            f"<font face='EBGaramond-Italic'>{_escape(birth_note)}</font>",
-            styles["cover_birth"],
-        ))
+    # Nota: birth_date / birth_place / birth_note NÃO aparecem mais na capa.
+    # Esses dados agora vivem no bloco superior esquerdo da PÁGINA DA MANDALA
+    # (renderizado em _wheel_page_flowables), evitando repetição. Os args
+    # ainda entram na assinatura por compatibilidade — só não são renderizados
+    # aqui. Se você quer devolvê-los à capa, restaure os três blocos.
 
     # Push the logo/wordmark down toward the bottom edge (before the footer band)
     flow.append(Spacer(1, 3.4 * cm))
