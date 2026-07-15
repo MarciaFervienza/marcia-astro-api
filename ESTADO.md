@@ -92,34 +92,71 @@ omite planeta, nunca renderiza parcial. Falha explícita > PDF aparentemente vá
 
 ---
 
-## 3. Estado do CP1 — **REPROVADO no gate** (2026-07-15)
+## 3. Estado do CP1 — **20/20 PASSANDO** (2026-07-15 20:20)
 
-Bateria: **6 passaram · 14 falharam** de 19 casos.
-Arquivos: `cp1_v2.py` (renderer + asserções), `cp1_battery.py` (bateria).
-Local: scratchpad da sessão (`$SP`). PDFs dos casos que passaram: `~/Desktop/mapa-natal-pdfs/CP1_v2/`.
+Bateria: **20 passaram · 0 falharam** (19 casos + N=8 fail-closed).
 
-### Provado correto (não refazer)
+**Código no repo** (não mais só no scratchpad — foi assim que quase perdemos o CP1):
+- `api/wheel_renderer/renderer.py` — renderer + asserções
+- `api/wheel_renderer/battery.py` — bateria de cobertura
+- `api/wheel_renderer/kerykeion_defs.svg` — defs extraídos do Kerykeion
 
-- **Ticks**: `tick_renderizado == wheel_angle(abs_pos)` dentro de 0.01° — **zero erro em 19 casos**.
-- **Labels**: grau/signo/minutos/retro conferem com o dado real — **zero erro**.
-- **Bbox dentro do anel**: zero erro nos casos que colocaram.
+Rodar: `cd api/wheel_renderer && SP=. python3 battery.py`
+PDFs: `~/Desktop/mapa-natal-pdfs/CP1_v2/`
+
+### Provado por asserção (não por inspeção)
+
+- **Ticks**: `tick_renderizado == wheel_angle(abs_pos)` dentro de 0.01° — zero erro.
+- **Labels**: grau/signo/minutos/retro conferem com o dado real — zero erro.
+- **Leaders**: zero cruzamento; nenhuma atravessa a coluna de labels.
+- **Bbox**: cada LINHA dentro do anel (não só a coluna — ver bug do anel não-convexo).
 - **Defs**: `originals_present: True` (byte a byte), 24 clones `__mono`.
 - **N=8 fail-closed**: correto, exceção explícita.
 - **Mapeamento flag→corpo**: verificado contra retrógrados reais da Helena
-  (ground truth Kerykeion: Saturno 312.44°, Urano 284.05°, Netuno 286.20°).
+  (ground truth Kerykeion: Saturno 312.44°, Urano 284.05°, Netuno 286.20° → saem
+  12°♒26'R, 14°♑03'R, 16°♑12'R).
 
-### Falhas abertas
+### Legibilidade medida (wheel a 18cm REAL)
 
-1. **Leader lines cruzam — 13 dos 14 fracassos.** Causa: âncora escolhida por
-   proximidade (`attach_left = tx < centro da coluna`), o que não preserva ordem
-   zodiacal, e a ordem vertical das linhas inverte conforme o quadrante.
-   **Correção aprovada:** âncora por **ordem zodiacal** (rank i ↔ i-ésimo corpo em
-   longitude), **lado da coluna escolhido pelo quadrante** (um lado só por coluna).
-2. **Fail-closed espúrio** (`isolated_adjacent`): coluna de 3 corpos em 96–104° não
-   acha posição, enquanto 3 corpos em 210° (`near_cusp`) acham. Bbox axis-aligned no
-   papel testado contra um anel → falha em ângulos diagonais. **Correção aprovada.**
+| N | scale | grau | minutos | R |
+|---|---|---|---|---|
+| 1–4 | 1.00 | 12.46pt | 11.53pt | 9.97pt |
+| 5 | 0.83 | 10.33pt | 9.56pt | 8.27pt |
+| 6 | 0.69 | 8.61pt | 7.97pt | 6.89pt |
+| 7 | 0.59 | 7.38pt | 6.83pt | **5.91pt** |
 
-**CP1 fecha quando os 19 casos passarem.**
+Só o sufixo `R` em N=7 fica abaixo de 6pt. **Falta a validação por impressão física.**
+
+### Bugs encontrados e corrigidos neste CP1 (todos com evidência)
+
+1. **Leaders cruzavam (13 casos).** Âncora por proximidade não preserva ordem, e o
+   wheel inverte o sentido vertical por quadrante. **Correção:** o roteamento virou
+   restrição de BUSCA (`route_leaders` dentro de `place_column`), não teste posterior.
+   Ordem só pode ser zodiacal ascendente ou descendente — a checagem escolhe qual.
+2. **Fail-closed espúrio.** Não era bbox: era **conflito de empacotamento** — o cluster
+   de 1 corpo pegava o melhor lugar antes do de 3. **Correção:** empacotar clusters
+   MAIORES primeiro + busca rica (escalas até MIN_SCALE, raios finos, nudge tangencial).
+3. **`row_width` subestimava a largura.** Dizia 2.5u para o glifo do signo, que mede
+   **4.0u** (medido via svglib). Os minutos colidiam com o glifo do signo. Isso também
+   fazia caixas caberem onde não cabem — o "20/20" antes desta correção era artefato.
+   **Correção:** `row_layout()` virou fonte única de verdade (render e row_width usam
+   a MESMA função) + larguras medidas + `stringWidth` para texto.
+4. **`bbox_fits` só na coluna era insuficiente — o anel é NÃO-CONVEXO.** Uma coluna
+   alta atravessando o anel pode ter o meio mergulhando no círculo interno, com os
+   cantos ainda válidos. **Correção:** validar linha a linha, igual ao `assert_render`.
+5. **`compute_scale` ignorava `BBOX_MARGIN`.** Usava o anel bruto (21.5u) em vez do útil
+   (19.9u) → a coluna nascia 1.6u alta demais, sempre.
+6. **`ROW_PITCH=5.5` era chute.** Glifo mais alto medido (Saturno @0.2) = 4.44u → 4.8.
+7. **O wheel tinha 14.7cm, não 18cm.** O ratio era aplicado ao viewBox (100 units), mas
+   o wheel ocupa 81.9 (r=44.5 × 2 × wedge 0.92). As fontes encolhiam junto. **Correção:**
+   `ratio = TARGET_WHEEL_CM / (2*R_OUTER*0.92)`. Ganho de ~22% em todos os pt — foi o
+   que tirou N=6 de 6.10pt para 8.61pt.
+8. **Nudge de ±18° era insuficiente.** Quando o cluster fica no topo/base do wheel o arco
+   de ticks vira horizontal (12.9u × 0.5u) e a coluna precisa de ~23° para sair de baixo
+   dele. **Correção:** ±36°.
+
+**Lição transversal:** todo número que era estimado (largura de glifo, altura de linha,
+tamanho do wheel) estava errado. Medir com svglib/stringWidth, nunca estimar.
 
 ### Bug já corrigido (registrado p/ não reincidir)
 
@@ -133,11 +170,12 @@ Dado de teste impossível invalida o teste — a validação é obrigatória.
 
 ## 4. O que falta
 
-### CP1 (em andamento)
-- [ ] Roteamento de leader por ordem zodiacal + lado por quadrante
-- [ ] Corrigir fail-closed espúrio (bbox por quadrante)
-- [ ] 19/19 casos passando
-- [ ] Impressão física a 100% — 6.10pt é limítrofe, precisa de aprovação com os olhos
+### CP1
+- [x] Roteamento de leader por ordem zodiacal + lado por quadrante
+- [x] Corrigir fail-closed espúrio
+- [x] 20/20 casos passando
+- [ ] **Impressão física a 100% — aguardando aprovação com os olhos.** N=6 ficou em
+      8.61pt (era 6.10pt); N=7 tem o sufixo R em 5.91pt.
 
 ### CP2
 - [ ] Integração num mapa real: PDF final, ângulos preservados, sem clipping,
