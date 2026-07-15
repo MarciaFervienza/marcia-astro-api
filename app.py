@@ -369,19 +369,41 @@ def _generate_chart_svg(chart_data: dict) -> tuple:
     out_dir = tempfile.mkdtemp(prefix="kerykeion_")
     filename = "natal_wheel"
     try:
-        # Wheel-only output (no surrounding data panel or aspect grid — our
-        # own aspects table renders below in pdf_generator).
-        # remove_css_variables=True inlines actual color values instead of
-        # emitting `var(--kerykeion-chart-color-sun)` etc. This is critical
-        # because svglib 1.5.x doesn't resolve CSS custom properties — it
-        # would silently fall back to default (black) for every glyph and
-        # aspect line, destroying the colored aesthetic.
-        chart.save_wheel_only_svg_file(
-            output_path=out_dir,
-            filename=filename,
-            style=CHART_STYLE if CHART_STYLE in ("modern", "classic") else "modern",
-            remove_css_variables=True,
-        )
+        # Constrained packing. O Kerykeion de fábrica afasta os corpos com uma
+        # separação FIXA de 8° (PLANET_MIN_SEPARATION) sem olhar em que casa ou
+        # signo o corpo cai — e assim desenha planetas na casa errada e no signo
+        # errado. Medido em 1000 mapas sintéticos: 912 mapas com defeito, 1802
+        # corpos em signo errado, 1766 em casa errada. Os 5 mapas de clientes
+        # reais tinham de 4 a 8 corpos errados cada.
+        #
+        # O packing troca essa constante por uma separação calculada: uma cadeia
+        # global de todos os corpos em ordem zodiacal, cada um confinado à
+        # interseção casa ∩ signo (cúspides Placidus REAIS, não asc + i*30), com
+        # a separação valendo entre vizinhos no círculo. Mesmos 1000 mapas: zero.
+        #
+        # Não substitui o renderer: continua sendo o desenho da fábrica, com os
+        # glifos da fábrica. Ver wheel_renderer/packing.py e as 7 propriedades em
+        # wheel_renderer/props.py (prove_bite.py prova que cada uma morde).
+        from wheel_renderer import packing
+        packing.install()
+        try:
+            # Wheel-only output (no surrounding data panel or aspect grid — our
+            # own aspects table renders below in pdf_generator).
+            # remove_css_variables=True inlines actual color values instead of
+            # emitting `var(--kerykeion-chart-color-sun)` etc. This is critical
+            # because svglib 1.5.x doesn't resolve CSS custom properties — it
+            # would silently fall back to default (black) for every glyph and
+            # aspect line, destroying the colored aesthetic.
+            chart.save_wheel_only_svg_file(
+                output_path=out_dir,
+                filename=filename,
+                style=CHART_STYLE if CHART_STYLE in ("modern", "classic") else "modern",
+                remove_css_variables=True,
+            )
+        finally:
+            # O patch é global no módulo draw_modern. Desfazer SEMPRE, mesmo com
+            # exceção, senão vaza para a próxima requisição do processo Flask.
+            packing.uninstall()
     except Exception as e:
         return None, f"save_wheel_only_svg_file failed: {e}"
 

@@ -1,285 +1,264 @@
-# ESTADO — mandala com layout de labels (stellium)
+# ESTADO — mandala natal
 
-**Última atualização:** 2026-07-15
-**Leia isto primeiro** se a sessão anterior caiu. Este arquivo é a fonte de verdade
-sobre decisões fechadas e estado do trabalho. Atualize-o ao fim de cada checkpoint.
+**Última atualização:** 2026-07-16
+**Leia isto primeiro** se a sessão anterior caiu. Fonte de verdade sobre decisões
+fechadas e estado do trabalho. Atualize ao fim de cada checkpoint.
 
 ---
 
-## 1. O problema
+## 0. STATUS: RESOLVIDO E EM PRODUÇÃO
+
+O defeito de corpos desenhados na casa/signo errado está **corrigido**. A correção é
+`wheel_renderer/packing.py`, instalada pelo `app.py` em volta do
+`save_wheel_only_svg_file`. Aprovada pela Márcia em 16/07/2026 nos 5 mapas de
+clientes reais.
+
+| | fábrica | packing |
+|---|---|---|
+| mapas com ao menos 1 defeito | 966/1000 | **0/1000** |
+| corpos em signo errado | 2.070 | **0** |
+| corpos em casa errada | 2.217 | **0** |
+| desenho comprimindo corpos | 0 | **0** |
+
+1000 mapas sintéticos (500 × 2 seeds), 19 corpos, 7 propriedades. Reproduzir:
+`cd wheel_renderer && python3 censo.py 500`.
+
+---
+
+## 1. O problema (histórico)
 
 O renderer `modern` do Kerykeion 5.12.8 resolve colisão entre planetas próximos
-**espalhando os glifos angularmente** (`_resolve_planet_collisions`, min_separation
-8.0°). Consequência: um planeta pode ser desenhado **na casa ou no signo errado**.
-
-Censo (500 mapas sintéticos, 12 corpos, seed 42): **70% dos mapas** têm ao menos um
-corpo cruzando fronteira de signo ou de cúspide. Não é questão estética — o mapa
-mente. **Bloqueante para lançamento.**
+**espalhando os glifos angularmente** com separação FIXA de 8°
+(`_resolve_planet_collisions`), sem olhar em que casa ou signo o corpo cai.
+Consequência: o mapa **mente** sobre a posição. Não é estética.
 
 Caso de referência: Andreia Filipa Cardoso (20/11/1994 16:45 Lisboa) — Sol 28°05'
-Escorpião empurrado ~19° e desenhado visualmente em Sagitário.
+Escorpião empurrado ~19° e desenhado em Sagitário.
 
-### Caminhos já descartados (não repetir)
+### A correção — `wheel_renderer/packing.py`
+
+Substitui **um número**, não o renderer. Continua sendo o desenho da fábrica, com os
+glifos da fábrica, as cúspides Placidus reais e o `_draw_single_planet_in_ring`
+original. Patch em três funções de módulo do `draw_modern` (resolvidas por lookup
+global, portanto substituíveis):
+
+- `_draw_planet_ring` — wrapper que só passa as cúspides adiante (o resolver original
+  não as recebe).
+- `_resolve_planet_collisions` — **a correção**.
+- `_draw_single_planet_in_ring` — hoje um passthrough (`SCALE_GLYPHS = False`).
+
+**Como funciona:** uma **cadeia global** de todos os corpos em ordem zodiacal (o
+círculo vira reta no maior vão real), cada corpo confinado à sua caixa
+`casa ∩ signo`, separação alvo de 8° valendo entre vizinhos **no círculo**.
+Formulação: minimizar Σ(display − real)² sujeito a caixa + separação. A substituição
+`e_i = d_i − Σ_{j<i} sep_j` troca separação por monotonicidade → regressão isotônica
+com caixa → **PAVA + clip**. Onde 8° não cabe, `_fit_seps` encolhe **só a janela que
+estoura**, na proporção exata do que falta.
+
+> **Por que a cadeia global, e não por grupo (casa, signo).** Empacotar cada grupo
+> isolado foi o defeito de 15/07: dois grupos vizinhos empurram seus corpos contra a
+> **mesma fronteira** e eles colidem na costura. No mapa da Monica, Sol (118.91°, fim
+> do grupo Câncer) e Marte (127.11°, início do grupo Leão) estão a **8.2° reais** e
+> foram desenhados a **0.30°**. As 6 propriedades da época passavam: cada um estava na
+> sua casa e no seu signo, esmagado contra a parede. Casa certa, signo certo, ilegível.
+
+**Limite honesto:** onde a geometria não comporta 8°, o packing entrega o ótimo, não
+um milagre. Na Monica, 6 corpos vivem entre 104.53° e 133.15° (caixas Câncer ∩ casa 12
+e Leão ∩ casa 12): 28.6° / 5 vãos = **5.72° cada, e não existe arranjo melhor** sem
+tirar Vênus da casa 12. Menor vão desenhado nos 5 mapas de clientes: 5.10°–8.00°.
+
+### Caminhos descartados (não repetir)
 
 | Tentativa | Por que morreu |
 |---|---|
-| Monkey-patch de `PLANET_MIN_SEPARATION` | Constante é ligada em `_draw_planet_ring.__defaults__` no import. Mudar depois é no-op silencioso. |
-| Baixar min_separation (0/2/4°) | 500 mapas × 4 valores: sep=0 → 0% mente mas **78% com glifos colados**; sep=4 → 27% mente E 92% colados. Nenhum valor fecha os dois eixos. |
-| Pós-processar transforms do SVG | 6 invariantes por planeta + 2 transforms superiores (`rotate(-90)` global, `scale(0.92)` do anel zodiacal). Frágil e acertava por acidente. |
-| Empilhamento radial de **coluna vertical completa** | Coluna completa = **17u**; anel = **21.5u**. Duas colunas exigiriam scale 0.63 → grau a 4.76pt. **Ilegível já em N=2.** O que parecia funcionar era sobreposição (step 6u vs coluna 17u = 11u de encavalamento). |
-| Subclassar `ChartDrawer` p/ trocar só o PlanetRing | A chamada a `_draw_planet_ring` dentro de `draw_modern_horoscope` é fixa — sem parâmetro de renderer. Override de `_generate_modern_content` sozinho não substitui o anel. |
+| Monkey-patch de `PLANET_MIN_SEPARATION` | Constante ligada em `_draw_planet_ring.__defaults__` no import. Mudar depois é no-op silencioso. |
+| Baixar min_separation (0/2/4°) | 500 mapas × 4 valores: sep=0 → 0% mente mas 78% com glifos colados; sep=4 → 27% mente E 92% colados. Nenhum valor fecha os dois eixos. |
+| Estilo `classic` | 63.5%. Não zera. |
+| Pós-processar transforms do SVG | 6 invariantes por planeta + 2 transforms superiores. Frágil, acertava por acidente. |
+| **Renderer custom (CP1)** | Fabricava `cusps = asc + i*30`. Placidus varia **6.79°–115.50°** → 87.6–90% dos mapas com corpo em casa errada — **pior que o defeito original**. Apagado em 16/07 (`renderer.py`, `battery.py`). |
+| Empilhamento radial de coluna completa | Coluna = 17u, anel = 21.5u. Duas colunas → scale 0.63 → grau a 4.76pt. Ilegível já em N=2. |
+| Encolher glifos (3 rodadas) | Troca "ilegível por sobreposição" por "ilegível por tamanho". Reprovado pela Márcia nas três. |
+| Engrossar cúspides | A linha de casa vai de y=6.5 a y=28 = raio **43.5→22**, que é **exatamente** a coluna do planeta (glifo 39, grau 35.5, signo 32, minutos 28, RX 25). Engrossar = engrossar por cima do texto. Ver §5.1. |
+| Packing por grupo `(casa, signo)` | Grupos vizinhos colidem na costura. Ver acima. |
 
 ---
 
-## 1.5 REGRAS DE TESTE — inegociáveis
+## 2. REGRAS DE TESTE — inegociáveis
 
-Custaram dois defeitos graves na mesma noite. Não reabrir.
+Cada uma custou um defeito grave. Não reabrir.
 
 ### R1. Nenhuma fixture inventa dado que o Kerykeion pode fornecer
 
-Cúspides, casas, posições, retrogradação: **tudo vem do `AstrologicalSubjectFactory`,
-sempre**. A fixture sintética só define **quais corpos e onde** — nunca a geometria
-derivada.
+Cúspides, casas, posições, retrogradação: **tudo vem do `AstrologicalSubjectFactory`**.
+A fixture sintética define **quais corpos e onde** — nunca a geometria derivada.
 
-> Violação que motivou a regra: o renderer CP1 fabricava `cusps = asc + i*30`. Placidus
-> varia de **6.79° a 115.50°** (medido em 500 mapas). Resultado: **87.6–90% dos mapas**
-> com pelo menos um corpo desenhado na casa errada; **28% de todos os corpos** na casa
-> errada; em Reykjavik, **18 de 18 corpos errados**. O Sol da Helena está na casa 11 e
-> era desenhado na 10.
+> Violação: o renderer CP1 fabricava `cusps = asc + i*30`. Resultado: 28% de todos os
+> corpos na casa errada; em Reykjavik, 18 de 18. O Sol da Helena está na casa 11 e era
+> desenhado na 10.
 
 ### R2. Toda asserção confere contra fonte externa, nunca contra premissa compartilhada
 
-Se o teste e o código partem do mesmo pressuposto, **o teste não testa nada** — ele
-confirma a premissa, não a realidade.
+Se o teste e o código partem do mesmo pressuposto, **o teste não testa nada**.
 
-> Duas violações, ambas em 2026-07-15:
-> · `row_width` declarava 2.5u para o glifo do signo; o glifo mede **4.0u** (medido via
->   svglib). O render e o row_width compartilhavam o número errado, então a bateria dava
->   20/20 enquanto as labels se sobrepunham visivelmente no PDF.
-> · Cúspides fabricadas: fixture e renderer partiam de "casas de 30°", então nenhuma
->   asserção podia detectar. `helena_retros` passava 20/20 testando uma Helena que não
->   existe.
+> Violações: `row_width` declarava 2.5u para um glifo que mede **4.0u** — bateria 20/20
+> com as labels sobrepostas no PDF. E as cúspides fabricadas: fixture e renderer
+> partiam de "casas de 30°", então nenhuma asserção podia detectar.
 
-**Corolário:** medir com svglib/`stringWidth`/Kerykeion. Nunca estimar. Todo número que
-estava estimado neste projeto estava errado — largura de glifo, altura de linha, tamanho
-do wheel, margem do anel, arco de casa.
+**Corolário:** medir com svglib/`stringWidth`/Kerykeion. **Nunca estimar.** Todo número
+estimado neste projeto estava errado — largura de glifo, altura de linha, tamanho do
+wheel, margem do anel, arco de casa. Inclusive um comentário que dizia "MEDIDA, não
+estimada" sobre um número que era nominal.
 
-### Nota de alcance (2026-07-15)
+### R3. Uma lista, um dono
 
-Este defeito de cúspides é **do renderer CP1 isolado**, que fabricou a geometria para
-rodar sem o `draw_modern`. **A produção não tem o bug** — o Kerykeion desenha as
-cúspides reais. Os relatórios já entregues não mentiram sobre casas.
+Toda lista que descreve "o conjunto de corpos" tem **uma** definição. Quem precisa dela
+**importa**, não copia.
 
----
+> Três violações, todas silenciosas:
+> · Duas listas de símbolos (12 vs 18) → Nodos/Ceres/Palas/Juno/Vesta emitiam
+>   `<use href="#X__mono">` para símbolos inexistentes. **SVG não dá erro: não desenha
+>   nada.** A Márcia viu no PDF antes de mim.
+> · Censo antigo rodava `AstrologicalSubjectFactory` **sem `active_points`** → asteroides
+>   e nodos nunca computados, sumiam no `getattr(..., None)`. "maior cluster 6" era falso.
+> · **16/07:** o censo validava 18 pontos enquanto produção desenhava **19** (sem Nodo
+>   Sul, **com Ascendente e Meio-do-Céu**). Ascendente e MC ficaram sem teste nenhum —
+>   e o packing antigo comprimia Vesta/Ascendente de 2.50° para 0.30° na Monica, defeito
+>   que só apareceu quando a lista foi corrigida.
 
-## 2. Decisões FECHADAS (não reabrir sem motivo novo)
+Hoje `props.ACTIVE_POINTS` **importa de `app.py`** e levanta se não conseguir.
 
-### 2.1 Semântica — define tudo
+### R4. A propriedade tem que reprovar o passado
 
-- **O tick radial na longitude real É a posição astrológica.** Marcador inequívoco.
-- **A label** (glifo + grau + glifo do signo + minutos + R) **é anotação deslocada**,
-  ligada ao tick por **leader line contínua**.
-- Como a label é anotação, ela pode alinhar em coluna.
-- Regras das leader lines: **não se cruzam**; labels em ordem zodiacal; cada linha
-  termina junto ao seu glifo; associação legível em P&B.
+Um teste que só aprova o código atual não prova nada — pode ter sido afrouxado até
+passar. `prove_bite.py` reinstala o **packing antigo** no mapa real da Monica e exige
+que a propriedade o condene.
 
-### 2.2 Cores
-
-- Tick: **neutro sempre** (`#4A4A4A`). Tick significa longitude, não movimento.
-- Glifos de planeta: **charcoal uniforme** (`#2F2F2F`) em todas as mandalas.
-- Retrogradação: **glifo vermelho (`#B94A48`) + sufixo `R`**. Nunca só cor (impressão P&B).
-- Linhas de aspecto: mantêm as cores atuais (sextil verde, trígono azul, quadratura/oposição vermelha).
-- Anel zodiacal externo: **idêntico ao baseline**. Símbolos originais dos `<defs>`
-  ficam **intocados byte a byte**; a uniformização usa **clones `#<id>__mono`** com
-  `currentColor`. Nunca reescrever o símbolo original — ele é reusado em outros lugares.
-
-### 2.3 Overflow
-
-**Defeito, não opção.** O bbox completo da label cabe na área permitida (anchor por
-quadrante / lado interno / deslocamento / redução até o mínimo legível). Se nenhuma
-posição válida existir → **fail-closed**.
-
-### 2.4 Política N > 7 — FECHADA
-
-`MAX_LANES = 7`. Cluster com N > 7 → **fail-closed**: exceção explícita, log dos
-corpos e longitudes, **zero entrega parcial**.
-
-**Procedimento manual:** alerta por e-mail para `executivo@marciafervienza.com` com os
-dados do mapa. Márcia gera e envia manualmente. Cada disparo é logado.
-
-Incidência medida (500 mapas, **18 corpos = conjunto real de produção**):
-- seed 42: maior cluster **8** → **1/500 = 0.2%**
-- seed 1337: maior cluster **10** → **2/500 = 0.4%**
-
-> ⚠️ O censo antigo dizia "maior cluster 6, fail-closed 0%". **Estava errado**: rodava
-> `AstrologicalSubjectFactory` **sem `active_points`**, então Ceres/Palas/Juno/Vesta e
-> os nodos nunca eram computados e sumiam em silêncio no `getattr(..., None)`.
-> **Qualquer censo novo tem que passar `active_points=ACTIVE` (os 18 corpos do app.py).**
-
-### 2.5 Fail-closed geral
-
-Se o renderer custom falhar, **a geração para**. Nunca cai no renderer antigo, nunca
-omite planeta, nunca renderiza parcial. Falha explícita > PDF aparentemente válido.
-
-### 2.6 Layout / página
-
-- Wheel a **18cm**, mandala sozinha na página.
-- Margem lateral **1.5cm** só na página do mapa (verificado: bloco de dados no canto
-  superior esquerdo cabe — linha mais larga ~9cm).
-- Glifo do signo **fica** na label (redundância proposital: é o que confirma a posição
-  por escrito).
-- Glifos de cluster **podem** ficar menores que os de planetas isolados (opção "a"
-  aprovada). Em N=6, ~35% menores.
+> Aconteceu de verdade em 16/07: escrevi a propriedade de compressão exigindo 8° e ela
+> acusou a Monica **injustamente** (5.72° é o ótimo geométrico). Corrigi **o teste**,
+> não o código — mas só soube que a correção era honesta porque ela continuou reprovando
+> o defeito de 0.30°.
 
 ---
 
-## 3. Estado do CP1 — **20/20 PASSANDO** (2026-07-15 20:20)
+## 3. As 7 propriedades — `wheel_renderer/props.py`
 
-Bateria: **20 passaram · 0 falharam** (19 casos + N=8 fail-closed).
+Leem **só** o modelo do Kerykeion e o SVG emitido. Se discordam, o desenho mente.
 
-**Código no repo** (não mais só no scratchpad — foi assim que quase perdemos o CP1):
-- `api/wheel_renderer/renderer.py` — renderer + asserções
-- `api/wheel_renderer/battery.py` — bateria de cobertura
-- `api/wheel_renderer/kerykeion_defs.svg` — defs extraídos do Kerykeion
+| # | propriedade | pega |
+|---|---|---|
+| 1 | todos os corpos desenhados | glifo que some em silêncio |
+| 2 | `abs_pos` do SVG == modelo | metadado mentindo |
+| 3 | display dentro do SIGNO | **o defeito original** |
+| 4 | display dentro da CASA | **o defeito original** |
+| 5 | tick na longitude real | tether apontando para o lugar errado |
+| 6 | cúspides == modelo | cúspides fabricadas (R1) |
+| 7 | desenho não comprime | **o defeito da costura entre grupos** |
 
-Rodar: `cd api/wheel_renderer && SP=. python3 battery.py`
-PDFs: `~/Desktop/mapa-natal-pdfs/CP1_v2/`
+**Prop 7** exige, por par vizinho, `min(vão_real, 8°, ótimo_geométrico)`. O terceiro
+termo é o que a torna justa: para toda janela [a,b] de corpos consecutivos, todos cabem
+apenas entre o piso da caixa de `a` e o teto da caixa de `b`; esse espaço / (b−a) é o
+máximo que qualquer arranjo honesto alcança. Calculado das cúspides, **não do packing**.
 
-### Provado por asserção (não por inspeção)
+**Prop 5** aplica-se ao SVG **cru**. O `app.py` apaga as linhas-guia depois (§4); num
+SVG pós-processado não sobra indicador e a propriedade se cala. A remoção é atacadista:
+some UM só e ela pega.
 
-- **Ticks**: `tick_renderizado == wheel_angle(abs_pos)` dentro de 0.01° — zero erro.
-- **Labels**: grau/signo/minutos/retro conferem com o dado real — zero erro.
-- **Leaders**: zero cruzamento; nenhuma atravessa a coluna de labels.
-- **Bbox**: cada LINHA dentro do anel (não só a coluna — ver bug do anel não-convexo).
-- **Defs**: `originals_present: True` (byte a byte), 24 clones `__mono`.
-- **N=8 fail-closed**: correto, exceção explícita.
-- **Mapeamento flag→corpo**: verificado contra retrógrados reais da Helena
-  (ground truth Kerykeion: Saturno 312.44°, Urano 284.05°, Netuno 286.20° → saem
-  12°♒26'R, 14°♑03'R, 16°♑12'R).
-
-### Legibilidade medida (wheel a 18cm REAL)
-
-| N | scale | grau | minutos | R |
-|---|---|---|---|---|
-| 1–4 | 1.00 | 12.46pt | 11.53pt | 9.97pt |
-| 5 | 0.83 | 10.33pt | 9.56pt | 8.27pt |
-| 6 | 0.69 | 8.61pt | 7.97pt | 6.89pt |
-| 7 | 0.59 | 7.38pt | 6.83pt | **5.91pt** |
-
-Só o sufixo `R` em N=7 fica abaixo de 6pt. **Falta a validação por impressão física.**
-
-### Bugs encontrados e corrigidos neste CP1 (todos com evidência)
-
-1. **Leaders cruzavam (13 casos).** Âncora por proximidade não preserva ordem, e o
-   wheel inverte o sentido vertical por quadrante. **Correção:** o roteamento virou
-   restrição de BUSCA (`route_leaders` dentro de `place_column`), não teste posterior.
-   Ordem só pode ser zodiacal ascendente ou descendente — a checagem escolhe qual.
-2. **Fail-closed espúrio.** Não era bbox: era **conflito de empacotamento** — o cluster
-   de 1 corpo pegava o melhor lugar antes do de 3. **Correção:** empacotar clusters
-   MAIORES primeiro + busca rica (escalas até MIN_SCALE, raios finos, nudge tangencial).
-3. **`row_width` subestimava a largura.** Dizia 2.5u para o glifo do signo, que mede
-   **4.0u** (medido via svglib). Os minutos colidiam com o glifo do signo. Isso também
-   fazia caixas caberem onde não cabem — o "20/20" antes desta correção era artefato.
-   **Correção:** `row_layout()` virou fonte única de verdade (render e row_width usam
-   a MESMA função) + larguras medidas + `stringWidth` para texto.
-4. **`bbox_fits` só na coluna era insuficiente — o anel é NÃO-CONVEXO.** Uma coluna
-   alta atravessando o anel pode ter o meio mergulhando no círculo interno, com os
-   cantos ainda válidos. **Correção:** validar linha a linha, igual ao `assert_render`.
-5. **`compute_scale` ignorava `BBOX_MARGIN`.** Usava o anel bruto (21.5u) em vez do útil
-   (19.9u) → a coluna nascia 1.6u alta demais, sempre.
-6. **`ROW_PITCH=5.5` era chute.** Glifo mais alto medido (Saturno @0.2) = 4.44u → 4.8.
-7. **O wheel tinha 14.7cm, não 18cm.** O ratio era aplicado ao viewBox (100 units), mas
-   o wheel ocupa 81.9 (r=44.5 × 2 × wedge 0.92). As fontes encolhiam junto. **Correção:**
-   `ratio = TARGET_WHEEL_CM / (2*R_OUTER*0.92)`. Ganho de ~22% em todos os pt — foi o
-   que tirou N=6 de 6.10pt para 8.61pt.
-8. **Nudge de ±18° era insuficiente.** Quando o cluster fica no topo/base do wheel o arco
-   de ticks vira horizontal (12.9u × 0.5u) e a coluna precisa de ~23° para sair de baixo
-   dele. **Correção:** ±36°.
-
-**Lição transversal:** todo número que era estimado (largura de glifo, altura de linha,
-tamanho do wheel) estava errado. Medir com svglib/stringWidth, nunca estimar.
-
-### Bug já corrigido (registrado p/ não reincidir)
-
-**Sol retrógrado nas fixtures.** A versão antiga marcava retrógrado **por índice na
-lista**, e `names_pool[0] = "Sun"` (`CP1_cluster_N1.pdf` diz "retrogrados: 1" com um
-corpo só). Sol e Lua **nunca** retrogradam. Corrigido com `NEVER_RETROGRADE = {"Sun",
-"Moon"}` + `validate_fixture()`, que **levanta ValueError** em dado impossível.
-Dado de teste impossível invalida o teste — a validação é obrigatória.
+`python3 prove_bite.py` → prova que cada uma morde (injeção + regressão real na Monica).
 
 ---
 
-## 4. O que falta
+## 4. Pós-processamento do SVG — `app.py` linhas ~392-428
 
-### CP1
-- [x] Roteamento de leader por ordem zodiacal + lado por quadrante
-- [x] Corrigir fail-closed espúrio
-- [x] 20/20 casos passando
-- [ ] **Impressão física a 100% — aguardando aprovação com os olhos.** N=6 ficou em
-      8.61pt (era 6.10pt); N=7 tem o sufixo R em 5.91pt.
+Duas remoções, **ambas decisão fechada da Márcia**:
 
-### CP1-b — cúspides reais (em andamento, 2026-07-15)
-Ordem fechada com a Márcia:
-- [ ] **1. Cúspides reais como item isolado.** O renderer recebe as 12 cúspides do
-      Kerykeion; não fabrica nada. Asserção: cúspide desenhada == real ±0.01°, e cada
-      corpo do lado certo da linha, conferido contra `point.house` (fonte externa — R2).
-- [ ] **2. Partir por casa** → clusterizar por proximidade **dentro** de cada casa.
-      (Só partir por casa juntaria corpos a 5° e 40° da mesma casa, que não colidem.)
-      Consequência: o bloco nunca cruza cúspide → o modo "atravessar" deixa de existir.
-- [ ] **3. Cúspide interrompida**, não desviada: linha colinear no ângulo real, com
-      lacuna onde o bloco está. Liang-Barsky → dois segmentos. (Apaga o gerador de
-      traçado de contorno — `_walk_perimeter`, `_perim_t`, `_perim_pt`.)
-- [ ] **4. Bateria reconstruída** com cúspides reais + casa por corpo, vindas do
-      Kerykeion (R1). Fixtures sintéticas de posição arbitrária **saem**: se um centro
-      não corresponder a nenhum mapa real, gerar um mapa real que produza aquela
-      configuração, ou tirar o caso.
+- **Símbolos de aspecto** (`<use xlink:href='#orbN'>`) — o △/□/☌ no meio de cada linha
+  de aspecto. A linha colorida basta. Escopado a `#orbN`; nunca toca glifo de planeta
+  ou signo.
+- **Linhas-guia** (`<g kr:node='Indicator'>`) — comportamento Astro Gold: sem o fio; o
+  grau ao lado do glifo revela a posição. Aprovado 16/07: *"Muito mais clean!!"*
 
-Estimativa ≈5.2h (4.4 sei · 0.75 chuto). O chute caiu de 2.5h → 0.75h: o trabalho migrou
-de "inventar geometria" para "plumbing de dados corretos".
+> **FRÁGIL:** os dois regexes dependem do padrão do Kerykeion 5.12.8. Se `kr:node` mudar,
+> viram **no-op silencioso** e as linhas voltam ao PDF sem quebrar nada. Antes de
+> atualizar kerykeion: rodar `clientes.py` e conferir visualmente.
 
-### CP2
-- [ ] Integração num mapa real: PDF final, ângulos preservados, sem clipping,
-      resto do relatório intacto
-- [ ] Se ainda estiver ajustando geometria básica aqui → a estimativa não está sob
-      controle; avisar
-
-### CP3 (antes de qualquer deploy)
-- [ ] 5 QA maps + **3 holdout não usados no desenvolvimento**
-- [ ] Censo 500 (com `active_points`!): zero corpo em signo/casa errada, zero
-      clipping, zero fallback silencioso
-- [ ] **Segunda seed** — passar só no corpus de desenvolvimento é overfit
-- [ ] Adversariais: dois corpos na mesma longitude; cluster cruzando 0° Áries;
-      29°59'; <0.1° de cúspide; 7+ corpos; múltiplos retrógrados
-
-### Operacional (antes de deploy)
-- [ ] Feature flag
-- [ ] Rollback testado
-- [ ] Versão do layout logada em cada relatório
-- [ ] Alerta de falha de renderização
-- [ ] Alerta N>7 → `executivo@marciafervienza.com` + log
+> **`clientes.py` replica este pós-processamento** (`como_producao()`). Em 16/07 ele
+> não replicava, e os 5 PDFs de teste saíam com o símbolo de aspecto e com as linhas-guia
+> **engrossadas** — a Márcia quase aprovou um PDF que não era o produto. Se mudar o
+> `app.py`, mudar o `clientes.py` junto.
 
 ---
 
-## 5. Contexto de release
+## 5. Aberto (nada bloqueia cliente)
+
+### 5.1 Cúspides quase invisíveis — a Márcia quer, e é viável
+
+A fábrica desenha as 8 casas não-angulares com `NORMAL_STROKE_WIDTH = 0.07u` = **0.39pt**
+a 18cm, em `#d4d4d8`. Não dá para ver em que casa o planeta está. As angulares (1,4,7,10)
+vão a 0.6u = 3.33pt — 8.5× mais grossas.
+
+Engrossar direto **não funciona**: a linha atravessa a coluna do glifo (raio 43.5→22).
+Verificado: nenhum planeta se move (18/18 idênticos) — o que a Márcia viu foi a linha
+escura cortando o meio dos grupos, lida como mais um elemento amontoado.
+
+**Mas medido em 200 mapas:** só **32.8%** das linhas cruzam a coluna de um planeta
+(média 3.9 de 12). **8 das 12 podem ser grossas de graça.** Caminho: grossa onde está
+livre, cedendo passagem (gap radial) onde cruza o texto. *Não é preço a pagar — é
+trabalho pendente.*
+
+### 5.2 Rótulos de cúspide acima de 55°N
+
+`_draw_cusp_ring` usa offset fixo de ±4.669° (~9.3° por rótulo) sem resolução de
+colisão. Defeito de fábrica. **0/300 mapas Brasil/Portugal afetados**; 37/300 em alta
+latitude. Nenhum cliente afetado.
+
+---
+
+## 6. Decisões FECHADAS (não reabrir sem motivo novo)
+
+### 6.1 Cores
+- Glifos de planeta e signo: **os da fábrica**, intocados.
+- Retrogradação: sufixo **`RX`** (nunca só cor — impressão P&B).
+- Linhas de aspecto: sextil verde, trígono azul, quadratura/oposição vermelha,
+  conjunção cinza (`ASPECT_COLORS` no `app.py`).
+
+### 6.2 Layout
+- Wheel a **18cm**, mandala sozinha na página. Conteúdo ocupa **92 units** do viewBox
+  de 100 → **5.546 pt/unit**.
+- Margem lateral 1.5cm na página do mapa.
+- Glifo do signo **fica** na label (redundância proposital: confirma a posição por escrito).
+
+### 6.3 Escala de glifo: NÃO MEXER
+`SCALE_GLYPHS = False`. Três rodadas de encolhimento, cada uma pior. `GLYPH_SCALE_MAP`
+da fábrica (Sol 1.1, Júpiter/Saturno/Urano/Netuno/Marte/Quíron/Nodos 0.95) fica como
+está. Se algum dia reativar: só `planet_scale_base` é dividido pelo multiplicador do
+planeta; as **fontes levam `k` puro** (dividi-las também derrubou o Sol abaixo do piso
+de 6pt: `2 × 0.54/1.1` = 5.45pt).
+
+### 6.4 Fail-closed
+O patch é **global** no módulo `draw_modern`. `app.py` desinstala em `finally` — sem
+isso vaza para a próxima requisição do processo Flask. `_constrained_resolve` levanta
+`RuntimeError` se rodar sem cúspides no contexto: **não há fallback silencioso**.
+
+---
+
+## 7. Superfície de dependência do Kerykeion 5.12.8
+
+O packing depende de:
+- `draw_modern._draw_planet_ring`, `._resolve_planet_collisions`,
+  `._draw_single_planet_in_ring` — funções de **módulo**, resolvidas por lookup global.
+  Se virarem métodos ou forem inlined, o patch morre (loud: o wrapper deixa de rodar e
+  `_constrained_resolve` levanta).
+- `dm._zodiac_to_wheel_angle(z, seventh)`
+- Os atributos `kr:node='ChartPoint'|'Cusp'|'Indicator'`, `kr:slug`,
+  `kr:absoluteposition` — de que **todas as 7 propriedades** dependem para ler o SVG.
+
+**Se o Kerykeion for atualizado:** rodar `prove_bite.py` e `censo.py 500` antes de
+aceitar. Critério: **zero**.
+
+---
+
+## 8. Contexto de release
 
 - **Não** liberar 10 testers. No melhor caso 1–2 canários.
-- Convites provavelmente só depois da viagem.
-- O que está em jogo: canário antes da viagem, ou tudo em agosto.
-
----
-
-## 6. Superfície de dependência do Kerykeion 5.12.8
-
-O renderer novo é **independente** do `draw_modern` (constrói o wheel do zero), mas
-**reusa os `<defs>`** (símbolos dos planetas e signos). Dependências:
-
-- `<symbol id='Sun'>`, `'Moon'`, … `'Mean_Lilith'` — glifos de planeta
-- `<symbol id='Ari'>` … `'Pis'` — glifos de signo
-- Convenção de orientação: Ascendente a 9 o'clock; `wheel_angle(z) = (z - seventh + 180) % 360`
-
-Constantes geométricas replicadas (não importadas): `CENTER=50`, `R_OUTER=44.5`,
-`R_ZODIAC_INNER=41.5`, `R_PLANET_OUTER=40`, `R_PLANET_INNER=18.5`, wedge
-`translate(4 4) scale(0.92)`, global `rotate(-90 50 50)`.
-
-**Se o Kerykeion for atualizado:** rodar a bateria antes de aceitar. As asserções
-quebram loud, não silenciam.
+- Prazo removido pela Márcia em 15/07: *"não há mais pressa... o trabalho continua até
+  acabar, com ou sem Orkney."*
