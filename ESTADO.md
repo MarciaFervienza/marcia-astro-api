@@ -31,6 +31,47 @@ Escorpião empurrado ~19° e desenhado visualmente em Sagitário.
 
 ---
 
+## 1.5 REGRAS DE TESTE — inegociáveis
+
+Custaram dois defeitos graves na mesma noite. Não reabrir.
+
+### R1. Nenhuma fixture inventa dado que o Kerykeion pode fornecer
+
+Cúspides, casas, posições, retrogradação: **tudo vem do `AstrologicalSubjectFactory`,
+sempre**. A fixture sintética só define **quais corpos e onde** — nunca a geometria
+derivada.
+
+> Violação que motivou a regra: o renderer CP1 fabricava `cusps = asc + i*30`. Placidus
+> varia de **6.79° a 115.50°** (medido em 500 mapas). Resultado: **87.6–90% dos mapas**
+> com pelo menos um corpo desenhado na casa errada; **28% de todos os corpos** na casa
+> errada; em Reykjavik, **18 de 18 corpos errados**. O Sol da Helena está na casa 11 e
+> era desenhado na 10.
+
+### R2. Toda asserção confere contra fonte externa, nunca contra premissa compartilhada
+
+Se o teste e o código partem do mesmo pressuposto, **o teste não testa nada** — ele
+confirma a premissa, não a realidade.
+
+> Duas violações, ambas em 2026-07-15:
+> · `row_width` declarava 2.5u para o glifo do signo; o glifo mede **4.0u** (medido via
+>   svglib). O render e o row_width compartilhavam o número errado, então a bateria dava
+>   20/20 enquanto as labels se sobrepunham visivelmente no PDF.
+> · Cúspides fabricadas: fixture e renderer partiam de "casas de 30°", então nenhuma
+>   asserção podia detectar. `helena_retros` passava 20/20 testando uma Helena que não
+>   existe.
+
+**Corolário:** medir com svglib/`stringWidth`/Kerykeion. Nunca estimar. Todo número que
+estava estimado neste projeto estava errado — largura de glifo, altura de linha, tamanho
+do wheel, margem do anel, arco de casa.
+
+### Nota de alcance (2026-07-15)
+
+Este defeito de cúspides é **do renderer CP1 isolado**, que fabricou a geometria para
+rodar sem o `draw_modern`. **A produção não tem o bug** — o Kerykeion desenha as
+cúspides reais. Os relatórios já entregues não mentiram sobre casas.
+
+---
+
 ## 2. Decisões FECHADAS (não reabrir sem motivo novo)
 
 ### 2.1 Semântica — define tudo
@@ -176,6 +217,25 @@ Dado de teste impossível invalida o teste — a validação é obrigatória.
 - [x] 20/20 casos passando
 - [ ] **Impressão física a 100% — aguardando aprovação com os olhos.** N=6 ficou em
       8.61pt (era 6.10pt); N=7 tem o sufixo R em 5.91pt.
+
+### CP1-b — cúspides reais (em andamento, 2026-07-15)
+Ordem fechada com a Márcia:
+- [ ] **1. Cúspides reais como item isolado.** O renderer recebe as 12 cúspides do
+      Kerykeion; não fabrica nada. Asserção: cúspide desenhada == real ±0.01°, e cada
+      corpo do lado certo da linha, conferido contra `point.house` (fonte externa — R2).
+- [ ] **2. Partir por casa** → clusterizar por proximidade **dentro** de cada casa.
+      (Só partir por casa juntaria corpos a 5° e 40° da mesma casa, que não colidem.)
+      Consequência: o bloco nunca cruza cúspide → o modo "atravessar" deixa de existir.
+- [ ] **3. Cúspide interrompida**, não desviada: linha colinear no ângulo real, com
+      lacuna onde o bloco está. Liang-Barsky → dois segmentos. (Apaga o gerador de
+      traçado de contorno — `_walk_perimeter`, `_perim_t`, `_perim_pt`.)
+- [ ] **4. Bateria reconstruída** com cúspides reais + casa por corpo, vindas do
+      Kerykeion (R1). Fixtures sintéticas de posição arbitrária **saem**: se um centro
+      não corresponder a nenhum mapa real, gerar um mapa real que produza aquela
+      configuração, ou tirar o caso.
+
+Estimativa ≈5.2h (4.4 sei · 0.75 chuto). O chute caiu de 2.5h → 0.75h: o trabalho migrou
+de "inventar geometria" para "plumbing de dados corretos".
 
 ### CP2
 - [ ] Integração num mapa real: PDF final, ângulos preservados, sem clipping,
