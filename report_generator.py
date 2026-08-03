@@ -282,6 +282,9 @@ def filter_and_prioritize_aspects(aspects: list, chart_data=None) -> list:
 # Set of dedup-keys for aspects that have already been *described* in a
 # previously-generated section. Each section's chart context only includes
 # new aspects not yet in this set. Reset at the start of main().
+import threading as _threading
+_GENERATION_LOCK = _threading.Lock()
+
 described_aspect_themes: set = set()
 
 # Per-section audit — records the filtered+deduplicated aspect list that
@@ -2949,6 +2952,25 @@ def generate_report(
             print(msg, **kw)
 
     log(f"=== Generating natal report for: {name} (gênero: {gender}) ===")
+
+    # SERIALIZAÇÃO ENTRE GERAÇÕES (bug pego em 17/07): o rastreio
+    # cross-section vive em globais de módulo (described_aspect_themes,
+    # _section_aspect_audit, _partial_coverage_log) que são zerados aqui.
+    # Duas requests SIMULTÂNEAS se atropelavam: uma zerava e escrevia no
+    # estado da outra — o meta do Lucca saiu com partial_coverage da Helena,
+    # e a dedup de aspectos de um relatório enxergava os aspectos do outro.
+    # O lock serializa gerações INTEIRAS; o paralelismo interno das seções
+    # (ThreadPoolExecutor abaixo) continua intacto. Throughput de uma
+    # geração por vez é aceitável para o produto; corretude não é opcional.
+    with _GENERATION_LOCK:
+        return _generate_report_locked(
+            chart, name, gender, sections_only, limit, no_fio,
+            write_file, verbose, log, skip_unused=None)
+
+
+def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
+                            write_file, verbose, log, skip_unused=None):
+    start_guard = None  # assinatura mantida simples; tudo veio validado
 
     # Reset cross-section tracking for this run (module-level state)
     described_aspect_themes.clear()
