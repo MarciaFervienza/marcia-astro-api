@@ -1875,11 +1875,16 @@ def generate_report_endpoint():
     pdf_b64 = None
     pdf_bytes = None  # kept around for the email path so we don't round-trip via base64
     pdf_error = None
+    # fora do try: precisa existir no jsonify mesmo se generate_pdf falhar
+    _pdf_lint = []
     try:
         # Se o cliente não passou birth_place explícito, usar a cidade que
         # foi de fato geocoded — dá transparência sobre o que foi calculado.
         cover_place = birth_place or (body.get("birth_city") or "").strip()
         _birth_time_display = "" if unknown_birth_time else (body.get("birth_time") or "").strip()
+        # Lint do artefato: asserção sobre o texto que o PDF de fato
+        # renderiza (markdown vazado, frase colada). Vai no meta como
+        # pdf_lint — o gate pré-testers exige lista vazia.
         pdf_bytes = pg.generate_pdf(
             report_text=result["report"],
             client_name=result["name"],
@@ -1894,7 +1899,11 @@ def generate_report_endpoint():
             points=body.get("points", {}),
             time_unknown=unknown_birth_time,
             aspects_row_separators=bool(body.pop("aspects_row_separators", False)),
+            lint_out=_pdf_lint,
         )
+        if _pdf_lint:
+            logger.warning("PDF_LINT %d violação(ões): %s", len(_pdf_lint),
+                           [f"{v['kind']}@{v['section']}" for v in _pdf_lint])
         pdf_b64 = base64.b64encode(pdf_bytes).decode("ascii")
     except Exception as e:
         logger.exception("generate_pdf failed")
@@ -1974,6 +1983,10 @@ def generate_report_endpoint():
             ],
             "pdf_bytes": len(pdf_b64) * 3 // 4 if pdf_b64 else 0,
             "pdf_error": pdf_error,
+            # Lint do ARTEFATO (pdf_generator.lint_final_text): markdown
+            # vazado e frases coladas no texto que o PDF renderiza. O gate
+            # pré-testers exige [].
+            "pdf_lint": _pdf_lint,
             "chart_svg_generated": bool(chart_svg_path),
             "chart_svg_error": chart_error or None,
             "chart_style": CHART_STYLE,

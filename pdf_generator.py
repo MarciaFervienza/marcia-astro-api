@@ -427,6 +427,49 @@ def _parse_sections(report_text: str):
     return sections
 
 
+def lint_final_text(sections) -> list:
+    """Lint no ARTEFATO: roda sobre o produto de _parse_sections — os títulos
+    e parágrafos exatos que viram Paragraph() no PDF — não sobre nenhum
+    intermediário. Mesma filosofia dos property tests da mandala: a asserção
+    vale no que o cliente vê.
+
+    Checa:
+      · token de markdown sobrevivente no texto renderizado ('##' dentro de
+        parágrafo, '**' desemparelhado, crase, título vazando) — o caso real
+        foi '.## Fio Condutor' literal no PDF da Helena (16/07);
+      · frase colada: minúscula + '.' + maiúscula sem espaço
+        ('…calorosa.A oposição…' — 5 ocorrências, todas em costura de
+        reescrita do verifier).
+
+    Retorna lista de violações [{kind, section, excerpt}]; vazia = limpo.
+    Quem chama decide o que fazer (meta da API, gate, teste).
+    """
+    viols = []
+    glue = re.compile(r"[a-záéíóúãõçâêô]\.[A-ZÁÉÍÓÚÂÊÔ]")
+    md_tokens = (
+        ("markdown_h2", re.compile(r"##")),
+        ("markdown_h1_line", re.compile(r"(?:^|\n)#\s")),
+        ("markdown_backtick", re.compile(r"`")),
+    )
+    for title, paragraphs in sections:
+        for para in paragraphs:
+            for kind, pat in md_tokens:
+                m = pat.search(para)
+                if m:
+                    viols.append({"kind": kind, "section": title,
+                                  "excerpt": para[max(0, m.start()-40):m.start()+40]})
+            # '**' emparelhado vira <b> no render; ímpar vazaria literal
+            if para.count("**") % 2 == 1:
+                i = para.find("**")
+                viols.append({"kind": "markdown_bold_desemparelhado", "section": title,
+                              "excerpt": para[max(0, i-40):i+40]})
+            m = glue.search(para)
+            if m:
+                viols.append({"kind": "frase_colada", "section": title,
+                              "excerpt": para[max(0, m.start()-40):m.start()+42]})
+    return viols
+
+
 def _escape(text: str) -> str:
     """Escape characters that ReportLab's mini-XML paragraph parser cares about."""
     return text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
@@ -1225,6 +1268,7 @@ def generate_pdf(
     time_unknown: bool = False,
     aspects_row_separators: bool = False,
     chart_svg_url: str = "",  # backwards-compatible alias, deprecated
+    lint_out: list = None,    # se fornecida, recebe as violações de lint_final_text
 ) -> bytes:
     """
     Render the natal report into a branded PDF.
@@ -1313,6 +1357,8 @@ def generate_pdf(
     # section's own text — words already in the report, never generated.
     parsed_points = points or {}
     sections = _parse_sections(report_text)
+    if lint_out is not None:
+        lint_out.extend(lint_final_text(sections))
     _skip_breather_after = {"abertura", "fio condutor"}
     for i, (title, paragraphs) in enumerate(sections):
         story.extend(_section_flowables(title, paragraphs, styles, parsed_points, time_unknown=time_unknown))

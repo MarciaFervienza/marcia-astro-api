@@ -64,6 +64,36 @@ _FORBIDDEN_LEXICON = [
     (r"\bpertença\b", "erro_grafia_pertenca", "pertencimento", _pertenca_is_substantive),
     (r"\bherida\b",    "erro_grafia_herida",   "ferida"),
     (r"\bdesiluso\b",  "erro_grafia_desiluso", "desilusão"),
+    # Família espanhola/ibérica — mesma classe de herida/pertença: o modelo
+    # escorrega para o castelhano em palavras emocionais. Vistos em produção:
+    # orgullo, cerrada (16/07). Os demais são os vizinhos mais prováveis da
+    # mesma família semântica (emoção/fechamento/vínculo).
+    (r"\borgullo\b",    "erro_espanhol", "orgulho"),
+    (r"\bcerrad[ao]s?\b", "erro_espanhol", "fechada/fechado"),
+    (r"\borgullos[ao]s?\b", "erro_espanhol", "orgulhosa/orgulhoso"),
+    (r"\bapoy[oa]\b",   "erro_espanhol", "apoio"),
+    (r"\bconsuelo\b",   "erro_espanhol", "consolo"),
+    (r"\bmiedo\b",      "erro_espanhol", "medo"),
+    (r"\bvergüenza\b",  "erro_espanhol", "vergonha"),
+    (r"\bcariño\b",     "erro_espanhol", "carinho"),
+    (r"\bsoledad\b",    "erro_espanhol", "solidão"),
+    (r"\bternura\s+y\b", "erro_espanhol", "'y' castelhano — usar 'e'"),
+    (r"\bfuerza\b",     "erro_espanhol", "força"),
+    (r"\bcorazón\b",    "erro_espanhol", "coração"),
+    (r"\bentrega\s+total\s+y\b", "erro_espanhol", "'y' castelhano — usar 'e'"),
+    # Concordância comparativa quebrada: "boas demais quanto às" (Helena,
+    # 16/07) — 'demais quanto a' não existe; ou é 'tanto quanto', ou reescreve.
+    (r"\b\w+\s+demais\s+quanto\s+(?:a|à|às|ao|aos)\b", "concordancia_comparativa",
+     "estrutura comparativa quebrada — usar 'tanto … quanto' ou reescrever a comparação"),
+    # Pronome de 3ª pessoa num relatório escrito em 2ª ("cria nele uma
+    # disponibilidade" — Lucca, 16/07). Estreito de propósito: só verbo de
+    # efeito psicológico + nele/nela, porque 'nela' solto é quase sempre
+    # legítimo (referindo-se a casa, área, relação). O reescritor recebe a
+    # frase inteira e decide.
+    (r"\b(?:cria|criam|desperta|despertam|gera|geram|produz|produzem|"
+     r"instala|instalam|acende|acendem|provoca|provocam|planta|plantam|"
+     r"deixa|deixam|constrói|constroem)\s+nel[ea]\b", "pessoa_terceira",
+     "o relatório fala com 'você' — reescrever em 2ª pessoa ('cria em você…')"),
     (r"os dados não deixam dúvida", "muleta_retorica",
      "substituir por uma afirmação direta sem invocar 'os dados'"),
     (r"\bnão deixa dúvida\b",       "muleta_retorica",
@@ -125,6 +155,30 @@ def _detect_invalid_aspect_composition(text):
     alt = "|".join(sorted(set(_ASPECT_NAMES), key=len, reverse=True))
     pat = re.compile(
         rf"\b({alt})\s+(?:em|de|com|na|no|à|ao)\s+({alt})\b",
+        flags=re.IGNORECASE,
+    )
+    return [(m.group(0), m.start()) for m in pat.finditer(text)]
+
+
+def _detect_broken_aspect_pair(text):
+    """Flagra aspecto com o segundo corpo comido: 'o sextil entre sua Vênus
+    está em Gêmeos', 'o trígono entre Quíron está em Peixes' (Lucca, 16/07).
+
+    Um aspecto é uma relação entre DOIS corpos: depois de '<aspecto> entre
+    <corpo>' tem que vir 'e <corpo>'. Se em vez disso vem um verbo ('está',
+    'fica', 'encontra-se', 'acrescenta', 'traz'…), o par foi mutilado — a
+    regressão veio do corretor de signos removendo um planeta do grupo, mas
+    o detector casa a SUPERFÍCIE, seja qual for a origem. O detector de
+    julho (_detect_invalid_aspect_composition) cobre outra classe (dois
+    nomes de aspecto compostos) e não pega esta.
+    """
+    alt = "|".join(sorted(set(_ASPECT_NAMES), key=len, reverse=True))
+    pat = re.compile(
+        rf"\b(?:o\s+|a\s+|um\s+|uma\s+)?({alt})\s+entre\s+"
+        rf"(?:sua?\s+|o\s+|a\s+)?"
+        rf"[A-ZÁÉÍÓÚÂÊÔ][\wáéíóúâêôãõç-]*\s+"          # um corpo só...
+        rf"(?!e\s|com\s)"                               # ...sem 'e <corpo>'
+        rf"(?:está|estão|fica|ficam|encontra-se|forma|acrescenta|traz|cria|aponta)\b",
         flags=re.IGNORECASE,
     )
     return [(m.group(0), m.start()) for m in pat.finditer(text)]
@@ -582,6 +636,15 @@ def run_verifier(text, chart, call_claude_fn):
     except Exception as e:
         logger.warning("verifier 2c failed: %s", e)
 
+    # 2c' — aspecto com o segundo corpo comido ("entre sua Vênus está em")
+    try:
+        for match_text, offset in _detect_broken_aspect_pair(text):
+            _add("aspecto:par_incompleto", match_text, offset,
+                 "um aspecto liga DOIS corpos — reescrever nomeando os dois "
+                 "('o sextil entre sua Lua e Vênus…') ou remover a menção ao aspecto")
+    except Exception as e:
+        logger.warning("verifier 2c' failed: %s", e)
+
     # 2d — contagem vs enumeração
     try:
         for match_text, offset, expected, actual in _detect_count_mismatch(text):
@@ -660,7 +723,16 @@ def run_verifier(text, chart, call_claude_fn):
             current = rewritten
             last_violations = new_hits
         if succeeded:
-            corrected = corrected[:s] + current + corrected[e:]
+            # O separador de cauda (espaço, \n, \n\n) pertence ao DOCUMENTO,
+            # não à frase: o segmento de _split_sentences termina onde a
+            # próxima frase começa, então ele carrega o separador — e a
+            # reescrita volta strip()ada. Sem repor a cauda, cada correção
+            # colava a frase na seguinte ("…calorosa.A oposição…") e, quando
+            # a frase era a última antes de um cabeçalho, comia o \n\n e o
+            # markdown vazava literal no PDF (".## Fio Condutor", 16/07 —
+            # 5 reescritas nos dois relatórios, 5 frases coladas).
+            trail = orig_sent[len(orig_sent.rstrip()):]
+            corrected = corrected[:s] + current + trail + corrected[e:]
             for v in vs:
                 log_out.append({**v, "status": "corrected", "attempts": attempt})
         else:
@@ -701,6 +773,10 @@ def _reverify_sentence(sentence, prior_violations, chart):
             out.append({"kind": "aspecto:composicao_invalida", "match": match_text,
                         "offset": offset,
                         "suggestion": "usar um único nome de aspecto"})
+        for match_text, offset in _detect_broken_aspect_pair(sentence):
+            out.append({"kind": "aspecto:par_incompleto", "match": match_text,
+                        "offset": offset,
+                        "suggestion": "aspecto precisa de dois corpos nomeados"})
     if "contagem" in kinds:
         for match_text, offset, exp, act in _detect_count_mismatch(sentence):
             out.append({"kind": "contagem:desbatida", "match": match_text,

@@ -1248,7 +1248,7 @@ def build_sections(chart):
             ],
             "planets_filter": ["Sol"],
             "psychological_frame": (
-                "Escreva uma abertura calorosa focada na direção e qualidade do Sol. "
+                "ABERTURA — FORMA FIXA (igual em todo relatório): a primeira frase dirige-se ao leitor pelo primeiro nome e é escrita na primeira pessoa da Marcia ('Quando olho para o seu mapa, <nome>, …' ou forma equivalente). Não abra de outro jeito: metade dos relatórios abrindo com nome e metade sem quebra a identidade do produto.\n\nEscreva uma abertura calorosa focada na direção e qualidade do Sol. "
                 "O primeiro parágrafo deve criar reconhecimento — como se alguém que te conhece "
                 "profundamente estivesse dizendo 'eu te vejo'. Tom íntimo, acolhedor.\n\n"
                 "REGRA CRÍTICA: este mapa foi calculado SEM horário de nascimento E a Lua mudou "
@@ -1294,7 +1294,7 @@ def build_sections(chart):
             ],
             "planets_filter": ["Sol", "Lua"],
             "psychological_frame": (
-                "Escreva uma abertura calorosa que funcione como uma porta de entrada, não como uma análise imediata. "
+                "ABERTURA — FORMA FIXA (igual em todo relatório): a primeira frase dirige-se ao leitor pelo primeiro nome e é escrita na primeira pessoa da Marcia ('Quando olho para o seu mapa, <nome>, …' ou forma equivalente). Não abra de outro jeito: metade dos relatórios abrindo com nome e metade sem quebra a identidade do produto.\n\nEscreva uma abertura calorosa que funcione como uma porta de entrada, não como uma análise imediata. "
                 "O primeiro parágrafo deve criar uma sensação de reconhecimento — como se alguém que te conhece "
                 "profundamente estivesse dizendo 'eu te vejo'. Apenas no segundo parágrafo comece a nomear as tensões "
                 "centrais do mapa. Termine com uma frase que convide o leitor a continuar. Tom: íntimo, acolhedor, presente.\n\n"
@@ -1335,7 +1335,7 @@ def build_sections(chart):
             ],
             "planets_filter": ["Sol", "Lua"],
             "psychological_frame": (
-                "Escreva uma abertura calorosa que funcione como uma porta de entrada, não como uma análise imediata. "
+                "ABERTURA — FORMA FIXA (igual em todo relatório): a primeira frase dirige-se ao leitor pelo primeiro nome e é escrita na primeira pessoa da Marcia ('Quando olho para o seu mapa, <nome>, …' ou forma equivalente). Não abra de outro jeito: metade dos relatórios abrindo com nome e metade sem quebra a identidade do produto.\n\nEscreva uma abertura calorosa que funcione como uma porta de entrada, não como uma análise imediata. "
                 "O primeiro parágrafo deve criar uma sensação de reconhecimento — como se alguém que te conhece "
                 "profundamente estivesse dizendo 'eu te vejo'. Apenas no segundo parágrafo comece a nomear as tensões "
                 "centrais do mapa. Termine com uma frase que convide o leitor a continuar — não com uma conclusão, "
@@ -1840,16 +1840,22 @@ REGRAS DE VOZ E ESTILO:
 - Tom: íntimo, caloroso, direto — como uma carta de alguém que te conhece profundamente
 - Preserve sua profundidade psicológica e síntese interpretativa
 - NÃO liste posicionamentos mecanicamente — sintetize-os em narrativa
-- Mencione tensões e contradições mas não as resolva ainda — elas serão retomadas no Fio Condutor
+- Mencione tensões e contradições mas não as resolva ainda — a síntese final do relatório fará isso. NUNCA anuncie isso ao leitor: nada de "será retomado adiante", "voltaremos a isso", "como veremos" ou qualquer promessa sobre o que outra seção fará. Cada seção se sustenta sozinha.
 - Use as passagens do arquivo como fonte de sua voz e interpretação, não como texto para copiar
 - NÃO mencione datas específicas, nomes de clientes ou referências ao passado
 - Mantenha o gênero gramaticalmente consistente em todo o texto — use exclusivamente o gênero {gender} ao se referir ao cliente.
 
 ORIENTAÇÃO AO FINAL DE SEÇÕES COM TENSÃO:
-Se a seção nomear uma tensão ou contradição interna, termine com uma ou duas frases que ofereçam uma orientação prática — não uma resolução, mas uma bússola. Como essa pessoa pode trabalhar conscientemente com essa tensão? O tom não é de conselho, mas de reconhecimento: use frases como "o que esse posicionamento pede de você é..." ou "a melhor forma de trabalhar com isso é..." Seja específica ao posicionamento — não genérica. Nunca termine uma seção deixando a pessoa apenas no peso da tensão sem nenhuma orientação.
+Se — e somente se — a seção nomear uma tensão ou contradição interna, termine com uma ou duas frases que ofereçam uma orientação prática — não uma resolução, mas uma bússola. Como essa pessoa pode trabalhar conscientemente com essa tensão? O tom não é de conselho, mas de reconhecimento. Seja específica ao posicionamento — não genérica. Nunca termine uma seção deixando a pessoa apenas no peso da tensão sem nenhuma orientação.
+VARIE A FÓRMULA do fechamento — o leitor lê as seções em sequência e o mesmo molde vira metrônomo. Alterne entre formas como: "o que esse posicionamento pede de você é…", "a melhor forma de trabalhar com isso é…", "o convite aqui é…", ou um fechamento sem fórmula nenhuma, em que a orientação emerge da última frase da própria leitura. Nunca use a mesma forma que a seção anterior usou (quando o contexto de seções anteriores estiver disponível acima).
+Se a seção NÃO nomeia tensão (uma abertura, uma leitura fluida sem contradição), NÃO cole um fechamento de orientação — encerre onde o texto naturalmente termina. Fórmula de orientação sem tensão nomeada é ruído.
 
 ASPECTOS LISTADOS — JÁ FILTRADOS E PRIORIZADOS:
-Os aspectos listados já foram filtrados por prioridade e deduplicados. Não mencione aspectos que não estejam nesta lista. Se dois aspectos na lista tocam o mesmo tema psicológico, sintetize-os numa única passagem coerente em vez de descrevê-los separadamente. Repetição de temas é mais prejudicial do que omissão.
+Os aspectos listados já foram filtrados por prioridade e deduplicados. A lista é teto E piso:
+- Não mencione aspectos que não estejam nesta lista.
+- TODO aspecto da lista deve aparecer na leitura. Se dois aspectos tocam o mesmo tema psicológico, sintetize-os numa única passagem coerente — síntese é permitida, omissão não. Um aspecto de orbe apertado (menos de 1°) é dos fatos mais importantes do mapa e a sua ausência é um defeito do relatório.
+- Se a lista tem UM único aspecto, ele é obrigatoriamente interpretado — foi filtrado até aqui porque importa.
+- Se a lista está VAZIA, registre isso na leitura: um corpo sem aspectos opera isolado, sem os canais de troca que os aspectos criam, e isso é em si um traço a interpretar — uma ou duas frases bastam.
 
 POSICIONAMENTOS ASTROLÓGICOS: Posicionamentos astrológicos podem ser mencionados naturalmente quando ajudam o leitor a se situar — por exemplo, "sua Lua em Áries" ou "com Saturno na sua casa dois". O que deve ser evitado é listar posicionamentos como coordenadas técnicas ou em sequência que pareça inventário. Os planetas devem aparecer como personagens da narrativa, não como dados de um relatório.
 
@@ -2418,9 +2424,28 @@ def verify_planet_signs(text, chart, moon_uncertain=False):
                         continue  # remove esse planeta do grupo
                     fixed_planets.append(pw)
                 if any_wrong:
-                    # Reconstruir a afirmação só com os planetas que de fato
-                    # estão nesse signo. Se sobrar 0 ou 1, ajusta redação.
-                    if not fixed_planets:
+                    # CONTEXTO DE ASPECTO ("o sextil entre sua Lua e Vênus em
+                    # Gêmeos"): o par pertence ao ASPECTO — que é verificado
+                    # contra o chart em outra camada — e a mentira está só no
+                    # signo. Remover um planeta do par quebrava a gramática E
+                    # a semântica: "O sextil entre sua Vênus está em Gêmeos"
+                    # (Lucca, 16/07 — um aspecto precisa de dois corpos).
+                    # Aqui o par fica inteiro e o que cai é o " em <signo>".
+                    look_behind = corrected[max(0, m.start() - 48):m.start()]
+                    aspect_ctx = re.search(
+                        r"(?:conjunç\w+|sextil\w*|quadratur\w+|tr[íi]gono\w*|"
+                        r"oposiç\w+)\s+entre\s+(?:sua?\s+|o\s+|a\s+)?$",
+                        look_behind, flags=re.IGNORECASE)
+                    if aspect_ctx:
+                        replacement = re.sub(
+                            rf"\s+em\s+{re.escape(claimed_sign)}\s*$", "",
+                            m.group(0), flags=re.IGNORECASE)
+                        for d in divergences:
+                            if d.get("match") == m.group(0) and d.get("action") == "removed_from_multi":
+                                d["action"] = "sign_stripped_from_aspect_pair"
+                    # Fora de contexto de aspecto: reconstruir a afirmação só
+                    # com os planetas que de fato estão nesse signo.
+                    elif not fixed_planets:
                         # Ninguém está nesse signo — remove a claim inteira
                         replacement = "[afirmação removida: nenhum corpo neste signo]"
                     elif len(fixed_planets) == 1:
