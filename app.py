@@ -1474,6 +1474,75 @@ def generate_report_endpoint():
                 "message": f"Chart JSON missing required field: '{required}'",
             }), 400
 
+    # ==================================================================
+    # VOZ E IDADE — dois interruptores DESACOPLADOS (decisão da Márcia 17/07)
+    #
+    # VOZ (formulário, campo report_for):
+    #   (a) "meu"          → segunda pessoa (padrão de hoje)
+    #   (b) "presente"     → de outra pessoa, para ELA ler → segunda pessoa
+    #   (c) "sobre_outro"  → de outra pessoa, para o REMETENTE ler → terceira
+    # Campo opcional `relationship` (filho, neta, esposa…) — usável na voz
+    # (c); sem ele, nome puro e NUNCA se assume parentesco.
+    #
+    # CONTEÚDO (idade, derivada da data de nascimento): criança ≤12 /
+    # adolescente 13–17 / adulto ≥18. As regras por seção estão pendentes
+    # (a Márcia define sobre a lista); por ora só a faixa é computada e
+    # exposta no meta.
+    #
+    # TRAVA: sujeito MENOR (<18) força a voz (c) — terceira pessoa para o
+    # responsável — independente do que o formulário disser.
+    # ==================================================================
+    _raw_for = str(body.pop("report_for", "") or "").strip().lower()
+    _relationship = str(body.pop("relationship", "") or "").strip().lower()[:40]
+    _MODE_MAP = {
+        "": "a", "a": "a", "meu": "a", "para_mim": "a", "self": "a",
+        "b": "b", "presente": "b", "para_ela": "b", "gift": "b",
+        "c": "c", "sobre_outro": "c", "sobre_outra_pessoa": "c",
+        "para_eu_ler": "c", "about_other": "c",
+    }
+    _mode = _MODE_MAP.get(_raw_for, "a")
+
+    _age = None
+    try:
+        from datetime import date as _date_cls
+        _age = (_date_cls.today() - _dt_obj.date()).days // 365
+    except Exception:
+        pass
+    _age_bracket = (None if _age is None else
+                    "crianca" if _age <= 12 else
+                    "adolescente" if _age < 18 else "adulto")
+
+    _voice_forced = False
+    if _age is not None and _age < 18 and _mode != "c":
+        _mode = "c"
+        _voice_forced = True
+        logger.info("voz forçada para terceira pessoa: sujeito menor (%d anos)", _age)
+
+    # Parentesco × gênero do sujeito: aviso (não bloqueio) se contradizem.
+    _REL_GENDER = {"filho": "masculino", "filha": "feminino", "neto": "masculino",
+                   "neta": "feminino", "esposo": "masculino", "esposa": "feminino",
+                   "marido": "masculino", "irmão": "masculino", "irmã": "feminino",
+                   "sobrinho": "masculino", "sobrinha": "feminino",
+                   "afilhado": "masculino", "afilhada": "feminino"}
+    _rel_gender_conflict = None
+    if _relationship in _REL_GENDER and body.get("gender") and \
+            _REL_GENDER[_relationship] != body.get("gender"):
+        _rel_gender_conflict = (f"parentesco '{_relationship}' é "
+                                f"{_REL_GENDER[_relationship]} mas gender="
+                                f"{body.get('gender')}")
+        logger.warning("VOZ: %s — parentesco ignorado", _rel_gender_conflict)
+        _relationship = ""
+
+    body["_voice"] = {
+        "person": "terceira" if _mode == "c" else "segunda",
+        "mode": _mode,
+        "name": (body.get("name") or "").strip(),
+        "relationship": _relationship,
+        "age": _age,
+        "age_bracket": _age_bracket,
+        "forced_minor": _voice_forced,
+    }
+
     # Sinalizar ao report_generator: hora desconhecida + info de ingresso lunar.
     # Essas chaves com underscore são consumidas em report_generator.py para
     # reformular seções que dependem de hora (abertura/triade/lua/casa_4) e para
@@ -2061,6 +2130,10 @@ def generate_report_endpoint():
             # Regra dos 5° (leitura de casa): quais corpos foram re-atribuídos
             # à casa seguinte antes da síntese. A mandala não é afetada.
             "house_reading_moves": _house_moves,
+            # Voz e idade (interruptores desacoplados): o que foi decidido
+            # para esta geração, incluindo a trava de menor.
+            "voice": {k: v for k, v in (body.get("_voice") or {}).items()},
+            "voice_rel_gender_conflict": _rel_gender_conflict,
             # Repetição quase-verbatim entre seções (janela de 12 palavras).
             # Gate pré-testers exige [].
             "repetition_lint": result.get("repetition_lint", []),

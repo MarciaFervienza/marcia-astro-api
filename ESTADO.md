@@ -364,3 +364,31 @@ confiança profissional, quarto sozinho).
 
 **Gate da regeneração única:** GPT extração de novo + leitura da Márcia +
 Marcelle. Pendências antes de regenerar: regras de reescrita por idade (F).
+
+## Voz e idade desacoplados — arquitetura F (decisão da Márcia, 17/07 tarde)
+
+**Dois interruptores independentes:**
+- **VOZ** (formulário, campo `report_for` + `relationship` opcional):
+  (a) meu / (b) presente para outra pessoa ler → segunda pessoa ("você");
+  (c) sobre outra pessoa, para o remetente ler → TERCEIRA pessoa com o nome
+  ("Lucca tem…"). Parentesco informado pode ser usado ("seu filho Lucca");
+  sem ele, nome puro — NUNCA se assume parentesco. Parentesco que contradiz
+  o gênero do sujeito é descartado com aviso no meta.
+- **CONTEÚDO** (idade da data de nascimento): criança ≤12 / adolescente
+  13–17 / adulto ≥18. Faixa computada e exposta no meta
+  (`voice.age_bracket`); as REGRAS POR SEÇÃO estão pendentes — a Márcia
+  define sobre a lista de seções com conteúdo adulto.
+- **TRAVA:** sujeito menor de 18 → voz forçada em (c), independente do
+  formulário (`voice.forced_minor: true` no meta). A tubulação serve aos
+  dois casos — menor e adulto-sobre-outro. Recomendação Wix: quando a data
+  indicar menor, o formulário nem oferece a escolha de voz.
+
+**Implementação:** `app.py` resolve modo+idade+trava → `body["_voice"]`;
+`report_generator.voice_rules_block` injeta as regras nos DOIS prompts
+(seções e Fio), prevalecendo sobre o "você" padrão; detectores conscientes
+no MESMO commit (`_detect_voice_violations`): em 2ª pessoa, verbo+nele/nela
+é o defeito; em 3ª, o defeito INVERTE — possessivo de 2ª + termo astrológico
+("sua Lua") só pode estar se dirigindo ao sujeito, e artigo com gênero
+errado antes do nome ("a Lucca") cobre os pronomes do sujeito. O "você"
+dirigido ao LEITOR (orientação ao responsável) continua permitido e não
+casa os padrões. Provas: 6 casos de voz + 7 de trava/parsing, tudo verde.

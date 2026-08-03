@@ -101,15 +101,6 @@ _FORBIDDEN_LEXICON = [
     # 16/07) — 'demais quanto a' não existe; ou é 'tanto quanto', ou reescreve.
     (r"\b\w+\s+demais\s+quanto\s+(?:a|à|às|ao|aos)\b", "concordancia_comparativa",
      "estrutura comparativa quebrada — usar 'tanto … quanto' ou reescrever a comparação"),
-    # Pronome de 3ª pessoa num relatório escrito em 2ª ("cria nele uma
-    # disponibilidade" — Lucca, 16/07). Estreito de propósito: só verbo de
-    # efeito psicológico + nele/nela, porque 'nela' solto é quase sempre
-    # legítimo (referindo-se a casa, área, relação). O reescritor recebe a
-    # frase inteira e decide.
-    (r"\b(?:cria|criam|desperta|despertam|gera|geram|produz|produzem|"
-     r"instala|instalam|acende|acendem|provoca|provocam|planta|plantam|"
-     r"deixa|deixam|constrói|constroem)\s+nel[ea]\b", "pessoa_terceira",
-     "o relatório fala com 'você' — reescrever em 2ª pessoa ('cria em você…')"),
     (r"os dados não deixam dúvida", "muleta_retorica",
      "substituir por uma afirmação direta sem invocar 'os dados'"),
     (r"\bnão deixa dúvida\b",       "muleta_retorica",
@@ -248,6 +239,64 @@ def _detect_broken_aspect_pair(text):
         flags=re.IGNORECASE,
     )
     return [(m.group(0), m.start()) for m in pat.finditer(text)]
+
+
+# ============================================================
+# 2f — VOZ (os dois interruptores, decisão da Márcia 17/07)
+# ============================================================
+_ASTRO_POSSESSIVE = (
+    r"\b(?:seu|sua|seus|suas)\s+(?:Sol|Lua|Mercúrio|Vênus|Marte|Júpiter|"
+    r"Saturno|Urano|Netuno|Plutão|Quíron|Lilith|Nodo[s]?|Ascendente|"
+    r"Meio-do-Céu|mapa|casa\s+\d+)\b"
+)
+_VERB_NELE = (
+    r"\b(?:cria|criam|desperta|despertam|gera|geram|produz|produzem|"
+    r"instala|instalam|acende|acendem|provoca|provocam|planta|plantam|"
+    r"deixa|deixam|constrói|constroem)\s+nel[ea]\b"
+)
+
+
+def _detect_voice_violations(text, chart):
+    """O detector de pessoa INVERTE conforme a voz do relatório.
+
+    Modo SEGUNDA pessoa (padrão): o defeito é falar do sujeito em 3ª —
+    verbo de efeito + nele/nela ("cria nele uma disponibilidade", Lucca).
+
+    Modo TERCEIRA pessoa (relatório sobre outra pessoa, lido pelo
+    responsável): o defeito é o "você" dirigido ao SUJEITO. Superfície
+    detectável sem semântica: possessivo de 2ª + termo astrológico ("sua
+    Lua", "seu mapa", "sua casa 4") — isso só pode estar se dirigindo ao
+    dono do mapa. O "você" dirigido ao LEITOR (orientação ao responsável)
+    não casa esse padrão e continua permitido.
+
+    Também no modo terceira: artigo com gênero errado antes do primeiro
+    nome do sujeito ("a Lucca" para sujeito masculino) — cobre os pronomes
+    do sujeito na superfície mais frequente.
+    """
+    out = []
+    v = (chart or {}).get("_voice") or {}
+    person = v.get("person", "segunda")
+    if person == "terceira":
+        for m in re.finditer(_ASTRO_POSSESSIVE, text):
+            out.append(("voz:voce_dirigido_ao_sujeito", m.group(0), m.start(),
+                        "relatório em TERCEIRA pessoa — o mapa é de "
+                        f"{v.get('name') or 'outra pessoa'}; reescrever como "
+                        "'a Lua de <nome>', 'o mapa de <nome>'"))
+        first = (v.get("name") or "").split()[0] if v.get("name") else ""
+        g = (chart or {}).get("gender")
+        if first and g in ("masculino", "feminino"):
+            wrong_art = "a" if g == "masculino" else "o"
+            for m in re.finditer(rf"\b{wrong_art}\s+{re.escape(first)}\b",
+                                 text, flags=re.IGNORECASE):
+                out.append(("voz:artigo_genero_sujeito", m.group(0), m.start(),
+                            f"artigo não concorda com o gênero do sujeito "
+                            f"({g}) — usar '{'o' if g=='masculino' else 'a'} {first}'"))
+    else:
+        for m in re.finditer(_VERB_NELE, text, flags=re.IGNORECASE):
+            out.append(("voz:pessoa_terceira_em_segunda", m.group(0), m.start(),
+                        "o relatório fala com 'você' — reescrever em 2ª pessoa "
+                        "('cria em você…')"))
+    return out
 
 
 # ============================================================
@@ -731,6 +780,13 @@ def run_verifier(text, chart, call_claude_fn):
     except Exception as e:
         logger.warning("verifier 2e failed: %s", e)
 
+    # 2f — voz (consciente dos dois interruptores)
+    try:
+        for kind, match_text, offset, sugg in _detect_voice_violations(scan_text, chart):
+            _add(kind, match_text, offset, sugg)
+    except Exception as e:
+        logger.warning("verifier 2f failed: %s", e)
+
     # 2g — SLOT DE GÊNERO (inventário 17/07): termo generificado que não
     # corresponde ao gênero do sujeito. Caso real: "se um dia você tiver
     # filhos... a transformação não passe pela MATERNIDADE" num relatório
@@ -876,6 +932,10 @@ def _reverify_sentence(sentence, prior_violations, chart):
             out.append({"kind": "spell:palavra_desconhecida", "match": w,
                         "offset": offset,
                         "suggestion": f"desconhecida; sugestão '{sug}'"})
+    if "voz" in kinds:
+        for kind, match_text, offset, sugg in _detect_voice_violations(sentence, chart):
+            out.append({"kind": kind, "match": match_text, "offset": offset,
+                        "suggestion": sugg})
     if "genero" in kinds:
         for v in prior_violations:
             if v["kind"].startswith("genero"):

@@ -1888,7 +1888,7 @@ Os aspectos listados já foram filtrados por prioridade e deduplicados. A lista 
 POSICIONAMENTOS ASTROLÓGICOS: Posicionamentos astrológicos podem ser mencionados naturalmente quando ajudam o leitor a se situar — por exemplo, "sua Lua em Áries" ou "com Saturno na sua casa dois". O que deve ser evitado é listar posicionamentos como coordenadas técnicas ou em sequência que pareça inventário. Os planetas devem aparecer como personagens da narrativa, não como dados de um relatório.
 
 {style_rules}
-
+{voice_rules}
 REVISÃO FINAL OBRIGATÓRIA:
 Revise o texto antes de retornar: elimine palavras inventadas, corrija o uso incorreto de pronomes reflexivos, e garanta concordância gramatical perfeita.
 
@@ -1928,6 +1928,8 @@ TAMBÉM PROIBIDO: (f) usar "nomear" como verbo padrão para tudo — varie com "
 
 CONVENÇÕES DE LINGUAGEM: Use sempre "em oposição", "em quadratura", "em trígono", "em conjunção", "em sextil" — nunca "na oposição", "na quadratura" etc. Planetas retrógrados são sempre descritos como "retrógrado" — nunca "a retrógrada". Mantenha "se regenerar rapidamente" em vez de "se regenerar rápido".
 
+{voice_rules}
+
 Extensão: 450-550 palavras.
 
 Escreva apenas o texto. Sem título.
@@ -1943,6 +1945,53 @@ def call_claude(prompt, max_tokens=SECTION_MAX_TOKENS):
     )
     return resp.content[0].text.strip()
 
+
+
+
+def voice_rules_block(chart) -> str:
+    """Bloco de regras de VOZ para os prompts, derivado de chart["_voice"].
+
+    Dois interruptores desacoplados (decisão da Márcia, 17/07):
+      · VOZ (formulário): segunda pessoa (padrão, "você") ou terceira pessoa
+        com o nome do sujeito — relatório sobre outra pessoa, lido pelo
+        responsável/interessado.
+      · CONTEÚDO (idade): tratado à parte, por seção (regras pendentes).
+    A trava sujeito-menor → terceira pessoa é aplicada no app.py, antes
+    daqui. Este bloco PREVALECE sobre qualquer instrução anterior que fale
+    em "você".
+    """
+    v = (chart or {}).get("_voice") or {}
+    if v.get("person") != "terceira":
+        return ""
+    name = v.get("name") or chart.get("name", "o sujeito")
+    first = name.split()[0]
+    rel = (v.get("relationship") or "").strip()
+    rel_line = (
+        f"O leitor informou o parentesco: '{rel}'. Você PODE usá-lo "
+        f"naturalmente ('seu {rel} {first}', 'sua {rel} {first}' conforme o "
+        f"gênero do parentesco informado). "
+        if rel else
+        "NENHUM parentesco foi informado: NUNCA assuma um (nada de 'seu "
+        "filho', 'sua filha', 'seu neto') — use apenas o nome. "
+    )
+    return (
+        "\n\nREGRAS DE VOZ — MODO TERCEIRA PESSOA (PREVALECEM sobre qualquer "
+        "instrução anterior que diga para escrever 'diretamente para você'):\n"
+        f"- Este relatório é SOBRE {name} e será lido por OUTRA pessoa. "
+        f"Escreva sobre {first} em terceira pessoa: '{first} tem…', 'a Lua de "
+        f"{first} mostra…', 'o mapa de {first} pede…'.\n"
+        f"- NUNCA se dirija a {first} como 'você'. O 'você' fica reservado, "
+        "com parcimônia, ao LEITOR — apenas em orientações práticas dirigidas "
+        "a quem vai acompanhar essa pessoa ('vale a pena você observar…').\n"
+        f"- {rel_line}\n"
+        f"- Concordância de gênero do SUJEITO ({first}) segue o gênero "
+        "informado do sujeito, não o do leitor.\n"
+        "- Na ABERTURA, a primeira frase vira: 'Quando olho para o mapa de "
+        f"{first}, …' — dirigida ao leitor, sobre o sujeito.\n"
+        "- Fechos de orientação ('o que esse posicionamento pede…') referem-se "
+        f"ao que o posicionamento pede DE {first}, ou ao que o leitor pode "
+        "observar/apoiar — nunca instruções em segunda pessoa ao sujeito."
+    )
 
 def generate_section(section, chart, name, gender, section_context=None, context_instruction=None):
     """
@@ -2014,6 +2063,7 @@ def generate_section(section, chart, name, gender, section_context=None, context
         depth_instruction=section.get("depth_instruction", DEPTH_TIER_3),
         gender=gender,
         style_rules=SECTION_STYLE_RULES,
+        voice_rules=voice_rules_block(chart),
     )
 
     print(f"    calling Claude...", flush=True)
@@ -2187,6 +2237,7 @@ def generate_fio_condutor(name, chart, full_report, gender):
         parental_dynamics_context=parental_ctx,
         full_report_so_far=full_report,
         gender=gender,
+        voice_rules=voice_rules_block(chart),
     )
     return call_claude(prompt, max_tokens=FIO_CONDUTOR_MAX_TOKENS)
 
