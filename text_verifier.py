@@ -68,6 +68,10 @@ _FORBIDDEN_LEXICON = [
     # escorrega para o castelhano em palavras emocionais. Vistos em produção:
     # orgullo, cerrada (16/07). Os demais são os vizinhos mais prováveis da
     # mesma família semântica (emoção/fechamento/vínculo).
+    # "aquilombada" (16/07): rastreada — NÃO existe nos transcripts nem nos
+    # chunks (fonte limpa); veio da síntese. Vocabulário fora da voz da Marcia.
+    (r"\baquilombad[ao]s?\b", "termo_rejeitado",
+     "vocabulário fora da voz — reescrever com termo direto (ex.: 'entrincheirada', 'fechada em si')"),
     (r"\borgullo\b",    "erro_espanhol", "orgulho"),
     (r"\bcerrad[ao]s?\b", "erro_espanhol", "fechada/fechado"),
     (r"\borgullos[ao]s?\b", "erro_espanhol", "orgulhosa/orgulhoso"),

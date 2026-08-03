@@ -303,3 +303,26 @@ aceitar. Critério: **zero**.
 - **Não** liberar 10 testers. No melhor caso 1–2 canários.
 - Prazo removido pela Márcia em 15/07: *"não há mais pressa... o trabalho continua até
   acabar, com ou sem Orkney."*
+
+## Decisões da Márcia — 16/07/2026 (adendo pós-revisão)
+
+- **"O Pai e as Ferramentas da Vida"** (título de seção): MANTÉM. Decisão
+  dela, não sobra de template. Não renomear.
+- **"Tesão"**: fica. É a voz dela — não entra em filtro de registro nenhum.
+- **"Aquilombada"**: no léxico proibido (`termo_rejeitado`). Origem rastreada:
+  grep em TODOS os transcripts (Consultas 2019–2025, CFCA Ano 1/2), nos
+  chunks de aula e nos autorais — zero ocorrências. A fonte está limpa;
+  veio da síntese. O léxico basta.
+- **REGRA DOS 5° (leitura de casa)**: planeta a menos de 5° da cúspide da
+  casa seguinte é LIDO na casa seguinte. Interpretativa, não visual:
+  · a MANDALA NÃO MUDA — o wheel desenha na longitude real, do lado real
+    da cúspide; nenhuma property do renderer é tocada;
+  · aplicada na FONTE (`points[*]["house"]`, app.py, antes da síntese) —
+    seções, clusters parentais, queries do RAG e partial_coverage herdam;
+  · vale para as 12 cúspides incluindo ângulos (corpo a <5° do ASC lê na
+    casa 1) — assunção da Márcia, confirmada em uso (Juno da Gisela 12→1);
+  · não existe verifier de casa de planeta para atualizar — a validação de
+    cúspide confere signo de cúspide e não é afetada;
+  · auditoria por geração no meta: `house_reading_moves`;
+  · medida: média 2.95 corpos/mapa no censo de 500 (mediana 3, máx 8;
+    22 mapas movem zero). Júpiter da Helena 10→11 como previsto.

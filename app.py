@@ -1482,6 +1482,58 @@ def generate_report_endpoint():
     body["_moon_meta"] = moon_meta
 
     # ==================================================================
+    # REGRA DOS 5° (regra de LEITURA, decisão da Marcia 16/07):
+    # um planeta a menos de 5° da cúspide da casa seguinte é LIDO na casa
+    # seguinte. Vale para as 12 cúspides, incluindo ângulos (corpo a <5°
+    # do ASC lê na casa 1) — assunção da Marcia, a corrigir se preciso.
+    #
+    # É interpretativa, não visual: a MANDALA não muda (o wheel desenha na
+    # longitude real, do lado real da cúspide — caminho separado, direto do
+    # subject Kerykeion). O que muda é points[*]["house"], a fonte única que
+    # alimenta seções, clusters parentais, queries do RAG e partial_coverage
+    # — ajustando aqui, todas as camadas downstream leem a MESMA casa e não
+    # há verifier para brigar (a validação de cúspide confere signo de
+    # cúspide, não casa de planeta; não é afetada).
+    #
+    # Precisão: posições vêm de sign+degrees arredondados a 0.1° — um corpo
+    # a exatamente 5.0° da cúspide pode cair dos dois lados do limiar. A
+    # regra usa < 5.0 estrito. Requer cusps; sem hora não há casas nem regra.
+    # ==================================================================
+    _house_moves = []
+    if not unknown_birth_time and body.get("cusps") and body.get("points"):
+        _SIGN_ORDER_5 = ["aries","taurus","gemini","cancer","leo","virgo",
+                         "libra","scorpio","sagittarius","capricorn","aquarius","pisces"]
+        def _abs5(d):
+            try:
+                return _SIGN_ORDER_5.index((d.get("sign") or "").lower())*30.0 + float(d.get("degrees"))
+            except (ValueError, TypeError, AttributeError):
+                return None
+        _cusp_abs = {}
+        for _n in range(1, 13):
+            _c = body["cusps"].get(str(_n))
+            _a = _abs5(_c) if _c else None
+            if _a is not None:
+                _cusp_abs[_n] = _a
+        if len(_cusp_abs) == 12:
+            for _pk, _pd in body["points"].items():
+                _pos = _abs5(_pd)
+                _h = _pd.get("house")
+                if _pos is None or not _h:
+                    continue
+                _nxt = (_h % 12) + 1
+                _gap = (_cusp_abs[_nxt] - _pos) % 360.0
+                if 0.0 < _gap < 5.0:
+                    _pd["house"] = _nxt
+                    _house_moves.append({
+                        "planet": _pk, "from_house": _h, "to_house": _nxt,
+                        "gap_to_cusp": round(_gap, 2),
+                    })
+            if _house_moves:
+                logger.info("regra dos 5°: %d corpo(s) re-atribuído(s): %s",
+                            len(_house_moves),
+                            [f"{m['planet']} {m['from_house']}→{m['to_house']}" for m in _house_moves])
+
+    # ==================================================================
     # ASPECTOS AUSENTES — CALCULAR ANTES DO FILTRO
     #
     # Kerykeion's NatalAspects.relevant_aspects só computa aspectos entre
@@ -2006,6 +2058,9 @@ def generate_report_endpoint():
             # texto antes de sair (signo substituído; ou "em X" removido se
             # for a Lua num mapa moon_uncertain). Lista fica exposta pro
             # operador auditar cada correção feita.
+            # Regra dos 5° (leitura de casa): quais corpos foram re-atribuídos
+            # à casa seguinte antes da síntese. A mandala não é afetada.
+            "house_reading_moves": _house_moves,
             "sign_divergences": result.get("sign_divergences", []),
             "correction_rewrites": result.get("correction_rewrites", []),
             "partial_coverage": result.get("partial_coverage", []),
