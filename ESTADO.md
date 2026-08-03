@@ -229,6 +229,11 @@ Implementado em `packing.py` (`_deferred_houselines` + `_build_cusp_lines`):
 - toco < 1.5u não desenha; o vão fica, o tick da régua mostra a divisão.
   Com o piso de 1.5u o toco externo (2.5u) **sempre sobrevive**: nenhuma
   cúspide some por inteiro.
+- **EXCEÇÃO (16/07, pega pela Márcia):** a linha da casa 1 não cede ao rótulo
+  do Ascendente, nem a da 10 ao do Meio-do-Céu — o rótulo do ângulo É o
+  indicativo daquela cúspide, e a interrupção apagava o eixo ASC/MC em 100%
+  dos mapas. Regra POR PAR em `geometry.CUSP_ANGLE_SLUGS`, usada pelo desenho
+  E pela prop 8: a linha da casa 1 continua cedendo a qualquer outro corpo.
 
 **Fonte única de verdade:** ângulo da coluna = `display_angle` do packing
 (nenhuma posição re-derivada); largura/faixa da coluna = `geometry.py`, o

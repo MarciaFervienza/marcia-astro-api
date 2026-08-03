@@ -359,10 +359,12 @@ def prop_no_compression(model, drawn):
 #     viola) e o visual impresso guarda o teto (cortar demais aparece).
 try:
     from .geometry import (CUSP_CENTER as _CUSP_CENTER, COLUMN_R_INNER,
-                           COLUMN_R_OUTER, COLUMN_HALF_WIDTH_DEG)
+                           COLUMN_R_OUTER, COLUMN_HALF_WIDTH_DEG,
+                           CUSP_ANGLE_SLUGS)
 except ImportError:
     from geometry import (CUSP_CENTER as _CUSP_CENTER, COLUMN_R_INNER,
-                          COLUMN_R_OUTER, COLUMN_HALF_WIDTH_DEG)
+                          COLUMN_R_OUTER, COLUMN_HALF_WIDTH_DEG,
+                          CUSP_ANGLE_SLUGS)
 
 
 def read_house_lines(svg):
@@ -437,9 +439,18 @@ def prop_cusp_no_overlap(model, drawn):
     ATUAL (linha fina 0.07u) e para a versão reforçada (0.6u): a fina viola
     baixinho, a grossa viola alto. Só a versão interrompida zera. Portanto esta
     propriedade fica NÃO-nula até a feature existir — é o alvo, não o estado.
+
+    EXCEÇÃO (geometry.CUSP_ANGLE_SLUGS): a linha da casa 1 não viola por cruzar
+    a coluna do Ascendente, nem a da casa 10 pela do Meio-do-Céu. O rótulo do
+    ângulo É o indicativo daquela cúspide — linha e rótulo são o mesmo objeto,
+    e a interrupção que "protegia" um do outro apagava o eixo ASC/MC em 100%
+    dos mapas (visto pela Márcia em 16/07). A exceção é POR PAR: a linha da
+    casa 1 continua cedendo passagem a qualquer outro corpo, e a coluna do
+    Ascendente continua protegida de qualquer outra linha.
     """
     errs = []
     lines = read_house_lines(svg=drawn["_svg"])
+    cusp_wa = [wheel_angle(c, model["seventh"]) for c in model["cusps"]]
     cols = []
     for slug, d in drawn["points"].items():
         if d.get("display_wa") is not None:
@@ -448,7 +459,12 @@ def prop_cusp_no_overlap(model, drawn):
         # a faixa radial da linha invade a faixa da coluna?
         if ln["r_in"] > COLUMN_R_OUTER or ln["r_out"] < COLUMN_R_INNER:
             continue
+        # de que casa é esta linha? (mesmo pareamento da prop de colinearidade)
+        j = min(range(12), key=lambda i: _dd(cusp_wa[i], ln["wa"]))
+        own = CUSP_ANGLE_SLUGS.get(j + 1) if _dd(cusp_wa[j], ln["wa"]) <= 0.5 else None
         for slug, cwa in cols:
+            if slug == own:
+                continue
             if _dd(ln["wa"], cwa) < COLUMN_HALF_WIDTH_DEG:
                 errs.append(
                     f"[sobreposição] linha da cúspide em {ln['wa']:.2f}° risca "

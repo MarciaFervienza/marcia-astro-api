@@ -87,9 +87,11 @@ MIN_GLYPH_SCALE = 0.54
 # Liang-Barsky do renderer.py — aquele bbox vem da família dos 4 bugs e o
 # renderer.py morre neste commit.
 try:
-    from .geometry import COLUMN_R_INNER, COLUMN_R_OUTER, COLUMN_HALF_WIDTH_DEG
+    from .geometry import (COLUMN_R_INNER, COLUMN_R_OUTER,
+                           COLUMN_HALF_WIDTH_DEG, CUSP_ANGLE_SLUGS)
 except ImportError:
-    from geometry import COLUMN_R_INNER, COLUMN_R_OUTER, COLUMN_HALF_WIDTH_DEG
+    from geometry import (COLUMN_R_INNER, COLUMN_R_OUTER,
+                          COLUMN_HALF_WIDTH_DEG, CUSP_ANGLE_SLUGS)
 
 CUSP_WIDTH_NORMAL  = 0.25    # 0.07 de fábrica → 1.39pt a 18cm: visível, fina
 CUSP_WIDTH_ANGULAR = 0.6     # mantém a fábrica: ASC/MC/DSC/IC continuam âncora
@@ -401,7 +403,7 @@ def _constrained_resolve(planets_with_angles, min_separation=MAX_SEPARATION):
                     _CTX["scale_by_slug"][out[j]["point"].name] = k
 
     # os ângulos finais das colunas, para a interrupção das linhas de casa
-    _CTX["display_was"] = [it["display_angle"] for it in out
+    _CTX["display_was"] = [(it["point"].name, it["display_angle"]) for it in out
                            if it.get("display_angle") is not None]
 
     out.sort(key=lambda it: it["angle"])
@@ -441,10 +443,15 @@ def _build_cusp_lines():
     out = ""
     for i, h in enumerate(houses):
         wa = dm._zodiac_to_wheel_angle(h.abs_pos, seventh)
-        angular = (i + 1) in dm.ANGULAR_HOUSES
+        house_num = i + 1
+        angular = house_num in dm.ANGULAR_HOUSES
         width = CUSP_WIDTH_ANGULAR if angular else CUSP_WIDTH_NORMAL
+        # A linha não cede passagem ao rótulo do PRÓPRIO ângulo (ASC na casa
+        # 1, MC na casa 10): rótulo e linha são o mesmo indicador. Ver
+        # geometry.CUSP_ANGLE_SLUGS — a prop 8 usa a mesma exceção.
+        own = CUSP_ANGLE_SLUGS.get(house_num)
         crosses = any(abs(((wa - c + 180) % 360) - 180) < COLUMN_HALF_WIDTH_DEG
-                      for c in cols)
+                      for slug, c in cols if slug != own)
         segs = [(y_top, y_bot)] if not crosses else \
                [(y_top, y_cut_hi), (y_cut_lo, y_bot)]
         for ya, yb in segs:

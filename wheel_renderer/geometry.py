@@ -21,3 +21,12 @@ CUSP_CENTER = 50.0            # centro do wheel (viewBox 100x100)
 COLUMN_R_INNER = 24.0         # borda interna da coluna do planeta
 COLUMN_R_OUTER = 40.0         # borda externa
 COLUMN_HALF_WIDTH_DEG = 3.2   # meia-largura angular da coluna
+
+# A linha da cúspide angular NÃO cede passagem ao rótulo do próprio ângulo.
+# O Ascendente e o Meio-do-Céu são desenhados como ChartPoints em cima da
+# própria cúspide (casa 1 e casa 10) — o rótulo grau/signo/minuto deles É o
+# indicativo daquela cúspide. Sem esta exceção, a interrupção apagava o eixo
+# ASC/MC em 100% dos mapas: a linha fugia do próprio rótulo (visto pela
+# Márcia em 16/07). A exceção vale só para o PAR (cúspide, seu ângulo);
+# qualquer outro corpo perto da linha continua ganhando passagem.
+CUSP_ANGLE_SLUGS = {1: "Ascendant", 10: "Medium_Coeli"}
