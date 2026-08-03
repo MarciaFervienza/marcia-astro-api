@@ -1512,11 +1512,43 @@ def generate_report_endpoint():
                     "crianca" if _age <= 12 else
                     "adolescente" if _age < 18 else "adulto")
 
-    _voice_forced = False
-    if _age is not None and _age < 18 and _mode != "c":
-        _mode = "c"
-        _voice_forced = True
-        logger.info("voz forçada para terceira pessoa: sujeito menor (%d anos)", _age)
+    # TRAVA DE IDADE (mudou em 17/07, tarde): menor de 18 NÃO GERA.
+    # Não existe versão para menores — "mapa infantil" é disciplina própria
+    # que a Márcia não oferece; o produto é leitura de autoconhecimento
+    # para adultos. Fail-closed: recusa clara + alerta para o executivo@
+    # (tratamento de reembolso se algum pagamento escapar do bloqueio do
+    # Wix — o formulário valida ANTES de cobrar; a API é a rede final).
+    #
+    # BYPASS INTERNO DE QA: a restrição é de venda, não de laboratório.
+    # Mesmo mecanismo da isenção de rate limit (e-mails internos): o Lucca
+    # segue como mapa de teste — as frases defeituosas catalogadas estão no
+    # relatório dele, e a regeneração dele prova que as correções mordem.
+    _age_gate_bypassed = False
+    if _age is not None and _age < 18:
+        _req_email = (body.get("email") or "").strip().lower()
+        if _req_email in _RATE_EXEMPT_EMAILS:
+            _age_gate_bypassed = True
+            logger.info("age gate: sujeito menor (%d anos) — BYPASS interno de QA (%s)",
+                        _age, _req_email)
+        else:
+            logger.warning("age gate: sujeito menor (%d anos) — geração recusada", _age)
+            _send_failure_alert("age_gate_refusal",
+                               ValueError(f"sujeito menor de 18 ({_age} anos)"), {
+                "name": body.get("name"), "email": body.get("email"),
+                "birth_date": body.get("birth_date") or body.get("datetime"),
+                "birth_city": body.get("birth_city"),
+                "ip": _client_ip, "ua": _ua,
+            })
+            return jsonify({
+                "status": "refused",
+                "reason": "underage_subject",
+                "message": (
+                    "Esta leitura de mapa natal é um trabalho de "
+                    "autoconhecimento para maiores de 18 anos. Não geramos "
+                    "relatórios para menores. Se houve um pagamento, entre "
+                    "em contato para o reembolso: executivo@marciafervienza.com."
+                ),
+            }), 403
 
     # Parentesco × gênero do sujeito: aviso (não bloqueio) se contradizem.
     _REL_GENDER = {"filho": "masculino", "filha": "feminino", "neto": "masculino",
@@ -1539,8 +1571,8 @@ def generate_report_endpoint():
         "name": (body.get("name") or "").strip(),
         "relationship": _relationship,
         "age": _age,
-        "age_bracket": _age_bracket,
-        "forced_minor": _voice_forced,
+        "age_bracket": _age_bracket,          # registro; não muda conteúdo
+        "age_gate_bypassed": _age_gate_bypassed,   # True só em QA interno
     }
 
     # Sinalizar ao report_generator: hora desconhecida + info de ingresso lunar.

@@ -392,3 +392,34 @@ no MESMO commit (`_detect_voice_violations`): em 2ª pessoa, verbo+nele/nela
 errado antes do nome ("a Lucca") cobre os pronomes do sujeito. O "você"
 dirigido ao LEITOR (orientação ao responsável) continua permitido e não
 casa os padrões. Provas: 6 casos de voz + 7 de trava/parsing, tudo verde.
+
+## Item F — escopo final (decisão da Márcia, 17/07 à tarde)
+
+**Não haverá versão para menores.** "Mapa infantil" é disciplina própria
+(orientação de pais, metodologia distinta) que a Márcia não oferece; o
+produto é leitura de autoconhecimento para adultos. Consequências:
+
+- Degraus de idade e regras de conteúdo por seção: **mortos**. Se um dia
+  existir um produto mapa infantil, nasce separado.
+- **Trava nova (fail-closed): menor de 18 NÃO GERA.** HTTP 403 com
+  mensagem clara + alerta `age_gate_refusal` para o executivo@ (reembolso
+  se algum pagamento escapar). `voice.age_bracket` fica no meta como
+  registro. O `forced_minor` (terceira pessoa forçada) foi removido.
+- **Bypass interno de QA:** mesmo mecanismo da isenção de rate limit
+  (`_RATE_EXEMPT_EMAILS`). O Lucca segue como mapa de teste — as frases
+  defeituosas catalogadas estão no relatório dele; a regeneração dele prova
+  que as correções mordem. `voice.age_gate_bypassed: true` no meta.
+- **Interruptor de voz FICA** (commit 22ab318): report_for a/b/c +
+  relationship — serve adultos comprando sobre outros adultos. A inversão
+  dos detectores por VOZ fica; a inversão condicionada a MENOR não existe
+  mais (era só a trava do app; detectores nunca dependeram de idade).
+
+### Arquivo de referência: seções com conteúdo adulto (censo de 17/07)
+(Sem uso no produto atual. Referência caso um produto infantil nasça.)
+- Núcleo adulto: venus_marte (parceiro/desejo), lilith (erótico/poder),
+  asteroides (Juno casamento; Ceres maternidade).
+- Enquadramento adulto: plutao ("se um dia você tiver filhos"), netuno
+  (idealização relacional), casa_4 (para criança seria a casa atual, não
+  memória), casa_5/urano com hora (filhos).
+- Atenção máxima: lua, sol_saturno e Fio Condutor — leitura parental
+  descreve pais presentes e vivos; Fio tem amarração parental obrigatória.
