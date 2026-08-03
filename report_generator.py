@@ -2993,6 +2993,11 @@ def generate_report(
     # contagem anunciada vs enumeração / spellcheck pt-BR. Cada frase
     # flagrada dispara reescrita direcionada (até 2 tentativas). Nunca
     # bloqueia a geração — falhas persistentes viram VERIFIER_FAIL no log.
+    # verifier_ran distingue "rodou e achou 0" de "morreu na exceção": um
+    # verifier_log vazio era ambíguo entre os dois — e um verificador que
+    # crasha silenciosamente é o deploy fantasma de novo, só que em runtime.
+    verifier_ran = False
+    verifier_error = None
     try:
         import text_verifier as _tv
         # Passar nome do cliente pro chart pra spellcheck ignorar tokens do payload
@@ -3001,8 +3006,10 @@ def generate_report(
         full_report, verifier_log = _tv.run_verifier(
             full_report, _chart_for_verifier, call_claude,
         )
+        verifier_ran = True
     except Exception as _ve:
         log(f"[VERIFICADOR] erro fatal (ignorado): {_ve}")
+        verifier_error = f"{type(_ve).__name__}: {_ve}"
         verifier_log = []
     if verifier_log:
         _n_corr = sum(1 for v in verifier_log if v.get("status") == "corrected")
@@ -3060,6 +3067,18 @@ def generate_report(
         "sign_divergences": sign_divergences,
         "correction_rewrites": correction_rewrites,
         "verifier_log": verifier_log,
+        # Prova de execução, não de presença no código (smoke test do passo 1
+        # pré-testers): ran=True só depois do run_verifier retornar; error
+        # carrega a exceção se ele morreu. Contagens explícitas para o meta.
+        "verifier": {
+            "ran": verifier_ran,
+            "error": verifier_error,
+            "violations": len(verifier_log),
+            "corrected": sum(1 for v in verifier_log
+                             if v.get("status") == "corrected"),
+            "kept_after_fail": sum(1 for v in verifier_log
+                                   if v.get("status") == "failed_kept_original"),
+        },
         "parental_clusters": chart.get("_parental_clusters"),
         "partial_coverage": list(_partial_coverage_log),
     }

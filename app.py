@@ -1091,8 +1091,16 @@ def send_report_email(to_email: str, client_name: str, pdf_bytes: bytes,
 
 @app.route("/health", methods=["GET"])
 def health():
-    """Lightweight liveness check for Railway."""
-    return jsonify({"status": "ok"}), 200
+    """Lightweight liveness check for Railway.
+
+    `commit` expõe o SHA que o Railway realmente buildou
+    (RAILWAY_GIT_COMMIT_SHA, injetado pela plataforma). É a prova contra o
+    deploy fantasma: comparar com `git rev-parse HEAD` local em vez de
+    confiar que o push virou deploy. Não é segredo — o repo é público."""
+    return jsonify({
+        "status": "ok",
+        "commit": os.environ.get("RAILWAY_GIT_COMMIT_SHA", "unknown"),
+    }), 200
 
 
 @app.route("/env-check", methods=["GET"])
@@ -1989,6 +1997,9 @@ def generate_report_endpoint():
             "correction_rewrites": result.get("correction_rewrites", []),
             "partial_coverage": result.get("partial_coverage", []),
             "verifier_log": result.get("verifier_log", []),
+            # Prova de EXECUÇÃO do verificador (ran/error/contagens) — um
+            # verifier_log vazio é ambíguo entre "0 violações" e "crashou".
+            "verifier": result.get("verifier"),
             "parental_clusters": result.get("parental_clusters"),
             # Geocoded location (lat/lng + resolved IANA zone name) so the
             # caller can verify the geocode landed where they expect.
