@@ -72,6 +72,18 @@ _FORBIDDEN_LEXICON = [
     # chunks (fonte limpa); veio da síntese. Vocabulário fora da voz da Marcia.
     (r"\baquilombad[ao]s?\b", "termo_rejeitado",
      "vocabulário fora da voz — reescrever com termo direto (ex.: 'entrincheirada', 'fechada em si')"),
+    # Achados do inventário 17/07:
+    (r"\breencuadrar\b",  "erro_espanhol", "reenquadrar"),
+    (r"\btencionam?\b",   "erro_grafia_tenciona", "tensiona (criar tensão); 'tencionar' é ter intenção"),
+    (r"\bconjunção\s+cerrada\b", "termo_rejeitado",
+     "não é termo da Marcia — usar 'conjunção apertada' ou 'conjunção justa'"),
+    # Gramática pontual (casos reais de 17/07 — nunca mais verbatim):
+    (r"\bo\s+que\s+te\s+exilaram\b", "gramatica",
+     "sem regência válida — reescrever (ex.: 'o que exilaram em você foi…')"),
+    (r"\bde\s+confiança\s+profissional\b", "gramatica",
+     "sintagma invertido — 'um profissional de confiança'"),
+    (r"\bno\s+quarto\s+sozinho\b", "gramatica_ambiguidade",
+     "'sozinho' gruda em 'quarto' — reescrever ('sozinho no quarto')"),
     (r"\borgullo\b",    "erro_espanhol", "orgulho"),
     (r"\bcerrad[ao]s?\b", "erro_espanhol", "fechada/fechado"),
     (r"\borgullos[ao]s?\b", "erro_espanhol", "orgulhosa/orgulhoso"),
@@ -133,7 +145,57 @@ _NEGATION_SUBSTITUTION_PATTERNS = [
     (r"\bnão\s+significa\s+[^.,;:!?]{1,60},?\s*significa\b", "nao_significa_significa"),
     # "Y, e não X"
     (r"[^.,;:!?]{5,60},\s+e\s+não\s+[a-záéíóúãõçâêôà]", "y_e_nao_x"),
+    # ---- variantes do inventário 17/07 (balde 1: nega E substitui) ----
+    # "não é X — é Y" / "não são X — são Y" / "não é X; é Y"
+    (r"\bnão\s+(?:é|são)\s+[^.,;:!?]{1,60}[;—–]\s*(?:é|são)\b", "nao_e_x_e_y_pausa"),
+    # "não como X, mas como Y"
+    (r"\bnão\s+como\s+[^.,;:!?]{1,50},?\s*mas\s+como\b", "nao_como_x_mas_como_y"),
+    # "Y — e não X" (a variante com travessão da y_e_nao_x)
+    (r"[^.;:!?]{5,60}\s+[—–]\s*e\s+não\s+[a-záéíóúãõçâêôà]", "y_travessao_e_nao_x"),
+    # "— e não apenas X"
+    (r"\be\s+não\s+apenas\s+[a-záéíóúãõçâêôà]", "e_nao_apenas_x"),
+    # "não X; ao contrário, Y"
+    (r"\bnão\s+[^.;:!?]{1,60};\s*ao\s+contrário\b", "nao_x_ao_contrario"),
+    # "nunca X. Apenas/Só Y" ("Silenciar... nunca produziu adequação. Produziu apenas...")
+    (r"\bnunca\s+[^.!?]{1,70}\.\s*(?:Apenas|Só)\b", "nunca_x_apenas_y"),
+    # "a pergunta não é X — é Y" (e "a pergunta que fica aqui não é...")
+    (r"\ba\s+pergunta\s+(?:\w+\s+){0,4}não\s+é\b", "pergunta_nao_e_x"),
+    # "não para X, mas para Y" (com até 2 palavras entre 'não' e 'para':
+    # "não virá para confirmar, mas para te expor")
+    (r"\bnão\s+(?:\w+\s+){0,2}para\s+[^.,;:!?]{1,50},\s*mas\s+para\b", "nao_para_x_mas_para_y"),
+    # "não o que X, mas o que Y"
+    (r"\bnão\s+o\s+que\s+[^.,;:!?]{1,60},\s*mas\s+o\s+que\b", "nao_oque_mas_oque"),
+    # "não porque X. Mas porque Y"
+    (r"\bnão\s+porque\s+[^.;!?]{1,80}[.;]\s*[Mm]as\s+porque\b", "nao_porque_mas_porque"),
+    # VERBO REPETIDO: "não pede X. Pede Y" / "não aponta X — aponta Y" /
+    # "nunca produziu X. Produziu Y" — a forma mais geral da família.
+    (r"\b(?:não|nunca)\s+(\w{4,})\s+[^.;—–!?]{1,60}[.;—–]\s*\1\b", "nao_verbo_x_verbo_y"),
 ]
+
+# Texto FIXO de template aprovado pela Márcia (nota de rodapé da tabela de
+# aspectos e afins): mascarado de TODOS os scans do verifier. O inventário
+# do GPT flagrou "em vez de cobrir cada aspecto individualmente" — é texto
+# de template, não de síntese; decisão de 17/07: whitelist.
+_FIXED_TEMPLATE_WHITELIST = [
+    "em vez de cobrir cada aspecto individualmente",
+    "pode ou não mencionar aspectos específicos de forma explícita",
+]
+
+
+def _mask_fixed_templates(text):
+    """Substitui os trechos whitelistados por espaços (mesmo comprimento —
+    offsets preservados) antes de qualquer detecção."""
+    for frag in _FIXED_TEMPLATE_WHITELIST:
+        i = 0
+        low, fl = text.lower(), frag.lower()
+        while True:
+            i = low.find(fl, i)
+            if i < 0:
+                break
+            text = text[:i] + " " * len(frag) + text[i + len(frag):]
+            low = text.lower()
+            i += len(frag)
+    return text
 
 
 # ============================================================
@@ -603,6 +665,10 @@ def run_verifier(text, chart, call_claude_fn):
     if not text:
         return text, []
 
+    # Texto fixo de template aprovado não entra em nenhum scan (offsets
+    # preservados — a máscara troca por espaços do mesmo comprimento).
+    scan_text = _mask_fixed_templates(text)
+
     violations_all = []  # cada item: {"kind","match","offset","suggestion","sentence_idx"}
 
     def _add(kind, match_text, offset, suggestion=""):
@@ -616,7 +682,7 @@ def run_verifier(text, chart, call_claude_fn):
         for entry in _FORBIDDEN_LEXICON:
             pat, cat, sugg = entry[0], entry[1], entry[2]
             validator = entry[3] if len(entry) > 3 else None
-            for m in re.finditer(pat, text, flags=re.IGNORECASE):
+            for m in re.finditer(pat, scan_text, flags=re.IGNORECASE):
                 if validator is not None and not validator(text, m):
                     continue
                 _add(f"lexico:{cat}", m.group(0), m.start(), sugg)
@@ -626,7 +692,7 @@ def run_verifier(text, chart, call_claude_fn):
     # 2b — negação-substituição
     try:
         for pat, cat in _NEGATION_SUBSTITUTION_PATTERNS:
-            for m in re.finditer(pat, text, flags=re.IGNORECASE):
+            for m in re.finditer(pat, scan_text, flags=re.IGNORECASE):
                 _add(f"neg_subst:{cat}", m.group(0), m.start(),
                      "reescrever a frase afirmando diretamente, sem passar por 'não X'")
     except Exception as e:
@@ -634,7 +700,7 @@ def run_verifier(text, chart, call_claude_fn):
 
     # 2c — nomenclatura de aspectos
     try:
-        for match_text, offset in _detect_invalid_aspect_composition(text):
+        for match_text, offset in _detect_invalid_aspect_composition(scan_text):
             _add("aspecto:composicao_invalida", match_text, offset,
                  "usar UM único nome de aspecto — a locução combina dois nomes indevidamente")
     except Exception as e:
@@ -642,7 +708,7 @@ def run_verifier(text, chart, call_claude_fn):
 
     # 2c' — aspecto com o segundo corpo comido ("entre sua Vênus está em")
     try:
-        for match_text, offset in _detect_broken_aspect_pair(text):
+        for match_text, offset in _detect_broken_aspect_pair(scan_text):
             _add("aspecto:par_incompleto", match_text, offset,
                  "um aspecto liga DOIS corpos — reescrever nomeando os dois "
                  "('o sextil entre sua Lua e Vênus…') ou remover a menção ao aspecto")
@@ -651,7 +717,7 @@ def run_verifier(text, chart, call_claude_fn):
 
     # 2d — contagem vs enumeração
     try:
-        for match_text, offset, expected, actual in _detect_count_mismatch(text):
+        for match_text, offset, expected, actual in _detect_count_mismatch(scan_text):
             _add("contagem:desbatida", match_text, offset,
                  f"o texto anuncia {expected} itens mas enumera {actual} — corrigir a contagem ou a enumeração")
     except Exception as e:
@@ -659,15 +725,34 @@ def run_verifier(text, chart, call_claude_fn):
 
     # 2e — spellcheck
     try:
-        for w, offset, sug in _detect_unknown_words(text, chart):
+        for w, offset, sug in _detect_unknown_words(scan_text, chart):
             _add("spell:palavra_desconhecida", w, offset,
                  f"palavra fora do dicionário pt-BR; sugestão do corretor: '{sug}'")
     except Exception as e:
         logger.warning("verifier 2e failed: %s", e)
 
+    # 2g — SLOT DE GÊNERO (inventário 17/07): termo generificado que não
+    # corresponde ao gênero do sujeito. Caso real: "se um dia você tiver
+    # filhos... a transformação não passe pela MATERNIDADE" num relatório
+    # masculino (Lucca). "materna/paterna" (a figura) são legítimos em
+    # qualquer gênero — só o substantivo do papel do PRÓPRIO sujeito é
+    # flagrado.
+    try:
+        _gender = (chart or {}).get("gender")
+        _gpat = None
+        if _gender == "masculino":
+            _gpat = (r"\bmaternidade\b", "para sujeito masculino: 'paternidade' (ou reescrever)")
+        elif _gender == "feminino":
+            _gpat = (r"\bpaternidade\b", "para sujeito feminino: 'maternidade' (ou reescrever)")
+        if _gpat:
+            for m in re.finditer(_gpat[0], scan_text, flags=re.IGNORECASE):
+                _add("genero:slot_papel", m.group(0), m.start(), _gpat[1])
+    except Exception as e:
+        logger.warning("verifier 2g failed: %s", e)
+
     # 4b/4c — afirmações sobre cúspides validadas contra a tabela real
     try:
-        for cd in _validate_cusp_claims(text, chart):
+        for cd in _validate_cusp_claims(scan_text, chart):
             _add(
                 f"cuspide:divergencia_{cd['pattern']}",
                 cd["match"],
@@ -791,6 +876,13 @@ def _reverify_sentence(sentence, prior_violations, chart):
             out.append({"kind": "spell:palavra_desconhecida", "match": w,
                         "offset": offset,
                         "suggestion": f"desconhecida; sugestão '{sug}'"})
+    if "genero" in kinds:
+        for v in prior_violations:
+            if v["kind"].startswith("genero"):
+                m2 = re.search(r"\b" + re.escape(v["match"]) + r"\b", sentence, flags=re.IGNORECASE)
+                if m2:
+                    out.append({"kind": v["kind"], "match": m2.group(0),
+                                "offset": m2.start(), "suggestion": v["suggestion"]})
     if "cuspide" in kinds:
         for cd in _validate_cusp_claims(sentence, chart):
             out.append({

@@ -326,3 +326,41 @@ aceitar. Critério: **zero**.
   · auditoria por geração no meta: `house_reading_moves`;
   · medida: média 2.95 corpos/mapa no censo de 500 (mediana 3, máx 8;
     22 mapas movem zero). Júpiter da Helena 10→11 como previsto.
+
+## Adjudicações da Márcia — 17/07/2026 (inventário GPT + spec final)
+
+**Estilo protegido — NUNCA corrigir nem criar detector:**
+- Fragmentos retóricos ("Porque o Sol, que deveria ser o motor de tudo
+  isso, está em Câncer." como frase isolada). Se algum lint pegar, whitelist.
+- "independente de" (por "independentemente") e "as coisas saem errado" —
+  registro falado, voz dela. Não formalizar.
+- Nota de rodapé da tabela de aspectos: texto fixo de template aprovado —
+  mascarado de todos os scans (`_FIXED_TEMPLATE_WHITELIST`).
+- Pull-quotes (páginas de respiro) duplicam por DESIGN — fora da regra de
+  repetição (e fora por construção: vivem na camada do PDF). Seletor fraco
+  delas = item pós-lançamento, já filado.
+
+**Negação-substituição — três baldes (spec fechada):**
+- Balde 1 (verifier, regex): só a família que NEGA e SUBSTITUI — 11
+  variantes novas + as 8 antigas em `_NEGATION_SUBSTITUTION_PATTERNS`,
+  incluindo o padrão geral de VERBO REPETIDO ("não pede X. Pede Y").
+  12 frases reais do inventário mordidas na prova; 6 protegidas limpas.
+- Balde 2 (só prompt): densidade de contraste — máx 2 pivôs antitéticos
+  por seção, formas variadas; "aprender a distinguir X de Y" conta como
+  fórmula de fechamento e segue as regras de variação dela.
+- Balde 3 (não toca): "mas" simples, comparativos, língua.
+
+**Repetição seção-a-seção (spec fechada):**
+- Proibido quase-verbatim entre seções; Fio recapitula COMPRIMIDO, nunca
+  colado. Lint objetivo: janela de 12 palavras idêntica em 2 seções →
+  `repetition_lint` no meta (gate exige []). Prompt: dono da leitura
+  (sol_saturno = eixo parental; saturno = Saturno adulto; casa_4 = só
+  ambiente, 1-2 frases por corpo) + regra geral de não-releitura.
+
+**Detectores novos:** slot de gênero (maternidade↔paternidade vs gênero do
+sujeito — caso real do Lucca provado), reencuadrar, tenciona→tensiona,
+"conjunção cerrada"→apertada/justa, gramática pontual (te exilaram,
+confiança profissional, quarto sozinho).
+
+**Gate da regeneração única:** GPT extração de novo + leitura da Márcia +
+Marcelle. Pendências antes de regenerar: regras de reescrita por idade (F).

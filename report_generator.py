@@ -1499,6 +1499,12 @@ def build_sections(chart):
                 "LINGUAGEM: use 'a principal figura de cuidado', 'quem exerceu esse papel', 'o "
                 "vínculo primário', 'quem cuidou' — NUNCA 'seu pai', 'sua mãe', 'seus pais'. Regra "
                 "permanente que vale para esta seção."
+            
+                + "\n\nDONO DA LEITURA (anti-repetição, 17/07): os corpos que estiverem na casa 4 "
+                "têm seção própria no relatório. Aqui, cada um deles entra APENAS pelo que a sua "
+                "presença diz do AMBIENTE de origem — uma ou duas frases por corpo. A leitura "
+                "completa (signo, aspectos, psicologia do corpo em si) pertence à seção própria: "
+                "não a faça aqui."
             ),
             "depth_instruction": DEPTH_TIER_1,
         },
@@ -1519,9 +1525,15 @@ def build_sections(chart):
                 "do qual você organiza sua identidade consciente. Saturno é onde você aprende através "
                 "do tempo, do esforço e da repetição — é a autoridade internalizada, o senso de "
                 "merecimento (ou de falta dele), a relação com limite, disciplina e responsabilidade, "
-                "o medo estrutural, e onde a estrutura psíquica se forma pela contenção. Leia estes "
-                "dois com profundidade PLENA: signo, casa (quando disponível), aspectos reais deste "
-                "mapa, e a interação entre eles.\n\n"
+                "o medo estrutural, e onde a estrutura psíquica se forma pela contenção.\n\n"
+
+                "DONO DA LEITURA (anti-repetição, 17/07): esta seção é a DONA da leitura da função "
+                "de autoridade/estrutura parental — aqui ela ganha profundidade plena: signo, casa "
+                "(quando disponível), aspectos reais deste mapa e a interação Sol–Saturno. Mas a "
+                "identidade solar em si já foi lida na tríade, e o Saturno ADULTO (a área da vida "
+                "onde o limite opera hoje) pertence à seção própria de Saturno: não refaça essas "
+                "leituras — referencie em uma frase quando precisar delas e mantenha o foco no "
+                "eixo parental.\n\n"
 
                 "REGRA PERMANENTE E ABSOLUTA — LINGUAGEM SOBRE FIGURAS PARENTAIS: NUNCA, em nenhuma "
                 "hipótese, escreva 'seu pai', 'sua mãe', 'seu papai', 'sua mamãe', 'seus pais' ou "
@@ -1591,7 +1603,17 @@ def build_sections(chart):
                 f"dúvida insegurança {saturn['sign_pt']} crescimento tempo esforço repetição",
             ],
             "planets_filter": ["Saturno"],
-            "psychological_frame": "Saturno marca o lugar onde você duvida de si mesmo, onde o crescimento vem lentamente, através do erro, da repetição e do tempo. Não é uma fraqueza — é o lugar onde você constrói algo duradouro. Seja honesto sobre a dificuldade sem tirar a esperança.",
+            "psychological_frame": (
+                "Saturno marca o lugar onde você duvida de si mesmo, onde o crescimento vem "
+                "lentamente, através do erro, da repetição e do tempo. Não é uma fraqueza — é o "
+                "lugar onde você constrói algo duradouro. Seja honesto sobre a dificuldade sem "
+                "tirar a esperança.\n\n"
+                "DONO DA LEITURA (anti-repetição, 17/07): a função PARENTAL/autoridade de Saturno "
+                "já foi lida em profundidade na seção 'Sol e Saturno' — NÃO a releia aqui. Esta "
+                "seção é a dona do Saturno ADULTO: a área da vida (signo e casa) onde o limite, a "
+                "dúvida e a construção lenta operam HOJE. Se precisar da origem parental, uma "
+                "frase de referência basta."
+            ),
             "depth_instruction": DEPTH_TIER_3,
         },
         {
@@ -1847,7 +1869,13 @@ REGRAS DE VOZ E ESTILO:
 
 ORIENTAÇÃO AO FINAL DE SEÇÕES COM TENSÃO:
 Se — e somente se — a seção nomear uma tensão ou contradição interna, termine com uma ou duas frases que ofereçam uma orientação prática — não uma resolução, mas uma bússola. Como essa pessoa pode trabalhar conscientemente com essa tensão? O tom não é de conselho, mas de reconhecimento. Seja específica ao posicionamento — não genérica. Nunca termine uma seção deixando a pessoa apenas no peso da tensão sem nenhuma orientação.
-VARIE A FÓRMULA do fechamento — o leitor lê as seções em sequência e o mesmo molde vira metrônomo. Alterne entre formas como: "o que esse posicionamento pede de você é…", "a melhor forma de trabalhar com isso é…", "o convite aqui é…", ou um fechamento sem fórmula nenhuma, em que a orientação emerge da última frase da própria leitura. Nunca use a mesma forma que a seção anterior usou (quando o contexto de seções anteriores estiver disponível acima).
+VARIE A FÓRMULA do fechamento — o leitor lê as seções em sequência e o mesmo molde vira metrônomo. Alterne entre formas como: "o que esse posicionamento pede de você é…", "a melhor forma de trabalhar com isso é…", "o convite aqui é…", ou um fechamento sem fórmula nenhuma, em que a orientação emerge da última frase da própria leitura. "Aprender a distinguir X de Y" É a mesma fórmula-metrônomo — conta como fechamento de fórmula e segue as mesmas regras de variação. Nunca use a mesma forma que a seção anterior usou (quando o contexto de seções anteriores estiver disponível acima).
+
+DENSIDADE DE CONTRASTE:
+A estrutura antitética — "tensão entre X e Y", "distinguir X de Y", "mais X do que Y", "quando X e quando Y", "X, mas Y" — é ferramenta legítima, mas em excesso vira tique que o leitor passa a ouvir. Máximo DOIS pivôs antitéticos por seção, nunca dois com a mesma forma. No resto, afirme diretamente: descreva o que É, sem armar o par de opostos. NUNCA use a família negação-substituição em nenhuma variante: "não é X — é Y", "não como X, mas como Y", "Y — e não X", "não pede X. Pede Y", "a pergunta não é X, é Y", "nunca X. Apenas Y", "não porque X. Mas porque Y". Afirme o Y diretamente, sem negar o X antes.
+
+REPETIÇÃO ENTRE SEÇÕES:
+Se o contexto de seções anteriores (acima) já leu um posicionamento, NÃO refaça a leitura — referencie em uma frase e avance para o que é NOVO nesta seção. Repetir quase-verbatim uma frase ou uma leitura já feita é defeito grave: o leitor lê o relatório inteiro em sequência e percebe o eco. O mesmo eixo interpretativo (ex.: a exigência da figura de autoridade) só pode ser DESENVOLVIDO — cada retorno precisa acrescentar algo que ainda não foi dito, nunca reafirmar com outras palavras.
 Se a seção NÃO nomeia tensão (uma abertura, uma leitura fluida sem contradição), NÃO cole um fechamento de orientação — encerre onde o texto naturalmente termina. Fórmula de orientação sem tensão nomeada é ruído.
 
 ASPECTOS LISTADOS — JÁ FILTRADOS E PRIORIZADOS:
@@ -1887,6 +1915,8 @@ Esta seção deve:
 4. Mostrar como as tensões individuais são expressões de uma mesma dinâmica central
 5. Amarrar explicitamente a dinâmica parental / de apego à síntese. Isso é obrigatório porque o enquadramento de apego atravessa todo o relatório. A figura paterna é lida pelo Sol (identidade, direção vital) e por Saturno (autoridade, estrutura, limite). A figura materna é lida pela Lua (nutrição, segurança emocional, receptividade). Use a seção "DINÂMICA PARENTAL / DE APEGO" acima para decidir qual figura recebe mais peso NESTE mapa específico: pode ser predominantemente paterna, predominantemente materna, ambas com pesos comparáveis, ou marcada pela ausência de uma delas. Deixe os dados guiarem — se Sol e Saturno estão intensamente aspectados (especialmente por aspectos difíceis), a dimensão paterna tende a dominar; se a Lua carrega os aspectos mais tensos, é a dimensão materna; se ambos, ambas. REGRA CRÍTICA: você só pode afirmar posicionamento (signo, casa, retrogradação, aspecto) que esteja EXPLICITAMENTE listado na "DINÂMICA PARENTAL / DE APEGO" acima. NUNCA invente configurações. Se a hora é desconhecida (verá isso indicado na seção parental), não afirme casas. Se o signo da Lua está marcado como indeterminado, não afirme signo para a Lua — trabalhe só com aspectos dela.
 6. Terminar com algo concreto e singular que a pessoa possa carregar — não uma previsão, não uma lista, mas uma orientação central que emerge naturalmente de tudo que foi revelado neste mapa
+
+RECAPITULAÇÃO: o Fio Condutor tem licença para retomar o que as seções leram — é a função dele. Mas recapitular é COMPRIMIR com palavras novas, nunca colar: nenhuma frase deste texto pode ser quase-verbatim de uma frase que já apareceu no relatório acima. Se você precisa do eixo Saturno-autoridade de novo, sintetize-o em formulação nova e mais curta.
 
 Tom: mais elevado e conclusivo que as outras seções, mas sem ornamentação poética forçada. Profundidade sem dramatismo. A mesma voz direta e íntima do restante do relatório.
 
@@ -2789,6 +2819,43 @@ PARALLEL_MAX_WORKERS = int(os.environ.get("PARALLEL_MAX_WORKERS", "6"))
 # ============================================================
 # PUBLIC API: generate_report(chart_dict, ...)
 # ============================================================
+def detect_cross_section_repetition(report_text: str, min_words: int = 12) -> list:
+    """Repetição quase-verbatim seção-a-seção (spec 17/07).
+
+    Janela deslizante de `min_words` palavras normalizadas; a mesma janela
+    aparecendo em DUAS seções diferentes = par flagrado. Repetição dentro da
+    mesma seção não conta (parágrafo retomando o próprio tema é normal).
+    Um par de seções é reportado UMA vez, com o trecho mais longo encontrado.
+
+    Casos de teste: os pares documentados no inventário do GPT (Helena
+    "E você, crescendo nesse campo…" 2×; Lucca "Saturno retrógrado nessa
+    casa…" 2×). Pull-quotes não aparecem aqui — são inseridas na camada do
+    PDF, este texto não as contém.
+    """
+    sections = re.split(r"\n##\s+", report_text)
+    parsed = []
+    for blk in sections[1:]:
+        head, _, rest = blk.partition("\n")
+        parsed.append((head.strip(), rest))
+    seen = {}      # shingle -> section title
+    best = {}      # (secA, secB) -> shingle mais longo (em nº de janelas)
+    runs = {}      # (secA, secB) -> contagem de janelas repetidas
+    for title, body in parsed:
+        words = re.findall(r"[\wáéíóúâêôãõçüà-]+", body.lower())
+        for i in range(max(0, len(words) - min_words + 1)):
+            sh = " ".join(words[i:i + min_words])
+            other = seen.get(sh)
+            if other is None:
+                seen[sh] = title
+            elif other != title:
+                key = (other, title)
+                runs[key] = runs.get(key, 0) + 1
+                if key not in best:
+                    best[key] = sh
+    return [{"sections": list(k), "windows": runs[k], "excerpt": best[k]}
+            for k in sorted(runs, key=lambda k: -runs[k])]
+
+
 def generate_report(
     chart: dict,
     sections_only: list = None,
@@ -3054,6 +3121,13 @@ def generate_report(
 
     elapsed = time.time() - start
 
+    # Lint de repetição entre seções (spec da Márcia 17/07): janelas de 12
+    # palavras idênticas em seções DIFERENTES = quase-verbatim = defeito.
+    # Pull-quotes ficam fora por construção (vivem só no PDF, não neste
+    # texto). O Fio Condutor ENTRA: a licença dele é recapitular comprimido
+    # com palavras novas — 12 palavras coladas é cola, não recap.
+    repetition_lint = detect_cross_section_repetition(full_report)
+
     # Build a compact aspect audit (for return + verbose print)
     aspect_audit = {}
     for sec in sections:
@@ -3089,6 +3163,7 @@ def generate_report(
         "elapsed_seconds": elapsed,
         "aspect_audit": aspect_audit,
         "cleanup_changes": cleanup_changes,
+        "repetition_lint": repetition_lint,
         "sign_divergences": sign_divergences,
         "correction_rewrites": correction_rewrites,
         "verifier_log": verifier_log,

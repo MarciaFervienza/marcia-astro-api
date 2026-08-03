@@ -2061,6 +2061,9 @@ def generate_report_endpoint():
             # Regra dos 5° (leitura de casa): quais corpos foram re-atribuídos
             # à casa seguinte antes da síntese. A mandala não é afetada.
             "house_reading_moves": _house_moves,
+            # Repetição quase-verbatim entre seções (janela de 12 palavras).
+            # Gate pré-testers exige [].
+            "repetition_lint": result.get("repetition_lint", []),
             "sign_divergences": result.get("sign_divergences", []),
             "correction_rewrites": result.get("correction_rewrites", []),
             "partial_coverage": result.get("partial_coverage", []),
