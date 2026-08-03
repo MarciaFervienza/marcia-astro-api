@@ -11,7 +11,7 @@ import warnings; warnings.filterwarnings("ignore")
 import sys, random, io, contextlib
 from datetime import date
 from kerykeion import AstrologicalSubjectFactory
-from props import ACTIVE_POINTS, PROPS, check_all
+from props import ACTIVE_POINTS, PROPS, CUSP_PROPS, check_all, read_model, read_svg
 from prove_bite import stock_svg
 import packing
 
@@ -48,8 +48,13 @@ def subjects(seed, n):
         yield s, f"{d.day:02d}/{d.month:02d}/{d.year} {mi//60:02d}:{mi%60:02d} {c[0]}"
 
 def run(mode, seed, n):
-    """mode: 'fabrica' | 'packing'. Retorna (violacoes_por_prop, mapas_ruins, corpos)."""
-    per = {name: 0 for name, _ in PROPS}
+    """mode: 'fabrica' | 'packing'. Retorna (violacoes_por_prop, mapas_ruins, corpos).
+
+    No PACKING o gate inclui as 2 propriedades de cuspide (9 no total): a
+    interrupcao colinear existe e tem que zerar. Na FABRICA so as 7 — as
+    linhas inteiras da fabrica sobrepoem por design; nao e o que se mede la."""
+    all_props = PROPS + (CUSP_PROPS if mode == "packing" else [])
+    per = {name: 0 for name, _ in all_props}
     bad_maps = 0; bodies = 0; worst = []
     for s, desc in subjects(seed, n):
         if mode == "packing": packing.install()
@@ -58,7 +63,8 @@ def run(mode, seed, n):
                 svg = stock_svg(s)
         finally:
             packing.uninstall()
-        res = check_all(s, svg)
+        model = read_model(s); drawn = read_svg(svg)
+        res = [(name, fn(model, drawn)) for name, fn in all_props]
         bodies += len(s.__dict__.get("_active", [])) or 18
         tot = 0
         for name, errs in res:
@@ -78,7 +84,8 @@ if __name__ == "__main__":
             tot = sum(per.values())
             print(f"\n  {mode.upper():8} mapas com defeito: {bad}/{N}   "
                   f"violacoes totais: {tot}   corpos avaliados: {bodies}")
-            for name, _ in PROPS:
+            props_list = PROPS + (CUSP_PROPS if mode == "packing" else [])
+            for name, _ in props_list:
                 flag = "" if per[name] == 0 else "  <<<"
                 print(f"      {name:<32} {per[name]:>6}{flag}")
             if mode == "packing" and worst:

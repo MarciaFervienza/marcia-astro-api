@@ -109,7 +109,10 @@ def read_svg(svg):
     ticks = []
     for m in re.finditer(r"<g[^>]*kr:node='Indicator'[^>]*transform='rotate\(([-\d.]+)", svg):
         ticks.append((-float(m.group(1))) % 360)
-    return {"points": pts, "cusps": cusps, "ticks": ticks}
+    # o SVG cru fica disponível para as propriedades de cúspide, que leem as
+    # <line> de divisão de casa (não são grupos kr:node, então não cabem nos
+    # dicionários acima). Continua sendo só leitura do desenho.
+    return {"points": pts, "cusps": cusps, "ticks": ticks, "_svg": svg}
 
 
 def wheel_angle(z, seventh):
@@ -340,6 +343,120 @@ def prop_no_compression(model, drawn):
     return errs
 
 
+# ---------------------------------------------------------------- CÚSPIDES
+# Geometria da linha de divisão de casa e da coluna do planeta, MEDIDA do SVG
+# de fábrica (Kerykeion 5.12.8, wheel-only, style modern):
+#   · CENTER = 50; a linha de casa vai de y=6.5 a y=28  → raio 43.5 a 22.
+#   · a coluna do planeta empilha glifo(r=39) grau(35.5) signo(32) min(28) RX(25)
+#     → ocupa a faixa radial [24, 40].
+#   · largura angular da coluna: o elemento mais largo mede 2.70u no raio menor
+#     (RX, r=25) → 2·asin(1.35/25) = 6.19°, meia-largura 3.10°. Uso 3.2° com
+#     folga. Este número é o ESPECIFICADOR de legibilidade: "nenhuma linha de
+#     cúspide passa a menos disto do centro de uma coluna". O renderer que vier
+#     a interromper as linhas terá de usar o MESMO valor — é de propósito, para
+#     que teste e desenho concordem por construção sobre o que é "colar no
+#     glifo". A prova de mordida guarda o piso (a linha inteira, sem cortar,
+#     viola) e o visual impresso guarda o teto (cortar demais aparece).
+try:
+    from .geometry import (CUSP_CENTER as _CUSP_CENTER, COLUMN_R_INNER,
+                           COLUMN_R_OUTER, COLUMN_HALF_WIDTH_DEG)
+except ImportError:
+    from geometry import (CUSP_CENTER as _CUSP_CENTER, COLUMN_R_INNER,
+                          COLUMN_R_OUTER, COLUMN_HALF_WIDTH_DEG)
+
+
+def read_house_lines(svg):
+    """As 12 linhas radiais de divisão de casa (y de 6.5 a 28). Ignora os 12
+    ticks da régua (y de 28 a 30.5), que ficam DENTRO da coluna e nunca tocam
+    glifo. Cada linha vira (wheel_angle, r_out, r_in, width)."""
+    out = []
+    for m in re.finditer(r"<line\b[^>]*/>", svg):
+        tag = m.group(0)
+        rot = re.search(r"rotate\((-?[\d.]+)", tag)
+        y1 = re.search(r"y1='([\d.]+)'", tag)
+        y2 = re.search(r"y2='([\d.]+)'", tag)
+        x1 = re.search(r"x1='([\d.]+)'", tag)
+        w = re.search(r"stroke-width='([\d.]+)'", tag)
+        if not (rot and y1 and y2 and x1):
+            continue
+        if abs(float(x1.group(1)) - _CUSP_CENTER) > 0.01:
+            continue
+        ya, yb = float(y1.group(1)), float(y2.group(1))
+        # A linha de divisão de casa vive em y∈[6.5,28] (raio 43.5..22). Os ticks
+        # da régua vivem em y∈[28,30.5] (dentro de r=22). Filtra pela FAIXA, não
+        # pelo comprimento: um segmento interrompido é curto (ex. 6.5..9) e tem
+        # de continuar sendo reconhecido — senão a cúspide cortada some do teste.
+        if not (min(ya, yb) >= 6.4 and max(ya, yb) <= 28.1):
+            continue
+        out.append({
+            "wa": (-float(rot.group(1))) % 360,
+            "r_out": _CUSP_CENTER - min(ya, yb),
+            "r_in": _CUSP_CENTER - max(ya, yb),
+            "width": float(w.group(1)) if w else None,
+        })
+    return out
+
+
+def prop_cusp_collinear(model, drawn):
+    """Cada linha de divisão está no ângulo real de uma cúspide, e todos os
+    segmentos de uma mesma cúspide são colineares (mesmo ângulo, ±0.01°).
+
+    A interrupção (a linha some atrás do bloco e reaparece do outro lado) só é
+    honesta se os dois segmentos continuarem sobre a MESMA reta radial. Um
+    segmento que reaparece torto desenha uma cúspide que não existe — é o modo
+    de falha específico que esta propriedade tranca antes de a interrupção ser
+    escrita.
+    """
+    errs = []
+    lines = read_house_lines(svg=drawn["_svg"])
+    cusp_wa = [wheel_angle(c, model["seventh"]) for c in model["cusps"]]
+    groups = {}
+    for ln in lines:
+        j = min(range(12), key=lambda i: _dd(cusp_wa[i], ln["wa"]))
+        if _dd(cusp_wa[j], ln["wa"]) > 0.5:
+            errs.append(f"[cúspide-solta] segmento em {ln['wa']:.3f}° não "
+                        f"corresponde a nenhuma cúspide do modelo")
+            continue
+        groups.setdefault(j, []).append(ln["wa"])
+    for j, angs in groups.items():
+        if max(angs) - min(angs) > 0.01:
+            errs.append(f"[colinear] casa {j+1}: segmentos em ângulos "
+                        f"diferentes ({min(angs):.3f}°..{max(angs):.3f}°) — "
+                        f"a cúspide interrompida deixou de ser uma reta só")
+    return errs
+
+
+def prop_cusp_no_overlap(model, drawn):
+    """Nenhuma linha de cúspide pinta por cima da coluna de um planeta.
+
+    Uma linha de casa cruza a coluna de um planeta quando (a) sua faixa radial
+    invade [24,40] — onde vivem glifo/grau/signo/minutos/RX — e (b) seu ângulo
+    cai a menos de 3.2° do centro angular da coluna. Aí a linha risca o texto.
+
+    É o defeito que a interrupção existe para eliminar. Vale para produção
+    ATUAL (linha fina 0.07u) e para a versão reforçada (0.6u): a fina viola
+    baixinho, a grossa viola alto. Só a versão interrompida zera. Portanto esta
+    propriedade fica NÃO-nula até a feature existir — é o alvo, não o estado.
+    """
+    errs = []
+    lines = read_house_lines(svg=drawn["_svg"])
+    cols = []
+    for slug, d in drawn["points"].items():
+        if d.get("display_wa") is not None:
+            cols.append((slug, d["display_wa"]))
+    for ln in lines:
+        # a faixa radial da linha invade a faixa da coluna?
+        if ln["r_in"] > COLUMN_R_OUTER or ln["r_out"] < COLUMN_R_INNER:
+            continue
+        for slug, cwa in cols:
+            if _dd(ln["wa"], cwa) < COLUMN_HALF_WIDTH_DEG:
+                errs.append(
+                    f"[sobreposição] linha da cúspide em {ln['wa']:.2f}° risca "
+                    f"a coluna de {slug} ({cwa:.2f}°) — a {_dd(ln['wa'], cwa):.2f}° "
+                    f"do centro, dentro dos {COLUMN_HALF_WIDTH_DEG:.1f}° do bloco")
+    return errs
+
+
 PROPS = [
     ("todos os corpos desenhados", prop_all_bodies_rendered),
     ("abs_pos do SVG == modelo",   prop_abs_pos_matches),
@@ -348,6 +465,15 @@ PROPS = [
     ("tick na longitude real",     prop_tick_is_true),
     ("cúspides == modelo",         prop_cusps_match),
     ("desenho não comprime",       prop_no_compression),
+]
+
+# As duas propriedades da feature de cúspide reforçada vivem à parte enquanto a
+# feature não existe: prop_cusp_no_overlap fica não-nula de propósito (é o alvo)
+# e derrubaria o baseline limpo do prove_bite. Entram em PROPS — e no censo
+# 1000×2 = zero — quando a interrupção estiver escrita e passando.
+CUSP_PROPS = [
+    ("cúspide não sobrepõe glifo",   prop_cusp_no_overlap),
+    ("cúspide interrompida colinear", prop_cusp_collinear),
 ]
 
 

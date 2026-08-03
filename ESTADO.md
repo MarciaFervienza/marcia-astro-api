@@ -19,8 +19,11 @@ clientes reais.
 | corpos em signo errado | 2.070 | **0** |
 | corpos em casa errada | 2.217 | **0** |
 | desenho comprimindo corpos | 0 | **0** |
+| cúspide riscando coluna de planeta | (por design) | **0** |
+| cúspide interrompida fora da reta | — | **0** |
 
-1000 mapas sintéticos (500 × 2 seeds), 19 corpos, 7 propriedades. Reproduzir:
+1000 mapas sintéticos (500 × 2 seeds), 19 corpos, **9 propriedades** no packing
+(as 2 de cúspide entraram em 16/07 com o item 5.1). Reproduzir:
 `cd wheel_renderer && python3 censo.py 500`.
 
 ---
@@ -138,6 +141,24 @@ que a propriedade o condene.
 > não o código — mas só soube que a correção era honesta porque ela continuou reprovando
 > o defeito de 0.30°.
 
+### R5. Um módulo, uma instância — ou o uninstall restaura o próprio patch
+
+`import packing` (script em wheel_renderer/) e `from wheel_renderer import
+packing` (app.py) criam **duas instâncias** do mesmo arquivo. Se a segunda
+importa com os patches da primeira já instalados, ela captura
+`_ORIG_* = dm._draw_planet_ring` **já patchado** — e o `uninstall()` dela
+"restaura" para o patch. A fábrica medida vira o packing.
+
+> Aconteceu em 16/07: censo importou `props` → `app` → `install()`, depois
+> `import packing` (2ª instância). Resultado: **FABRICA 0/15 defeitos** — a
+> fábrica não tem 0 defeitos nunca; o instrumento estava medindo o packing
+> duas vezes. Pego porque um resultado bom demais é tão suspeito quanto um
+> ruim demais.
+
+Blindagem em `packing.py`: cada função patchada carrega o original verdadeiro
+em `_packing_orig`; a captura de `_ORIG_*` desembrulha via `_unwrap()`.
+Qualquer instância restaura o original real.
+
 ---
 
 ## 3. As 7 propriedades — `wheel_renderer/props.py`
@@ -153,6 +174,13 @@ Leem **só** o modelo do Kerykeion e o SVG emitido. Se discordam, o desenho ment
 | 5 | tick na longitude real | tether apontando para o lugar errado |
 | 6 | cúspides == modelo | cúspides fabricadas (R1) |
 | 7 | desenho não comprime | **o defeito da costura entre grupos** |
+| 8 | cúspide não sobrepõe glifo | linha de casa riscando a coluna do planeta |
+| 9 | cúspide interrompida colinear | segmento que reaparece torto (cúspide falsa) |
+
+**Props 8–9** vivem em `CUSP_PROPS` e entram no censo só no modo packing: as
+linhas inteiras da fábrica sobrepõem por design, não é o que se mede lá. A
+geometria compartilhada (faixa radial [24,40], meia-largura 3.2°) mora em
+`geometry.py` — módulo sem imports, usado por teste E desenho (ver R3).
 
 **Prop 7** exige, por par vizinho, `min(vão_real, 8°, ótimo_geométrico)`. O terceiro
 termo é o que a torna justa: para toda janela [a,b] de corpos consecutivos, todos cabem
@@ -190,20 +218,30 @@ Duas remoções, **ambas decisão fechada da Márcia**:
 
 ## 5. Aberto (nada bloqueia cliente)
 
-### 5.1 Cúspides quase invisíveis — a Márcia quer, e é viável
+### 5.1 ~~Cúspides quase invisíveis~~ — RESOLVIDO 16/07 (Opção A da Márcia)
 
-A fábrica desenha as 8 casas não-angulares com `NORMAL_STROKE_WIDTH = 0.07u` = **0.39pt**
-a 18cm, em `#d4d4d8`. Não dá para ver em que casa o planeta está. As angulares (1,4,7,10)
-vão a 0.6u = 3.33pt — 8.5× mais grossas.
+Implementado em `packing.py` (`_deferred_houselines` + `_build_cusp_lines`):
 
-Engrossar direto **não funciona**: a linha atravessa a coluna do glifo (raio 43.5→22).
-Verificado: nenhum planeta se move (18/18 idênticos) — o que a Márcia viu foi a linha
-escura cortando o meio dos grupos, lida como mais um elemento amontoado.
+- linha que **não cruza** coluna de planeta: inteira, `0.25u` `#8a8a9e`
+  (fábrica: 0.07u quase branco). Angulares mantêm 0.6u.
+- linha que **cruza**: interrompida — some atrás do bloco e reaparece
+  **colinear** (mesmo ângulo; corte 1-D em y na faixa radial [23,41]).
+- toco < 1.5u não desenha; o vão fica, o tick da régua mostra a divisão.
+  Com o piso de 1.5u o toco externo (2.5u) **sempre sobrevive**: nenhuma
+  cúspide some por inteiro.
 
-**Mas medido em 200 mapas:** só **32.8%** das linhas cruzam a coluna de um planeta
-(média 3.9 de 12). **8 das 12 podem ser grossas de graça.** Caminho: grossa onde está
-livre, cedendo passagem (gap radial) onde cruza o texto. *Não é preço a pagar — é
-trabalho pendente.*
+**Fonte única de verdade:** ângulo da coluna = `display_angle` do packing
+(nenhuma posição re-derivada); largura/faixa da coluna = `geometry.py`, o
+MESMO módulo que `prop_cusp_no_overlap` usa para acusar. Teste e desenho
+concordam por construção. **Não é o Liang-Barsky do renderer.py** — aquele
+bbox era da família dos 4 bugs e morreu com o renderer.
+
+Ordem interna que torna isso possível: `_draw_house_division_lines` é chamada
+DENTRO de `_draw_planet_ring` **antes** do resolve — por isso o patch emite um
+placeholder e `_patched_ring` o substitui no fim, quando os display_angle
+existem.
+
+Propriedades 8 e 9 (abaixo) guardam o resultado. Gate: zero em 1000×2.
 
 ### 5.2 Rótulos de cúspide acima de 55°N
 
