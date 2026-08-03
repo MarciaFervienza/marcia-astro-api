@@ -19,11 +19,10 @@ clientes reais.
 | corpos em signo errado | 2.070 | **0** |
 | corpos em casa errada | 2.217 | **0** |
 | desenho comprimindo corpos | 0 | **0** |
-| cúspide riscando coluna de planeta | (por design) | **0** |
-| cúspide interrompida fora da reta | — | **0** |
+| cúspide sumida/torta/cortada | — | **0** |
 
-1000 mapas sintéticos (500 × 2 seeds), 19 corpos, **9 propriedades** no packing
-(as 2 de cúspide entraram em 16/07 com o item 5.1). Reproduzir:
+1000 mapas sintéticos (500 × 2 seeds), 19 corpos, **8 propriedades** no packing
+(a de cúspide entrou em 16/07 com o item 5.1). Reproduzir:
 `cd wheel_renderer && python3 censo.py 500`.
 
 ---
@@ -174,13 +173,12 @@ Leem **só** o modelo do Kerykeion e o SVG emitido. Se discordam, o desenho ment
 | 5 | tick na longitude real | tether apontando para o lugar errado |
 | 6 | cúspides == modelo | cúspides fabricadas (R1) |
 | 7 | desenho não comprime | **o defeito da costura entre grupos** |
-| 8 | cúspide não sobrepõe glifo | linha de casa riscando a coluna do planeta |
-| 9 | cúspide interrompida colinear | segmento que reaparece torto (cúspide falsa) |
+| 8 | 12 cúspides inteiras no ângulo real | linha sumida, torta ou cortada |
 
-**Props 8–9** vivem em `CUSP_PROPS` e entram no censo só no modo packing: as
-linhas inteiras da fábrica sobrepõem por design, não é o que se mede lá. A
-geometria compartilhada (faixa radial [24,40], meia-largura 3.2°) mora em
-`geometry.py` — módulo sem imports, usado por teste E desenho (ver R3).
+**Prop 8** vive em `CUSP_PROPS` e entra no censo só no modo packing: mede o
+contrato do desenho REFORÇADO (as linhas da fábrica existem, mas a 0.07u).
+`geometry.py` guarda a geometria medida da coluna — hoje só `CUSP_CENTER` é
+consumido; o resto fica como registro de medição (R2).
 
 **Prop 7** exige, por par vizinho, `min(vão_real, 8°, ótimo_geométrico)`. O terceiro
 termo é o que a torna justa: para toda janela [a,b] de corpos consecutivos, todos cabem
@@ -218,35 +216,35 @@ Duas remoções, **ambas decisão fechada da Márcia**:
 
 ## 5. Aberto (nada bloqueia cliente)
 
-### 5.1 ~~Cúspides quase invisíveis~~ — RESOLVIDO 16/07 (Opção A da Márcia)
+### 5.1 ~~Cúspides quase invisíveis~~ — RESOLVIDO 16/07 (2 iterações da Márcia)
 
-Implementado em `packing.py` (`_deferred_houselines` + `_build_cusp_lines`):
+Implementado em `packing.py` (`_reinforced_houselines`): **as 12 linhas de
+divisão, todas inteiras**, `0.25u #8a8a9e` (fábrica: 0.07u quase branco);
+angulares mantêm 0.6u. **Corpos sentam sobre a cúspide** — a legibilidade vem
+da ordem de desenho da fábrica: as linhas saem ANTES dos glifos dentro de
+`_draw_planet_ring`, o texto do planeta fica por cima.
 
-- linha que **não cruza** coluna de planeta: inteira, `0.25u` `#8a8a9e`
-  (fábrica: 0.07u quase branco). Angulares mantêm 0.6u.
-- linha que **cruza**: interrompida — some atrás do bloco e reaparece
-  **colinear** (mesmo ângulo; corte 1-D em y na faixa radial [23,41]).
-- toco < 1.5u não desenha; o vão fica, o tick da régua mostra a divisão.
-  Com o piso de 1.5u o toco externo (2.5u) **sempre sobrevive**: nenhuma
-  cúspide some por inteiro.
-- **EXCEÇÃO (16/07, pega pela Márcia):** a linha da casa 1 não cede ao rótulo
-  do Ascendente, nem a da 10 ao do Meio-do-Céu — o rótulo do ângulo É o
-  indicativo daquela cúspide, e a interrupção apagava o eixo ASC/MC em 100%
-  dos mapas. Regra POR PAR em `geometry.CUSP_ANGLE_SLUGS`, usada pelo desenho
-  E pela prop 8: a linha da casa 1 continua cedendo a qualquer outro corpo.
+Como se chegou aqui (2 decisões da Márcia na impressão, mesma noite):
 
-**Fonte única de verdade:** ângulo da coluna = `display_angle` do packing
-(nenhuma posição re-derivada); largura/faixa da coluna = `geometry.py`, o
-MESMO módulo que `prop_cusp_no_overlap` usa para acusar. Teste e desenho
-concordam por construção. **Não é o Liang-Barsky do renderer.py** — aquele
-bbox era da família dos 4 bugs e morreu com o renderer.
+1. **Interrupção colinear (Opção A)** — a linha cedia passagem onde cruzava a
+   coluna de um planeta. Morreu na primeira checagem impressa: o rótulo do
+   ASC/MC senta NA própria cúspide, então a linha fugia do próprio indicador
+   e o eixo ASC/MC sumia em **100% dos mapas**.
+2. **Exceção por par (casa 1 ↔ ASC, casa 10 ↔ MC)** — restaurou o eixo, mas
+   criou assimetria: cúspide comum cedia a corpo, angular não. A Márcia
+   escolheu coerência: *"restabelece todas as cúspides e deixa corpos
+   sentarem sobre a cúspide."*
 
-Ordem interna que torna isso possível: `_draw_house_division_lines` é chamada
-DENTRO de `_draw_planet_ring` **antes** do resolve — por isso o patch emite um
-placeholder e `_patched_ring` o substitui no fim, quando os display_angle
-existem.
+A propriedade 8 acompanhou o contrato: **12 cúspides inteiras no ângulo real**
+(`prop_cusp_lines_whole_and_true`) — pega linha sumida (o defeito que a Márcia
+caçou), linha torta (cúspide falsa) e linha cortada (regressão da
+interrupção). As três mordidas provadas em `prove_bite.py`. Gate: zero em
+1000×2 com 8 propriedades.
 
-Propriedades 8 e 9 (abaixo) guardam o resultado. Gate: zero em 1000×2.
+> Se algum dia a interrupção voltar (ex.: cliente reclamar da linha sob o
+> texto), o histórico completo está nos commits `0e1635e` e `cf91a9c` —
+> incluindo o corte 1-D, o piso de toco e a exceção por par. Não reescrever
+> do zero.
 
 ### 5.2 Rótulos de cúspide acima de 55°N
 

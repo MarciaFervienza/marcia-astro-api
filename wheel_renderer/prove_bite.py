@@ -136,20 +136,6 @@ def make_corrupt_compress(subject):
     return None, None
 
 
-def corrupt_split_cusp(svg):
-    """Parte uma linha de divisão de casa em dois segmentos e torce um deles
-    0.5°. Simula a interrupção mal-feita: o segmento de baixo reaparece fora da
-    reta. Só prop_cusp_collinear deve gritar."""
-    m = re.search(r"<line\b[^>]*y1='6.5'[^>]*rotate\((-?[\d.]+)[^>]*/>", svg)
-    if not m:
-        return svg
-    tag = m.group(0); ang = m.group(1)
-    top = tag.replace("y2='28.0'", "y2='17.0'")                     # metade de cima
-    bot = tag.replace("y1='6.5'", "y1='17.0'").replace(
-        f"rotate({ang}", f"rotate({float(ang) - 0.5:.6f}")          # metade torta
-    return svg.replace(tag, top + "\n" + bot, 1)
-
-
 CORRUPTIONS = [
     ("apaga o corpo Vesta",            corrupt_drop_body,     "todos os corpos desenhados"),
     ("mente no abs_pos do Sol",        corrupt_abs_pos,       "abs_pos do SVG == modelo"),
@@ -282,60 +268,55 @@ if __name__ == "__main__":
         if not bad:
             print("    (todas as 7 passam)")
 
-    # ---- prova que as DUAS propriedades de cúspide mordem --------------------
+    # ---- prova que a propriedade de cúspide morde ---------------------------
     print("\n" + "=" * 100)
-    print("PROPRIEDADES DE CÚSPIDE (feature 5.1) — prova de mordida, antes de escrever a feature")
+    print("PROPRIEDADE DE CÚSPIDE (contrato 16/07: todas inteiras, corpos sentam sobre a linha)")
     print("=" * 100)
 
-    def check_cusps(subject, svg_text):
+    def check_cusp(subject, svg_text):
         model = read_model(subject); drawn = read_svg(svg_text)
-        return [(name, fn(model, drawn)) for name, fn in CUSP_PROPS]
+        name, fn = CUSP_PROPS[0]
+        return fn(model, drawn)
 
-    # (a) COLINEAR: parte uma linha e torce um segmento 0.5°. Mesmo mapa limpo,
-    #     antes e depois — só 'colinear' pode mudar.
-    print("\n(a) colinear — parte uma cúspide e torce metade dela 0.5°")
-    before = dict(check_cusps(s, svg))
-    after = dict(check_cusps(s, corrupt_split_cusp(svg)))
-    b0 = len(before["cúspide interrompida colinear"])
-    a0 = len(after["cúspide interrompida colinear"])
-    print(f"    baseline: {b0} violação(ões)   corrompido: {a0} violação(ões)"
-          f"   → {'MORDE' if a0 > b0 else 'NAO MORDEU ✗'}")
-    if a0 > b0:
-        print(f"      └─ {after['cúspide interrompida colinear'][0][:82]}")
-    other = len(after["cúspide não sobrepõe glifo"]) - len(before["cúspide não sobrepõe glifo"])
-    print(f"      efeito colateral em 'não sobrepõe': {other:+d} (esperado 0)")
-
-    # (b) SOBREPOSIÇÃO — morde no passado: packing SEM a interrupção (linhas
-    #     inteiras, como era até 16/07). A Monica tinha 6 cúspides riscando
-    #     colunas. É a prova de que a propriedade acusa o defeito que existiu.
-    print("\n(b) não sobrepõe glifo — morde no estado ANTERIOR (linhas inteiras)")
-    import kerykeion.charts.draw_modern as dmx
-    packing.install()
-    dmx._draw_house_division_lines = packing._ORIG_HOUSELINES   # feature OFF
-    try:
-        msvg_old = stock_svg(mon)
-    finally:
-        packing.uninstall()
-    mon_old = dict(check_cusps(mon, msvg_old))
-    nov = len(mon_old["cúspide não sobrepõe glifo"])
-    print(f"    Monica (packing, linhas de casa INTEIRAS): {nov} sobreposição(ões)"
-          f"   → {'MORDE' if nov > 0 else 'NAO MORDEU ✗'}")
-    for e in mon_old["cúspide não sobrepõe glifo"][:3]:
-        print(f"      └─ {e[:88]}")
-
-    # (c) ZERA no estado ATUAL: packing completo, com a interrupção de verdade
-    #     (a de packing.py, não um protótipo). As duas propriedades juntas.
-    print("\n(c) estado ATUAL — packing completo com interrupção colinear")
     packing.install()
     try:
-        msvg_new = stock_svg(mon)
+        msvg = stock_svg(mon)
     finally:
         packing.uninstall()
-    mon_new = dict(check_cusps(mon, msvg_new))
-    o1 = len(mon_new["cúspide não sobrepõe glifo"])
-    o2 = len(mon_new["cúspide interrompida colinear"])
-    print(f"    não-sobrepõe {o1}   colinear {o2}"
-          f"   → {'ZEROU as duas' if o1 == 0 and o2 == 0 else 'NAO zerou ✗'}")
-    for e in (mon_new["cúspide não sobrepõe glifo"]
-              + mon_new["cúspide interrompida colinear"])[:4]:
-        print(f"      └─ {e[:88]}")
+
+    # (a) LINHA SUMIDA — o defeito real que a Márcia pegou na impressão de
+    #     16/07 (a interrupção apagava o eixo ASC/MC). Apaga a linha da casa 1.
+    import re as _re
+    m0 = _re.search(r"<line x1='50.0' y1='6.5'[^>]*stroke-width='0.6'[^>]*/>\n", msvg)
+    bad_missing = msvg.replace(m0.group(0), "", 1)
+    e = check_cusp(mon, bad_missing)
+    hit = any("cúspide-sumida" in x for x in e)
+    print(f"\n(a) apaga a linha da casa angular: {len(e)} violação(ões)"
+          f"   → {'MORDE' if hit else 'NAO MORDEU ✗'}")
+    if e: print(f"      └─ {e[0][:88]}")
+
+    # (b) LINHA TORTA — 0.5° fora do ângulo da cúspide: cúspide falsa.
+    rot = _re.search(r"rotate\((-?[\d.]+)", m0.group(0)).group(1)
+    twisted = m0.group(0).replace(f"rotate({rot}", f"rotate({float(rot)-0.5:.6f}")
+    bad_twist = msvg.replace(m0.group(0), twisted, 1)
+    e = check_cusp(mon, bad_twist)
+    hit = any("cúspide-falsa" in x for x in e)
+    print(f"(b) torce a linha 0.5°: {len(e)} violação(ões)"
+          f"   → {'MORDE' if hit else 'NAO MORDEU ✗'}")
+    if e: print(f"      └─ {e[0][:88]}")
+
+    # (c) LINHA CORTADA — regressão da interrupção descartada: parte a linha
+    #     em dois tocos colineares. O contrato novo exige INTEIRA.
+    top = m0.group(0).replace("y2='28.0'", "y2='9.0'")
+    bot = m0.group(0).replace("y1='6.5'", "y1='27.0'")
+    bad_cut = msvg.replace(m0.group(0), top + bot, 1)
+    e = check_cusp(mon, bad_cut)
+    hit = any("cúspide-cortada" in x for x in e)
+    print(f"(c) corta a linha em dois tocos: {len(e)} violação(ões)"
+          f"   → {'MORDE' if hit else 'NAO MORDEU ✗'}")
+    if e: print(f"      └─ {e[0][:88]}")
+
+    # (d) estado ATUAL zera.
+    e = check_cusp(mon, msvg)
+    print(f"(d) estado atual (todas inteiras): {len(e)} violação(ões)"
+          f"   → {'ZEROU' if not e else 'NAO zerou ✗'}")

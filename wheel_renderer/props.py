@@ -358,13 +358,9 @@ def prop_no_compression(model, drawn):
 #     glifo". A prova de mordida guarda o piso (a linha inteira, sem cortar,
 #     viola) e o visual impresso guarda o teto (cortar demais aparece).
 try:
-    from .geometry import (CUSP_CENTER as _CUSP_CENTER, COLUMN_R_INNER,
-                           COLUMN_R_OUTER, COLUMN_HALF_WIDTH_DEG,
-                           CUSP_ANGLE_SLUGS)
+    from .geometry import CUSP_CENTER as _CUSP_CENTER
 except ImportError:
-    from geometry import (CUSP_CENTER as _CUSP_CENTER, COLUMN_R_INNER,
-                          COLUMN_R_OUTER, COLUMN_HALF_WIDTH_DEG,
-                          CUSP_ANGLE_SLUGS)
+    from geometry import CUSP_CENTER as _CUSP_CENTER
 
 
 def read_house_lines(svg):
@@ -399,77 +395,45 @@ def read_house_lines(svg):
     return out
 
 
-def prop_cusp_collinear(model, drawn):
-    """Cada linha de divisão está no ângulo real de uma cúspide, e todos os
-    segmentos de uma mesma cúspide são colineares (mesmo ângulo, ±0.01°).
+def prop_cusp_lines_whole_and_true(model, drawn):
+    """As 12 linhas de divisão de casa: TODAS presentes, TODAS inteiras
+    (y de 6.5 a 28, sem corte), cada uma no ângulo real da sua cúspide
+    (±0.01°), e nenhuma linha em ângulo que não seja cúspide.
 
-    A interrupção (a linha some atrás do bloco e reaparece do outro lado) só é
-    honesta se os dois segmentos continuarem sobre a MESMA reta radial. Um
-    segmento que reaparece torto desenha uma cúspide que não existe — é o modo
-    de falha específico que esta propriedade tranca antes de a interrupção ser
-    escrita.
+    Contrato decidido pela Márcia em 16/07 (segunda rodada impressa):
+    "restabelece todas as cúspides e deixa corpos sentarem sobre a cúspide."
+    A interrupção anterior apagava o eixo ASC/MC em 100% dos mapas — o rótulo
+    do ângulo senta na própria cúspide — e a exceção por par criou assimetria
+    entre cúspide comum e angular. A legibilidade do corpo sobre a linha vem
+    da ordem de desenho: as linhas saem ANTES dos glifos, o texto fica por
+    cima.
+
+    Pega: linha sumida (o defeito que a Márcia caçou), linha torta (cúspide
+    falsa), linha cortada (regressão da interrupção), linha fantasma.
     """
     errs = []
     lines = read_house_lines(svg=drawn["_svg"])
     cusp_wa = [wheel_angle(c, model["seventh"]) for c in model["cusps"]]
-    groups = {}
+
     for ln in lines:
         j = min(range(12), key=lambda i: _dd(cusp_wa[i], ln["wa"]))
-        if _dd(cusp_wa[j], ln["wa"]) > 0.5:
-            errs.append(f"[cúspide-solta] segmento em {ln['wa']:.3f}° não "
-                        f"corresponde a nenhuma cúspide do modelo")
+        if _dd(cusp_wa[j], ln["wa"]) > 0.01:
+            errs.append(f"[cúspide-falsa] linha em {ln['wa']:.3f}° não é o "
+                        f"ângulo de nenhuma cúspide do modelo "
+                        f"(mais próxima: casa {j+1}, desvio "
+                        f"{_dd(cusp_wa[j], ln['wa']):.3f}°)")
+
+    for j in range(12):
+        segs = [ln for ln in lines if _dd(cusp_wa[j], ln["wa"]) <= 0.01]
+        if not segs:
+            errs.append(f"[cúspide-sumida] casa {j+1}: nenhuma linha de "
+                        f"divisão desenhada no ângulo {cusp_wa[j]:.2f}°")
             continue
-        groups.setdefault(j, []).append(ln["wa"])
-    for j, angs in groups.items():
-        if max(angs) - min(angs) > 0.01:
-            errs.append(f"[colinear] casa {j+1}: segmentos em ângulos "
-                        f"diferentes ({min(angs):.3f}°..{max(angs):.3f}°) — "
-                        f"a cúspide interrompida deixou de ser uma reta só")
-    return errs
-
-
-def prop_cusp_no_overlap(model, drawn):
-    """Nenhuma linha de cúspide pinta por cima da coluna de um planeta.
-
-    Uma linha de casa cruza a coluna de um planeta quando (a) sua faixa radial
-    invade [24,40] — onde vivem glifo/grau/signo/minutos/RX — e (b) seu ângulo
-    cai a menos de 3.2° do centro angular da coluna. Aí a linha risca o texto.
-
-    É o defeito que a interrupção existe para eliminar. Vale para produção
-    ATUAL (linha fina 0.07u) e para a versão reforçada (0.6u): a fina viola
-    baixinho, a grossa viola alto. Só a versão interrompida zera. Portanto esta
-    propriedade fica NÃO-nula até a feature existir — é o alvo, não o estado.
-
-    EXCEÇÃO (geometry.CUSP_ANGLE_SLUGS): a linha da casa 1 não viola por cruzar
-    a coluna do Ascendente, nem a da casa 10 pela do Meio-do-Céu. O rótulo do
-    ângulo É o indicativo daquela cúspide — linha e rótulo são o mesmo objeto,
-    e a interrupção que "protegia" um do outro apagava o eixo ASC/MC em 100%
-    dos mapas (visto pela Márcia em 16/07). A exceção é POR PAR: a linha da
-    casa 1 continua cedendo passagem a qualquer outro corpo, e a coluna do
-    Ascendente continua protegida de qualquer outra linha.
-    """
-    errs = []
-    lines = read_house_lines(svg=drawn["_svg"])
-    cusp_wa = [wheel_angle(c, model["seventh"]) for c in model["cusps"]]
-    cols = []
-    for slug, d in drawn["points"].items():
-        if d.get("display_wa") is not None:
-            cols.append((slug, d["display_wa"]))
-    for ln in lines:
-        # a faixa radial da linha invade a faixa da coluna?
-        if ln["r_in"] > COLUMN_R_OUTER or ln["r_out"] < COLUMN_R_INNER:
-            continue
-        # de que casa é esta linha? (mesmo pareamento da prop de colinearidade)
-        j = min(range(12), key=lambda i: _dd(cusp_wa[i], ln["wa"]))
-        own = CUSP_ANGLE_SLUGS.get(j + 1) if _dd(cusp_wa[j], ln["wa"]) <= 0.5 else None
-        for slug, cwa in cols:
-            if slug == own:
-                continue
-            if _dd(ln["wa"], cwa) < COLUMN_HALF_WIDTH_DEG:
-                errs.append(
-                    f"[sobreposição] linha da cúspide em {ln['wa']:.2f}° risca "
-                    f"a coluna de {slug} ({cwa:.2f}°) — a {_dd(ln['wa'], cwa):.2f}° "
-                    f"do centro, dentro dos {COLUMN_HALF_WIDTH_DEG:.1f}° do bloco")
+        whole = any(ln["r_out"] >= 43.4 and ln["r_in"] <= 22.1 for ln in segs)
+        if not whole:
+            errs.append(f"[cúspide-cortada] casa {j+1}: linha presente mas "
+                        f"não cobre a faixa inteira (regressão da "
+                        f"interrupção descartada em 16/07)")
     return errs
 
 
@@ -483,13 +447,12 @@ PROPS = [
     ("desenho não comprime",       prop_no_compression),
 ]
 
-# As duas propriedades da feature de cúspide reforçada vivem à parte enquanto a
-# feature não existe: prop_cusp_no_overlap fica não-nula de propósito (é o alvo)
-# e derrubaria o baseline limpo do prove_bite. Entram em PROPS — e no censo
-# 1000×2 = zero — quando a interrupção estiver escrita e passando.
+# A propriedade de cúspide vive à parte porque só vale no PACKING: as linhas
+# de fábrica são quase invisíveis (0.07u) mas existem e são inteiras — o que
+# se mede aqui é o contrato do desenho REFORÇADO. Entra no censo junto com as
+# 7 no modo packing.
 CUSP_PROPS = [
-    ("cúspide não sobrepõe glifo",   prop_cusp_no_overlap),
-    ("cúspide interrompida colinear", prop_cusp_collinear),
+    ("12 cúspides inteiras no ângulo real", prop_cusp_lines_whole_and_true),
 ]
 
 

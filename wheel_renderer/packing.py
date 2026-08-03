@@ -86,19 +86,9 @@ MIN_GLYPH_SCALE = 0.54
 # O corte é 1-D ao longo do raio (a linha é radial: ângulo fixo). NÃO é o
 # Liang-Barsky do renderer.py — aquele bbox vem da família dos 4 bugs e o
 # renderer.py morre neste commit.
-try:
-    from .geometry import (COLUMN_R_INNER, COLUMN_R_OUTER,
-                           COLUMN_HALF_WIDTH_DEG, CUSP_ANGLE_SLUGS)
-except ImportError:
-    from geometry import (COLUMN_R_INNER, COLUMN_R_OUTER,
-                          COLUMN_HALF_WIDTH_DEG, CUSP_ANGLE_SLUGS)
-
 CUSP_WIDTH_NORMAL  = 0.25    # 0.07 de fábrica → 1.39pt a 18cm: visível, fina
 CUSP_WIDTH_ANGULAR = 0.6     # mantém a fábrica: ASC/MC/DSC/IC continuam âncora
 CUSP_COLOR = "#8a8a9e"       # o cinza-médio do tether de fábrica
-CUT_MARGIN = 1.0             # o corte passa 1u além da faixa da coluna [24,40]
-MIN_STUB = 1.5               # toco mais curto que isto (unidades) não desenha
-_CUSP_PLACEHOLDER = "<!--PACKING_CUSP_LINES-->"
 
 def _unwrap(f):
     """Import duplo ('packing' via script vs 'wheel_renderer.packing' via app)
@@ -402,76 +392,50 @@ def _constrained_resolve(planets_with_angles, min_separation=MAX_SEPARATION):
                 for j in ch:
                     _CTX["scale_by_slug"][out[j]["point"].name] = k
 
-    # os ângulos finais das colunas, para a interrupção das linhas de casa
-    _CTX["display_was"] = [(it["point"].name, it["display_angle"]) for it in out
-                           if it.get("display_angle") is not None]
-
     out.sort(key=lambda it: it["angle"])
     return out
 
 
-def _deferred_houselines(houses, seventh_house_degree_ut, *a, **kw):
-    """As linhas de casa são desenhadas ANTES do resolve (L49 vs L68 dentro de
-    _draw_planet_ring), então neste momento os display_angle ainda não existem.
-    Emite um placeholder; _patched_ring o troca pelas linhas de verdade depois
-    que o resolve rodou. Nada de posição é calculado aqui."""
-    _CTX["houses"] = houses
-    return _CUSP_PLACEHOLDER
+def _reinforced_houselines(houses, seventh_house_degree_ut, *a, **kw):
+    """As 12 linhas de divisão de casa, TODAS inteiras, com contraste novo.
 
+    Decisão da Márcia (16/07, segunda rodada impressa): nenhuma interrupção.
+    A primeira versão interrompia a linha onde ela cruzava a coluna de um
+    planeta — e apagava o eixo ASC/MC em 100% dos mapas, porque o rótulo do
+    Ascendente/Meio-do-Céu senta EM CIMA da própria cúspide. A exceção por
+    par (casa 1 ↔ ASC) restaurou o eixo mas criou uma assimetria: cúspide
+    comum cedia a corpo, angular não. De duas, a Márcia escolheu a segunda:
+    "restabelece todas as cúspides e deixa corpos sentarem sobre a cúspide."
 
-def _build_cusp_lines():
-    """Constrói as 12 linhas de divisão: inteiras onde não cruzam coluna,
-    interrompidas (corte 1-D em y, mesmo ângulo) onde cruzam.
+    A ordem de desenho da fábrica garante a legibilidade: estas linhas saem
+    ANTES dos glifos dentro de _draw_planet_ring, então o texto do planeta
+    fica POR CIMA da linha — a linha passa por baixo, como a fábrica sempre
+    fez com as angulares de 0.6u.
 
-    Insumos: cúspides do modelo (ângulo) e display_angle do packing (colunas).
-    Nenhuma posição nova é derivada — é o que impede o 5º bug da família.
+    Nada de posição é calculado aqui: ângulo = cúspide real do modelo.
     """
-    houses = _CTX.get("houses")
-    seventh = _CTX.get("seventh")
-    cols = _CTX.get("display_was")
-    if houses is None or seventh is None:
-        return ""                              # sem contexto, sem linha nova
-    if cols is None:
-        cols = []                              # sem corpos: todas inteiras
-
     C = dm.CENTER
-    y_top = dm.HOUSE_LINE_OUTER_Y              # 6.5  (raio 43.5)
-    y_bot = dm.HOUSE_LINE_INNER_Y              # 28.0 (raio 22)
-    y_cut_hi = C - (COLUMN_R_OUTER + CUT_MARGIN)   # 9.0  (raio 41)
-    y_cut_lo = C - (COLUMN_R_INNER - CUT_MARGIN)   # 27.0 (raio 23)
-
     out = ""
     for i, h in enumerate(houses):
-        wa = dm._zodiac_to_wheel_angle(h.abs_pos, seventh)
-        house_num = i + 1
-        angular = house_num in dm.ANGULAR_HOUSES
-        width = CUSP_WIDTH_ANGULAR if angular else CUSP_WIDTH_NORMAL
-        # A linha não cede passagem ao rótulo do PRÓPRIO ângulo (ASC na casa
-        # 1, MC na casa 10): rótulo e linha são o mesmo indicador. Ver
-        # geometry.CUSP_ANGLE_SLUGS — a prop 8 usa a mesma exceção.
-        own = CUSP_ANGLE_SLUGS.get(house_num)
-        crosses = any(abs(((wa - c + 180) % 360) - 180) < COLUMN_HALF_WIDTH_DEG
-                      for slug, c in cols if slug != own)
-        segs = [(y_top, y_bot)] if not crosses else \
-               [(y_top, y_cut_hi), (y_cut_lo, y_bot)]
-        for ya, yb in segs:
-            if yb - ya < MIN_STUB:
-                continue                       # toco curto: aceita o vão
-            out += (f"<line x1='{C}' y1='{ya}' x2='{C}' y2='{yb}' "
-                    f"stroke='{CUSP_COLOR}' stroke-width='{width}' "
-                    f"transform='rotate(-{wa:.6f} {C} {C})'/>\n")
+        wa = dm._zodiac_to_wheel_angle(h.abs_pos, seventh_house_degree_ut)
+        width = (CUSP_WIDTH_ANGULAR if (i + 1) in dm.ANGULAR_HOUSES
+                 else CUSP_WIDTH_NORMAL)
+        out += (f"<line x1='{C}' y1='{dm.HOUSE_LINE_OUTER_Y}' "
+                f"x2='{C}' y2='{dm.HOUSE_LINE_INNER_Y}' "
+                f"stroke='{CUSP_COLOR}' stroke-width='{width}' "
+                f"transform='rotate(-{wa:.6f} {C} {C})'/>\n")
     return out
 
 
 def _patched_ring(planets, planets_settings, seventh_house_degree_ut, houses, **kw):
-    """Passa as cúspides adiante e, no fim, troca o placeholder pelas linhas
-    de casa interrompidas. Todo o resto do desenho continua sendo o da fábrica."""
+    """Só passa as cúspides adiante. Todo o desenho continua sendo o da
+    fábrica (as linhas de casa saem de _reinforced_houselines, via lookup
+    global dentro do _ORIG_RING)."""
     _CTX["cusps"] = [float(h.abs_pos) for h in houses]
     _CTX["seventh"] = seventh_house_degree_ut
     try:
-        out = _ORIG_RING(planets, planets_settings, seventh_house_degree_ut,
-                         houses, **kw)
-        return out.replace(_CUSP_PLACEHOLDER, _build_cusp_lines())
+        return _ORIG_RING(planets, planets_settings, seventh_house_degree_ut,
+                          houses, **kw)
     finally:
         _CTX.clear()
 
@@ -508,7 +472,7 @@ def _mark_patches():
     _patched_ring._packing_orig = _ORIG_RING
     _constrained_resolve._packing_orig = _ORIG_RESOLVE
     _patched_single._packing_orig = _ORIG_SINGLE
-    _deferred_houselines._packing_orig = _ORIG_HOUSELINES
+    _reinforced_houselines._packing_orig = _ORIG_HOUSELINES
     _MARKED = True
 
 
@@ -520,7 +484,7 @@ def install():
     dm._draw_planet_ring = _patched_ring
     dm._resolve_planet_collisions = _constrained_resolve
     dm._draw_single_planet_in_ring = _patched_single
-    dm._draw_house_division_lines = _deferred_houselines
+    dm._draw_house_division_lines = _reinforced_houselines
 
 
 def uninstall():
