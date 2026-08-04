@@ -475,3 +475,37 @@ signo**. Fronteira de signo barra (regências diferentes). Efeito medido:
 ### Pendente de decisão dela
 - **Item 18** (títulos por função): opções propostas, aguardando escolha.
 - **Tensão mandala × regra dos 5°** (diagnóstico 1).
+
+## Mandala: por que Sol e Júpiter da Helena se afastaram (17/07)
+
+Pergunta da Márcia — a memória dela estava certa. Medido nas três versões:
+
+| versão | Júpiter → cúspide 11 | separação Sol–Júpiter |
+|---|---|---|
+| fábrica (8° fixo) | 0.41° | 8.00° |
+| packing POR GRUPO (até 16/07) | 0.41° | **0.56°** |
+| cadeia global (atual, `84b1843`) | 7.85° | 8.00° |
+
+Mudou no `84b1843` — a correção do amontoamento da Monica. O packing por
+grupo agrupava por (casa, signo); Júpiter em (10, Virgem) e Sol em (11,
+Virgem) são grupos DIFERENTES e não se enxergavam, então cada um ficava na
+posição real. Era a mesma cegueira que desenhava Sol e Marte da Monica a
+0.30°. **Na versão que ela lembra, Sol e Júpiter estavam a 0.56° — a mesma
+sobreposição, num par que não foi examinado de perto.** Não houve
+regressão: houve troca de um defeito por outro, e a cadeia global é a
+escolha correta.
+
+### Protótipo (b) — DESCARTADO (decisão dela: fica na (a))
+- **(b) como especificada é um no-op.** Peso na mesma otimização (PAVA já
+  minimiza Σ w·desloc²) não muda nada com K = 1…16: Sol e Mercúrio
+  preenchem a caixa casa 11 ∩ Virgem (4.32°) e não há folga para
+  redistribuir. Preferir um lado só funciona quando existe escolha.
+- **(b') — reduzir a separação** é o único lever que move Júpiter
+  (7.85° → 3.83°). Custo medido: **43 violações de compressão em 41 mapas
+  de 1000**; 16 deles abaixo de 3° (onde as colunas colidem), pior caso
+  2.10°. No mapa da Helena o b' é limpo (0 violações), mas o Sol/Júpiter/
+  Mercúrio encosta visualmente.
+- Três refinamentos tentados (só pares que atravessam a cúspide; teto nunca
+  abaixo do exigido pela propriedade; posições verdadeiras em vez das
+  clampadas) reduziram mas não zeraram — a redistribuição do solver acaba
+  dando a algum par fatia menor que o ótimo geométrico.
