@@ -35,6 +35,11 @@ def como_producao(svg):
     """
     # símbolos de aspecto (△ □ ☌ …) sobrepostos no meio de cada linha de aspecto
     svg = re.sub(r"<use\b[^>]*\bxlink:href=['\"]#orb\d+['\"][^>]*/>", "", svg)
+    # mesma correção de glifo que produção aplica (packing.fix_lilith_glyph)
+    from packing import fix_lilith_glyph
+    svg, _ok = fix_lilith_glyph(svg)
+    if not _ok:
+        print("  AVISO: glifo de Lilith não corrigido — símbolo do Kerykeion mudou")
     # linhas-guia glifo → posição real (comportamento Astro Gold: sem tether)
     svg = re.sub(r"<g\s+kr:node=['\"]Indicator['\"][^>]*>.*?</g>\s*", "", svg,
                  flags=re.DOTALL)

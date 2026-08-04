@@ -541,3 +541,25 @@ mandala, zero risco de encavalamento. Não medido.
 era o PDF do protótipo b' gerado nesta mesma sessão (12:02), não uma versão
 de produção. Só existiram duas em produção: fábrica (até `84b1843`) e cadeia
 global (daí em diante).
+
+## Glifo da Lua Negra Lilith — corrigido (17/07, pego pela Márcia)
+
+**O corpo sempre esteve certo.** Verificado direto no Swiss Ephemeris: o
+`Mean_Lilith` que a API pede devolve exatamente `swe.MEAN_APOG` (apogeu
+médio da órbita lunar = Lua Negra Lilith média). Não é Selena/White Moon.
+Nenhuma leitura do texto foi afetada — a seleção da API está correta.
+
+**O glifo estava espelhado.** O Kerykeion desenha o símbolo com a barriga
+da lua à direita; a Lua Negra Lilith tem a barriga à esquerda. Corrigido em
+`packing.fix_lilith_glyph`, chamado do pós-processamento do `app.py` e do
+banco de testes (`clientes.py`) — uma função, dois chamadores, para não
+repetir a divergência do tether de 16/07.
+
+Verificado: posição e display_angle **idênticos** (326.8188° antes e
+depois), 9 propriedades em zero, idempotente.
+
+**Guarda contra no-op silencioso:** a função confere a assinatura do path
+conhecido. Se o Kerykeion mudar o glifo — inclusive para corrigi-lo — o
+espelhamento NÃO é aplicado e o chamador loga aviso. Espelhar conteúdo
+desconhecido reintroduziria o erro em silêncio, que é exatamente como este
+defeito sobreviveu tanto tempo.

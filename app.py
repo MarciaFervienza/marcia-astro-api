@@ -427,6 +427,19 @@ def _generate_chart_svg(chart_data: dict) -> tuple:
             "",
             svg_text,
         )
+        # -------- Glifo da Lua Negra Lilith (espelhado pelo Kerykeion) -----
+        # Ver wheel_renderer/packing.fix_lilith_glyph. O corpo calculado está
+        # correto (MEAN_APOG); só o símbolo sai invertido. Se a lib mudar o
+        # glifo, a correção NÃO é aplicada e isto loga — nunca espelha
+        # conteúdo desconhecido.
+        from wheel_renderer.packing import fix_lilith_glyph
+        svg_text, _lil_ok = fix_lilith_glyph(svg_text)
+        if not _lil_ok:
+            logger.warning(
+                "glifo de Lilith NÃO corrigido: o símbolo do Kerykeion mudou. "
+                "Conferir se a lib passou a desenhar a Lua Negra na orientação "
+                "certa (aí a correção deve ser removida) ou se o seletor quebrou."
+            )
         # -------- Leader lines (planeta → posição real no anel) --------
         # Objetivo: comportamento do Astro Gold — glifos afastados quando
         # planetas estão próximos em grau (o mecanismo interno de

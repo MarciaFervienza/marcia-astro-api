@@ -495,3 +495,45 @@ def uninstall():
     dm._resolve_planet_collisions = _ORIG_RESOLVE
     dm._draw_single_planet_in_ring = _ORIG_SINGLE
     dm._draw_house_division_lines = _ORIG_HOUSELINES
+
+# ============================================================
+# GLIFO DA LUA NEGRA LILITH — CORREÇÃO DE ESPELHAMENTO (17/07)
+# ============================================================
+# A Márcia identificou no PDF: o símbolo desenhado para Lilith é o mesmo
+# da Lua Negra, mas ESPELHADO — a lua que o Kerykeion desenha tem a barriga
+# à direita; a Lua Negra Lilith tem a barriga à esquerda.
+#
+# O CORPO está certo, verificado direto no Swiss Ephemeris: o `Mean_Lilith`
+# que a API pede devolve exatamente `swe.MEAN_APOG` (apogeu médio da órbita
+# lunar = Lua Negra Lilith média). Não é Selena/White Moon. Nenhuma leitura
+# do texto é afetada — só o desenho.
+#
+# A correção espelha o <symbol> em torno do próprio centro, preservando a
+# caixa (nenhuma posição muda, nenhuma das 9 propriedades é tocada).
+#
+# GUARDA CONTRA NO-OP SILENCIOSO: a assinatura do path conhecido é
+# conferida. Se o Kerykeion mudar o glifo — inclusive para CORRIGI-LO — o
+# espelhamento NÃO é aplicado e a função devolve applied=False, para que o
+# chamador registre o aviso. Espelhar conteúdo desconhecido produziria o
+# erro de volta em silêncio, que é como este defeito sobreviveu até agora.
+_LILITH_PATH_SIG = "M 5.2255055,0.5001842 C 4.5318761,0.5265765"
+
+
+def fix_lilith_glyph(svg):
+    """Espelha o glifo de Lilith. Retorna (svg, applied: bool)."""
+    import re as _re
+    m = _re.search(r"<symbol id='Mean_Lilith'>(.*?)</symbol>", svg, _re.DOTALL)
+    if not m:
+        return svg, False
+    inner = m.group(1)
+    if "scale(-1,1)" in inner:
+        return svg, False          # já corrigido: idempotente
+    pm = _re.search(r"d='([^']+)'", inner)
+    if not pm or not pm.group(1).startswith(_LILITH_PATH_SIG):
+        return svg, False          # glifo desconhecido: não mexer
+    xs = [float(v) for v in _re.findall(r"-?\d+\.?\d*", pm.group(1))][0::2]
+    span = min(xs) + max(xs)       # espelha em torno de (min+max)/2
+    novo = (f"<symbol id='Mean_Lilith'><g transform='translate({span:.6f},0) "
+            f"scale(-1,1)'>{inner}</g></symbol>")
+    return svg[:m.start()] + novo + svg[m.end():], True
+
