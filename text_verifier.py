@@ -1111,12 +1111,26 @@ def run_verifier(text, chart, call_claude_fn):
         logger.warning("verifier 2d failed: %s", e)
 
     # 2e — spellcheck
-    try:
-        for w, offset, sug in _detect_unknown_words(scan_text, chart):
-            _add("spell:palavra_desconhecida", w, offset,
-                 f"palavra fora do dicionário pt-BR; sugestão do corretor: '{sug}'")
-    except Exception as e:
-        logger.warning("verifier 2e failed: %s", e)
+    # 2e — SPELLCHECK: DESLIGADO (17/07, 2ª rodada).
+    #
+    # O dicionário "pt" do pyspellchecker é português EUROPEU: ele não
+    # conhece "contato", "bônus", "perspectiva", "harmônico" (formas
+    # brasileiras) e SUGERE "contacto", "bónus", "perspetiva", "harmónico".
+    # O detector existia dormente — devolvia [] porque a lib não estava
+    # instalada. Ao entrar no requirements.txt (c93a9ae) ele ACORDOU e
+    # passou a reescrever pt-BR em pt-PT: 49 "correções" no relatório da
+    # Helena, e a contaminação europeia que a Márcia reportou.
+    #
+    # Não basta ignorar a sugestão: a palavra correta seria flagrada como
+    # violação e mandada para reescrita mesmo assim. Fica DESLIGADO até
+    # existir dicionário pt-BR de verdade. Quem faz o trabalho de léxico
+    # são as listas explícitas (família espanhola, família PT-PT, termos em
+    # inglês) e os glossários fechados de signo e de planeta — todos com a
+    # forma correta na sugestão, que é o que o reescritor precisa.
+    #
+    # `spell_lint` (flag-only, no meta) segue existindo, mas com a mesma
+    # limitação registrada: com este dicionário ele acusa palavra brasileira
+    # correta. Ver ESTADO.
 
     # 2f — voz (consciente dos dois interruptores)
     try:
@@ -1311,11 +1325,7 @@ def _reverify_sentence(sentence, prior_violations, chart):
             out.append({"kind": "contagem:desbatida", "match": match_text,
                         "offset": offset,
                         "suggestion": f"anuncia {exp} mas enumera {act}"})
-    if "spell" in kinds:
-        for w, offset, sug in _detect_unknown_words(sentence, chart):
-            out.append({"kind": "spell:palavra_desconhecida", "match": w,
-                        "offset": offset,
-                        "suggestion": f"desconhecida; sugestão '{sug}'"})
+    # spellcheck desligado na re-verificação também (ver 2e acima)
     if "voz" in kinds:
         for kind, match_text, offset, sugg in _detect_voice_violations(sentence, chart):
             out.append({"kind": kind, "match": match_text, "offset": offset,
@@ -1387,7 +1397,17 @@ def _load_domain_lexicon():
 
 
 def spell_lint(report_text, chart=None, max_report=60):
-    """Palavras fora do dicionário pt-BR E fora do dicionário de domínio.
+    """Palavras fora do dicionário E fora do dicionário de domínio.
+
+    LIMITAÇÃO CONHECIDA (17/07): o dicionário "pt" do pyspellchecker é
+    português EUROPEU. Ele desconhece formas brasileiras corretas
+    ("contato", "bônus", "perspectiva", "harmônico") e enclíticas comuns
+    ("conhecê-lo", "sustentá-la"). Por isso este lint é FLAG-ONLY e nunca
+    alimenta reescrita — o detector que fazia isso (2e) foi desligado
+    depois de reescrever pt-BR em pt-PT no relatório da Helena.
+    Quem faz o trabalho de verdade são as listas explícitas e os glossários
+    fechados. Este lint serve como rede para palavra inventada; a whitelist
+    (domain_lexicon.txt) precisa crescer bastante antes de virar gate.
 
     Retorna lista de {word, count, sample} — flag-only. Nomes próprios do
     payload (nome do cliente, cidade) são excluídos.

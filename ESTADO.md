@@ -563,3 +563,34 @@ conhecido. Se o Kerykeion mudar o glifo — inclusive para corrigi-lo — o
 espelhamento NÃO é aplicado e o chamador loga aviso. Espelhar conteúdo
 desconhecido reintroduziria o erro em silêncio, que é exatamente como este
 defeito sobreviveu tanto tempo.
+
+## Spellcheck europeu — defeito que EU introduzi (17/07, 2ª rodada)
+
+**Causa:** existia em `text_verifier` um detector dormente (rodada 2e,
+`_detect_unknown_words`) que devolvia `[]` porque `pyspellchecker` não
+estava instalado. Ao adicionar a lib ao `requirements.txt` em `c93a9ae`
+— para o `spell_lint` novo — o detector ACORDOU.
+
+**Efeito:** o dicionário "pt" do pyspellchecker é português EUROPEU.
+Ele não conhece "contato", "bônus", "perspectiva", "harmônico" e sugere
+"contacto", "bónus", "perspetiva", "harmónico". O verifier passou a
+reescrever pt-BR em pt-PT e a APLICAR: 49 "correções" no relatório da
+Helena (contra 4 na rodada anterior). **A contaminação PT-PT que a Márcia
+reportou no relatório foi produzida por mim, não pelo modelo.**
+
+**Correção:** detector 2e DESLIGADO (no scan e na re-verificação por
+frase). Não bastava ignorar a sugestão — a palavra brasileira correta
+seria flagrada como violação e mandada para reescrita mesmo assim.
+
+**O que faz o trabalho de léxico:** listas explícitas (família espanhola,
+família PT-PT, termos em inglês, gramática pontual) e glossários fechados
+de signo e de planeta — todos com a forma CORRETA na sugestão, que é o que
+o reescritor precisa. Um corretor genérico não tem isso.
+
+**`spell_lint` continua**, flag-only, com a limitação documentada: com este
+dicionário ele acusa palavra brasileira correta ("conhecê-lo",
+"sustentá-la", "ruptura", "coorte"). Só vira gate depois de a whitelist
+crescer muito — ou de existir dicionário pt-BR de verdade.
+
+**Lição de método:** instalar uma dependência pode ATIVAR código dormente.
+Antes de adicionar lib ao requirements, procurar o que já a importa.
