@@ -1508,6 +1508,19 @@ def build_sections(chart):
                 "presença diz do AMBIENTE de origem — uma ou duas frases por corpo. A leitura "
                 "completa (signo, aspectos, psicologia do corpo em si) pertence à seção própria: "
                 "não a faça aqui."
+            
+                + "\n\nDOUTRINA DA MÁRCIA (17/07) — O QUE ESTA SEÇÃO É E O QUE NÃO É:\n"
+                "A casa 4 é o AMBIENTE da infância: o clima emocional da casa, o que "
+                "circulava (e o que não podia circular), a atmosfera de fundo — e como "
+                "a pessoa lida HOJE com a própria família. NUNCA descreva aqui a FIGURA "
+                "DE CUIDADO: quem cuidou, como cuidou, se o afeto chegou ou faltou é "
+                "leitura da LUA, e pertence às Raízes Emocionais. Aqui não se diz 'quem "
+                "exerceu o papel de cuidado', 'a figura materna', 'quem criou você'. "
+                "Descreva o TERRENO, não as pessoas que o habitavam.\n"
+                "PLANETA PRIMEIRO: se há planeta na casa 4 (exceto asteroides e nodos), "
+                "a descrição COMEÇA pelo planeta e o signo da cúspide COMPÕE — nunca o "
+                "contrário. Não abra com o signo da cúspide para depois apresentar um "
+                "planeta que contradiz o que você acabou de dizer."
             ),
             "depth_instruction": DEPTH_TIER_1,
         },
@@ -1600,7 +1613,7 @@ def build_sections(chart):
         },
         {
             "name": "saturno",
-            "title": "Saturno: Onde Você Aprende Pela Vida",
+            "title": "Saturno: Onde Você Amadurece com o Tempo",
             "queries": [
                 f"Saturno em {saturn['sign_pt']} casa {saturn['house']}",
                 f"dúvida insegurança {saturn['sign_pt']} crescimento tempo esforço repetição",
@@ -1832,6 +1845,8 @@ TAMBÉM PROIBIDO: (f) usar "nomear" como verbo padrão para tudo — varie com "
 PROIBIDO com esses corpos: (i) atribuir ao SIGNO qualquer evento, experiência, ambiente ou vivência específica da vida da pessoa; (ii) usar o signo do corpo lento para MODULAR a descrição da casa ("Plutão em Capricórnio na casa 5 traz X à criatividade porque Capricórnio…" — não; a casa 5 é lida por si, o signo é coorte); (iii) fazer COMPARAÇÕES com signos hipotéticos ("Saturno em Peixes acrescenta X, o que Saturno em Câncer não faria"); (iv) dedicar ao SIGNO desse corpo mais texto do que à CASA e aos ASPECTOS somados na mesma seção.
 A individuação para esses corpos vem SEMPRE de: casa ocupada, aspectos com corpos pessoais (Sol/Lua/Mercúrio/Vênus/Marte) ou ângulos (Asc/MC), e regência da casa que o corpo ocupa. EXCEÇÃO ÚNICA: se o corpo lento está em CONJUNÇÃO de orbe apertada (≤ 5°) com um corpo pessoal ou ângulo, o signo pode ser individualizado nessa passagem específica, porque ali ele deixa de ser puramente geracional.
 
+(p) [SATURNO-QUÍRON EM OPOSIÇÃO — SÍNTESE OBRIGATÓRIA] Sempre que este mapa tiver Saturno em oposição a Quíron, a leitura é obrigatória e independe dos signos envolvidos: há uma FERIDA (Quíron) que envolve a figura de autoridade (Saturno) — seja porque essa autoridade FALTOU, seja porque ela não foi "tradicional" naquilo que se esperava dela. Não descreva os dois corpos em paralelo sem fechar essa síntese; o eixo é ferida + autoridade, e é isso que o leitor precisa reconhecer.
+
 (o) [CLUSTERS PARENTAIS FIXOS] A atribuição simbólica é canônica e imutável:
   · Sol e Saturno pertencem SEMPRE ao Cluster 1 — autoridade, estrutura, ordem, exigência, contorno.
   · Lua pertence SEMPRE ao Cluster 2 — cuidado, vínculo, acolhimento, nutrição, base afetiva.
@@ -1873,6 +1888,25 @@ REGRAS DE VOZ E ESTILO:
 ORIENTAÇÃO AO FINAL DE SEÇÕES COM TENSÃO:
 Se — e somente se — a seção nomear uma tensão ou contradição interna, termine com uma ou duas frases que ofereçam uma orientação prática — não uma resolução, mas uma bússola. Como essa pessoa pode trabalhar conscientemente com essa tensão? O tom não é de conselho, mas de reconhecimento. Seja específica ao posicionamento — não genérica. Nunca termine uma seção deixando a pessoa apenas no peso da tensão sem nenhuma orientação.
 VARIE A FÓRMULA do fechamento — o leitor lê as seções em sequência e o mesmo molde vira metrônomo. Alterne entre formas como: "o que esse posicionamento pede de você é…", "a melhor forma de trabalhar com isso é…", "o convite aqui é…", ou um fechamento sem fórmula nenhuma, em que a orientação emerge da última frase da própria leitura. "Aprender a distinguir X de Y" É a mesma fórmula-metrônomo — conta como fechamento de fórmula e segue as mesmas regras de variação. Nunca use a mesma forma que a seção anterior usou (quando o contexto de seções anteriores estiver disponível acima).
+
+PLANETA PRIMEIRO (doutrina da Márcia, 17/07):
+Quando a casa que você está lendo tem um planeta dentro (asteroides e nodos não contam), a descrição COMEÇA pelo planeta — ele é o agente; o signo da cúspide COMPÕE o pano de fundo. Nunca abra com o caráter do signo da cúspide para em seguida introduzir um planeta cuja natureza contradiz o que acabou de ser afirmado. Sem planeta na casa, aí sim o signo da cúspide conduz a leitura.
+
+SIGNO NÃO É AGENTE GERACIONAL:
+Um signo não carrega nada "para toda uma geração" — todo mundo tem os doze signos no mapa. O que marca geração é o PLANETA TRANSPESSOAL (Urano, Netuno, Plutão) num signo, porque ele demora anos ali. Escreva "o que Plutão em Escorpião carrega para a sua geração", nunca "o signo de Escorpião carrega para a sua geração".
+
+NETUNO-PLUTÃO: NUNCA MENCIONE o aspecto entre Netuno e Plutão (sextil ou qualquer outro). Todos os nascidos desde os anos 1940 o têm: não diferencia ninguém e ocupa espaço que pertence ao mapa desta pessoa.
+
+VOCABULÁRIO OBRIGATÓRIO — GLOSSÁRIO (nunca invente variante, nunca use inglês):
+- Adjetivos de signo: ariana(o), taurina(o), geminiana(o), canceriana(o), leonina(o), virginiana(o), libriana(o), escorpiana(o), sagitariana(o), capricorniana(o), aquariana(o), pisciana(o). "virgiliana" NÃO EXISTE no domínio — é virginiana.
+- Adjetivos planetários: solar, lunar, mercurial, venusiana(o), marcial, jupiteriana(o)/joviana(o), saturnina(o) — nunca "saturina", uraniana(o), netuniana(o), plutoniana(o), quironiana(o).
+- Modalidades: cardinal, fixo, mutável — em português, nunca "mutable", "cardinal sign", "fixed".
+- Aspectos: conjunção, oposição, trígono, quadratura, sextil — nunca trine, square, sextile, opposition, conjunction.
+- "IC" nunca aparece sozinho: escreva "cúspide da casa 4", "fundo do céu", ou os dois juntos.
+- Diga "pede aprofundamento", nunca "pede descida".
+
+VARIEDADE VOCABULAR:
+Não repita a mesma palavra de ênfase ao longo de uma seção. "real/realmente" virou muleta — use no máximo duas vezes por seção e alterne com formulações que dispensem o reforço (em vez de "uma dificuldade real", diga qual é a dificuldade). O mesmo vale para "genuíno", "profundo", "exatamente", "concreto": se você precisou do adjetivo de ênfase, provavelmente a frase abaixo dele está vaga — reescreva a frase em vez de reforçá-la.
 
 DENSIDADE DE CONTRASTE:
 A estrutura antitética — "tensão entre X e Y", "distinguir X de Y", "mais X do que Y", "quando X e quando Y", "X, mas Y" — é ferramenta legítima, mas em excesso vira tique que o leitor passa a ouvir. Máximo DOIS pivôs antitéticos por seção, nunca dois com a mesma forma. No resto, afirme diretamente: descreva o que É, sem armar o par de opostos. NUNCA use a família negação-substituição em nenhuma variante: "não é X — é Y", "não como X, mas como Y", "Y — e não X", "não pede X. Pede Y", "a pergunta não é X, é Y", "nunca X. Apenas Y", "não porque X. Mas porque Y". Afirme o Y diretamente, sem negar o X antes.
@@ -1964,8 +1998,24 @@ def voice_rules_block(chart) -> str:
     em "você".
     """
     v = (chart or {}).get("_voice") or {}
+    name = v.get("name") or (chart or {}).get("name", "o sujeito")
+    first_n = name.split()[0] if name else "o sujeito"
     if v.get("person") != "terceira":
-        return ""
+        # SEGUNDA PESSOA (padrão). O bloco é emitido SEMPRE — não pode ser
+        # vazio. O Fio Condutor não tem instrução de pessoa no próprio
+        # template e ainda enquadra o sujeito em 3ª ("relatório para
+        # {name}"): sem esta regra ele derivava para terceira pessoa num
+        # relatório em segunda (Helena, 17/07).
+        return (
+            "\n\nREGRAS DE VOZ — SEGUNDA PESSOA (obrigatório):\n"
+            f"- Este relatório é escrito PARA {first_n} e será lido por "
+            f"{first_n}. Dirija-se a ele/ela como 'você', do começo ao fim.\n"
+            f"- NUNCA escreva sobre {first_n} em terceira pessoa ('{first_n} "
+            f"tem…', 'o mapa de {first_n} mostra…'). Escreva 'você tem…', "
+            "'seu mapa mostra…'.\n"
+            "- Vale para TODAS as seções, inclusive a síntese final: mesmo "
+            "recapitulando o relatório inteiro, continue falando com a pessoa."
+        )
     name = v.get("name") or chart.get("name", "o sujeito")
     first = name.split()[0]
     rel = (v.get("relationship") or "").strip()
@@ -3201,6 +3251,18 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
     # com palavras novas — 12 palavras coladas é cola, não recap.
     repetition_lint = detect_cross_section_repetition(full_report)
 
+    # spell_lint (17/07): corretor pt-BR + dicionário de domínio. MODO
+    # FLAG-ONLY — reporta, não reescreve. A whitelist (domain_lexicon.txt)
+    # cresce rodando sobre relatórios já limpos; só depois disso
+    # `spell_lint: []` entra como gate ao lado de pdf_lint/repetition_lint.
+    try:
+        from text_verifier import spell_lint as _spell_lint, detect_crutch_words
+        spell_lint_out = _spell_lint(full_report, chart)
+        crutch_lint = detect_crutch_words(full_report)
+    except Exception as e:
+        log(f"spell/crutch lint failed: {e}")
+        spell_lint_out, crutch_lint = [{"error": str(e)}], []
+
     # Build a compact aspect audit (for return + verbose print)
     aspect_audit = {}
     for sec in sections:
@@ -3237,6 +3299,8 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
         "aspect_audit": aspect_audit,
         "cleanup_changes": cleanup_changes,
         "repetition_lint": repetition_lint,
+        "spell_lint": spell_lint_out,
+        "crutch_lint": crutch_lint,
         "sign_divergences": sign_divergences,
         "correction_rewrites": correction_rewrites,
         "verifier_log": verifier_log,

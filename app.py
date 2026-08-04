@@ -1623,7 +1623,14 @@ def generate_report_endpoint():
                     continue
                 _nxt = (_h % 12) + 1
                 _gap = (_cusp_abs[_nxt] - _pos) % 360.0
-                if 0.0 < _gap < 5.0:
+                # CONDIÇÃO DE SIGNO (refinamento da Márcia, 17/07): a
+                # fronteira de SIGNO barra a regra. O corpo só é lido na casa
+                # seguinte se ele e a cúspide seguinte estiverem no MESMO
+                # signo. Caso do erro: Juno em Gêmeos foi lida na casa 8 cuja
+                # cúspide está em Câncer — regência diferente, leitura errada.
+                # Fica na 7.
+                _same_sign = (int(_pos // 30) == int(_cusp_abs[_nxt] // 30))
+                if 0.0 < _gap < 5.0 and _same_sign:
                     _pd["house"] = _nxt
                     _house_moves.append({
                         "planet": _pk, "from_house": _h, "to_house": _nxt,
@@ -2169,6 +2176,11 @@ def generate_report_endpoint():
             # Repetição quase-verbatim entre seções (janela de 12 palavras).
             # Gate pré-testers exige [].
             "repetition_lint": result.get("repetition_lint", []),
+            # spell_lint em modo FLAG-ONLY: reporta palavras fora do
+            # dicionário pt-BR + domain_lexicon.txt. Vira gate quando a
+            # whitelist estabilizar sobre relatórios limpos.
+            "spell_lint": result.get("spell_lint", []),
+            "crutch_lint": result.get("crutch_lint", []),
             "sign_divergences": result.get("sign_divergences", []),
             "correction_rewrites": result.get("correction_rewrites", []),
             "partial_coverage": result.get("partial_coverage", []),

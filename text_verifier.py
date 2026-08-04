@@ -84,6 +84,25 @@ _FORBIDDEN_LEXICON = [
      "sintagma invertido — 'um profissional de confiança'"),
     (r"\bno\s+quarto\s+sozinho\b", "gramatica_ambiguidade",
      "'sozinho' gruda em 'quarto' — reescrever ('sozinho no quarto')"),
+    # --- rodada 17/07 (leitura completa da Márcia) ---
+    (r"\bpede\s+(?:a\s+)?descida\b", "termo_rejeitado",
+     "usar 'pede aprofundamento' — 'descida' não é termo dela"),
+    (r"\bsaturina[s]?\b", "erro_grafia_adjetivo", "saturnina"),
+    (r"\bsaturino[s]?\b", "erro_grafia_adjetivo", "saturnino"),
+    # Termos astrológicos em INGLÊS (o modelo escorrega do jargão técnico):
+    (r"\bmutable\b",  "termo_ingles", "mutável"),
+    (r"\bcardinal\s+sign\b", "termo_ingles", "signo cardinal"),
+    (r"\bfixed\s+sign\b",    "termo_ingles", "signo fixo"),
+    (r"\bwaxing\b",   "termo_ingles", "crescente"),
+    (r"\bwaning\b",   "termo_ingles", "minguante"),
+    (r"\brising\s+sign\b", "termo_ingles", "Ascendente"),
+    (r"\bhouse\s+cusp\b",  "termo_ingles", "cúspide da casa"),
+    (r"\btrine\b",    "termo_ingles", "trígono"),
+    (r"\bsquare\b",   "termo_ingles", "quadratura"),
+    (r"\bsextile\b",  "termo_ingles", "sextil"),
+    (r"\bopposition\b", "termo_ingles", "oposição"),
+    (r"\bconjunction\b", "termo_ingles", "conjunção"),
+    (r"\bretrograde\b", "termo_ingles", "retrógrado"),
     (r"\borgullo\b",    "erro_espanhol", "orgulho"),
     (r"\bcerrad[ao]s?\b", "erro_espanhol", "fechada/fechado"),
     (r"\borgullos[ao]s?\b", "erro_espanhol", "orgulhosa/orgulhoso"),
@@ -112,6 +131,243 @@ _FORBIDDEN_LEXICON = [
     (r"\bfachada solar\b",          "termo_rejeitado",
      "reformular sem 'fachada solar' — expressão indesejada"),
 ]
+
+
+
+# ============================================================
+# GLOSSÁRIO DE ADJETIVOS DE SIGNO (item 16, 17/07)
+# ============================================================
+# Lista FECHADA da Márcia. Qualquer adjetivo derivado de nome de signo que
+# NÃO esteja aqui é violação — "virgiliana" (por virginiana) é palavra real
+# do português (de Virgílio), então o spellchecker JAMAIS a pegaria: é este
+# glossário que a pega. Divisão de trabalho documentada no ESTADO.
+_SIGN_ADJECTIVES_OK = {
+    "ariana", "ariano", "arianas", "arianos",
+    "taurina", "taurino", "taurinas", "taurinos",
+    "geminiana", "geminiano", "geminianas", "geminianos",
+    "canceriana", "canceriano", "cancerianas", "cancerianos",
+    "leonina", "leonino", "leoninas", "leoninos",
+    "virginiana", "virginiano", "virginianas", "virginianos",
+    "libriana", "libriano", "librianas", "librianos",
+    "escorpiana", "escorpiano", "escorpianas", "escorpianos",
+    "sagitariana", "sagitariano", "sagitarianas", "sagitarianos",
+    "capricorniana", "capricorniano", "capricornianas", "capricornianos",
+    "aquariana", "aquariano", "aquarianas", "aquarianos",
+    "pisciana", "pisciano", "piscianas", "piscianos",
+}
+# Variantes ERRADAS observadas ou previsíveis → correção. O detector é uma
+# lista explícita (não um regex genérico) para nunca acusar palavra comum.
+_SIGN_ADJECTIVE_ERRORS = {
+    "virgiliana": "virginiana", "virgiliano": "virginiano",
+    "virgemiana": "virginiana", "virgiana": "virginiana",
+    "virginiense": "virginiana",
+    "escorpiônica": "escorpiana", "escorpionica": "escorpiana",
+    "escorpiniana": "escorpiana", "scorpiana": "escorpiana",
+    "cancersiana": "canceriana", "cancriana": "canceriana",
+    "capricorniense": "capricorniana", "capricorniana2": "capricorniana",
+    "sagitariense": "sagitariana", "sagitarina": "sagitariana",
+    "aquariense": "aquariana", "aquarina": "aquariana",
+    "gemeniana": "geminiana", "gemininana": "geminiana",
+    "libriense": "libriana", "librana": "libriana",
+    "taurense": "taurina", "taureana": "taurina",
+    "leoniana": "leonina", "leonesa": "leonina",
+    "pisciense": "pisciana", "peixiana": "pisciana",
+    "arieana": "ariana", "ariense": "ariana",
+}
+
+
+def _detect_sign_adjectives(text):
+    """Adjetivo de signo fora do glossário fechado da Márcia."""
+    out = []
+    for wrong, right in _SIGN_ADJECTIVE_ERRORS.items():
+        for m in re.finditer(rf"\b{wrong}\b", text, flags=re.IGNORECASE):
+            out.append({"kind": "glossario_signo", "match": m.group(0),
+                        "offset": m.start(), "suggestion": right})
+    return out
+
+
+
+# ============================================================
+# DETECTORES SEMÂNTICOS — rodada 17/07 (doutrina da Márcia)
+# ============================================================
+_SIGN_NAMES_PT = ("Áries|Aries|Touro|Gêmeos|Gemeos|Câncer|Cancer|Leão|Leao|"
+                  "Virgem|Libra|Escorpião|Escorpiao|Sagitário|Sagitario|"
+                  "Capricórnio|Capricornio|Aquário|Aquario|Peixes")
+_TRANSPESSOAIS = ("Urano", "Netuno", "Plutão", "Plutao")
+
+
+def _detect_netuno_plutao_mention(text):
+    """Item 7: o sextil geracional Netuno-Plutão NUNCA é mencionado.
+
+    Todo mundo nascido em ~1940-2035 tem esse aspecto: ele não diferencia
+    ninguém e ocupa espaço que pertence ao mapa da pessoa. Doutrina da
+    Márcia, 17/07: menção = violação.
+    """
+    out = []
+    pat = (r"\b(?:Netuno|Neptuno)\b[^.!?]{0,80}?\b(?:Plutão|Plutao)\b"
+           r"|\b(?:Plutão|Plutao)\b[^.!?]{0,80}?\b(?:Netuno|Neptuno)\b")
+    for m in re.finditer(pat, text):
+        # A palavra do aspecto costuma vir ANTES dos dois nomes ("O sextil
+        # entre Netuno e Plutão") — olhar só o trecho entre eles não a
+        # encontra. Avalia a FRASE inteira que contém o par.
+        ini = max(text.rfind(".", 0, m.start()), text.rfind("\n", 0, m.start())) + 1
+        fim = min([p for p in (text.find(".", m.end()), text.find("\n", m.end()))
+                   if p != -1] or [len(text)])
+        seg = text[ini:fim].strip()
+        if re.search(r"sextil|trígono|trigono|quadratura|oposição|oposicao|"
+                     r"conjunção|conjuncao|aspecto", seg, flags=re.IGNORECASE):
+            out.append({"kind": "geracional:netuno_plutao", "match": seg[:70],
+                        "offset": m.start(),
+                        "suggestion": ("REMOVER a menção ao aspecto Netuno-Plutão: é "
+                                       "geracional, comum a toda a geração, e não diz "
+                                       "nada sobre esta pessoa. Reescrever a frase sem "
+                                       "ele, preservando o resto do sentido.")})
+    return out
+
+
+def _detect_sign_as_generational_agent(text):
+    """Item 8: SIGNO não carrega nada para uma geração — planeta transpessoal
+    em signo, sim.
+
+    "O signo de Escorpião carrega, para toda a sua geração, …" está errado:
+    todo mundo tem Escorpião em algum lugar do mapa. O que marca geração é
+    Plutão/Netuno/Urano EM Escorpião. Flagra 'signo + linguagem geracional'
+    quando não há planeta transpessoal na mesma frase.
+    """
+    out = []
+    ger = (r"gera(?:ção|cao|cional|cionais)|coorte|toda\s+uma\s+gera|"
+           r"sua\s+gera|pessoas\s+nascidas")
+    for m in re.finditer(rf"[^.!?]*\b(?:{_SIGN_NAMES_PT})\b[^.!?]*", text):
+        seg = m.group(0)
+        if not re.search(ger, seg, flags=re.IGNORECASE):
+            continue
+        if any(p.lower() in seg.lower() for p in _TRANSPESSOAIS):
+            continue                      # tem o planeta: construção correta
+        if not re.search(r"\bo\s+signo\b|\bsigno\s+de\b|\b(?:carrega|marca|"
+                         r"define|descreve|traz)\b", seg, flags=re.IGNORECASE):
+            continue
+        out.append({"kind": "geracional:signo_como_agente", "match": seg.strip()[:70],
+                    "offset": m.start(),
+                    "suggestion": ("signo não carrega nada para uma geração — quem "
+                                   "marca geração é o PLANETA TRANSPESSOAL no signo. "
+                                   "Reescrever como 'o que Plutão/Netuno/Urano em "
+                                   "<signo> carrega' ou remover a moldura geracional.")})
+    return out
+
+
+_PT_BODY_TO_KEY = {
+    "sol": "sun", "lua": "moon", "mercúrio": "mercury", "mercurio": "mercury",
+    "vênus": "venus", "venus": "venus", "marte": "mars", "júpiter": "jupiter",
+    "jupiter": "jupiter", "saturno": "saturn", "urano": "uranus",
+    "netuno": "neptune", "plutão": "pluto", "plutao": "pluto",
+    "quíron": "chiron", "quiron": "chiron", "lilith": "lilith",
+    "ceres": "ceres", "palas": "pallas", "pallas": "pallas",
+    "juno": "juno", "vesta": "vesta",
+}
+
+
+def _detect_false_no_aspect_claims(text, chart):
+    """Item 9: afirmação de AUSÊNCIA de aspecto conferida contra a tabela.
+
+    Caso real (Helena, 17/07): o texto disse que Lilith não tem aspectos
+    depois de o próprio relatório ter lido o aspecto dela com Vênus.
+    """
+    out = []
+    if not chart:
+        return out
+    aspected = set()
+    for a in (chart.get("aspects") or []):
+        for k in ("planet_a", "planet_b", "p1", "p2", "point_a", "point_b"):
+            v = a.get(k)
+            if isinstance(v, str):
+                aspected.add(v.strip().lower())
+    if not aspected:
+        return out
+    pat = (r"\b(Sol|Lua|Mercúrio|Mercurio|Vênus|Venus|Marte|Júpiter|Jupiter|"
+           r"Saturno|Urano|Netuno|Plutão|Plutao|Quíron|Quiron|Lilith|Ceres|"
+           r"Palas|Pallas|Juno|Vesta)\b[^.!?]{0,90}?"
+           r"(não\s+(?:faz|forma|recebe|tem|possui)\s+(?:nenhum\s+)?aspecto|"
+           r"sem\s+(?:nenhum\s+)?aspecto|nenhum\s+aspecto)")
+    for m in re.finditer(pat, text, flags=re.IGNORECASE):
+        body_pt = m.group(1).lower()
+        key = _PT_BODY_TO_KEY.get(body_pt)
+        if key and key in aspected:
+            out.append({"kind": "aspecto:falsa_ausencia", "match": m.group(0)[:70],
+                        "offset": m.start(),
+                        "suggestion": (f"o texto afirma que {m.group(1)} não tem aspectos, "
+                                       f"mas a tabela deste mapa LISTA aspectos para ele. "
+                                       f"REMOVER a afirmação de ausência (ou reescrever "
+                                       f"para 'poucos aspectos', se for o caso).")})
+    return out
+
+
+def _detect_clitic_third_person(text, voice):
+    """Item 10: registro de 2ª pessoa padroniza 'te', nunca o clítico 'a/o'.
+
+    "o que a move" → "o que te move". Só roda em modo SEGUNDA pessoa; em
+    terceira pessoa o clítico é correto. Estreito: verbo + clítico logo
+    após, com lista fechada de verbos, para não acusar artigo.
+    """
+    out = []
+    if (voice or {}).get("person") == "terceira":
+        return out
+    verbos = (r"move|moveu|movem|define|definiu|definem|protege|protegeu|"
+              r"protegem|sustenta|sustentou|sustentam|guia|guiou|guiam|"
+              r"habita|atravessa|atravessou|marca|marcou|marcam|"
+              r"acompanha|acompanhou|acompanham|exila|exilou|exilaram|"
+              r"empurra|empurrou|empurram|puxa|puxou|puxam")
+    for m in re.finditer(rf"\b(?:o\s+que|aquilo\s+que|algo\s+que)\s+(a|o)\s+({verbos})\b",
+                         text, flags=re.IGNORECASE):
+        out.append({"kind": "registro:clitico_terceira", "match": m.group(0),
+                    "offset": m.start(),
+                    "suggestion": ("o relatório usa 'te' como pronome de 2ª pessoa — "
+                                   f"trocar por 'te {m.group(2)}'.")})
+    return out
+
+
+def _detect_bare_ic(text):
+    """Item 11: IC nunca aparece sozinho — precisa de tradução."""
+    out = []
+    for m in re.finditer(r"\bIC\b", text):
+        janela = text[max(0, m.start() - 90):m.end() + 90].lower()
+        if "casa 4" in janela or "fundo do céu" in janela or "fundo do ceu" in janela:
+            continue
+        out.append({"kind": "jargao:ic_sozinho", "match": "IC", "offset": m.start(),
+                    "suggestion": ("'IC' é sigla técnica — escrever 'cúspide da casa 4', "
+                                   "'fundo do céu', ou ambos ('o fundo do céu, cúspide "
+                                   "da casa 4').")})
+    return out
+
+
+# ---- item 13: lint de MULETA (contagem, não regex fixo) ----------------
+# "real/realmente" virou a muleta nova (abundante na rodada de 17/07). O
+# limiar é por SEÇÃO para não punir um relatório longo. Reporta no meta —
+# não reescreve — para que a PRÓXIMA muleta seja pega pelo mesmo mecanismo.
+_CRUTCH_CANDIDATES = [
+    ("real", r"\breal(?:mente|is)?\b"),
+    ("genuíno", r"\bgenuín[ao]s?\b|\bgenuinamente\b"),
+    ("profundo", r"\bprofund[ao]s?\b|\bprofundamente\b|\bprofundidade\b"),
+    ("exatamente", r"\bexatamente\b"),
+    ("específico", r"\bespecífic[ao]s?\b|\bespecificamente\b"),
+    ("concreto", r"\bconcret[ao]s?\b|\bconcretamente\b"),
+    ("silencioso", r"\bsilencios[ao]s?\b|\bsilenciosamente\b"),
+    ("verdadeiro", r"\bverdadeir[ao]s?\b"),
+]
+CRUTCH_PER_SECTION_LIMIT = 4
+
+
+def detect_crutch_words(report_text):
+    """Palavra-muleta: mesma palavra repetida acima do limiar numa seção."""
+    out = []
+    blocos = re.split(r"\n##\s+", report_text)
+    for blk in blocos[1:]:
+        titulo, _, corpo = blk.partition("\n")
+        for nome, pat in _CRUTCH_CANDIDATES:
+            n = len(re.findall(pat, corpo, flags=re.IGNORECASE))
+            if n > CRUTCH_PER_SECTION_LIMIT:
+                out.append({"section": titulo.strip(), "word": nome, "count": n,
+                            "limit": CRUTCH_PER_SECTION_LIMIT})
+    return out
 
 
 # ============================================================
@@ -806,6 +1062,27 @@ def run_verifier(text, chart, call_claude_fn):
     except Exception as e:
         logger.warning("verifier 2g failed: %s", e)
 
+    # --- rodada 17/07: doutrina da Márcia (detectores semânticos) ---
+    for fn, tag in ((_detect_netuno_plutao_mention, "netuno_plutao"),
+                    (_detect_sign_as_generational_agent, "signo_geracional"),
+                    (_detect_sign_adjectives, "glossario_signo"),
+                    (_detect_bare_ic, "ic_sozinho")):
+        try:
+            for v in fn(scan_text):
+                _add(v["kind"], v["match"], v["offset"], v["suggestion"])
+        except Exception as e:
+            logger.warning("verifier %s failed: %s", tag, e)
+    try:
+        for v in _detect_false_no_aspect_claims(scan_text, chart):
+            _add(v["kind"], v["match"], v["offset"], v["suggestion"])
+    except Exception as e:
+        logger.warning("verifier falsa_ausencia failed: %s", e)
+    try:
+        for v in _detect_clitic_third_person(scan_text, (chart or {}).get("_voice")):
+            _add(v["kind"], v["match"], v["offset"], v["suggestion"])
+    except Exception as e:
+        logger.warning("verifier clitico failed: %s", e)
+
     # 4b/4c — afirmações sobre cúspides validadas contra a tabela real
     try:
         for cd in _validate_cusp_claims(scan_text, chart):
@@ -936,6 +1213,15 @@ def _reverify_sentence(sentence, prior_violations, chart):
         for kind, match_text, offset, sugg in _detect_voice_violations(sentence, chart):
             out.append({"kind": kind, "match": match_text, "offset": offset,
                         "suggestion": sugg})
+    for _pref in ("geracional", "glossario_signo", "jargao", "aspecto:falsa",
+                  "registro:clitico"):
+        if any(k.startswith(_pref) for k in kinds):
+            for v in prior_violations:
+                if v["kind"].startswith(_pref) and v["match"].strip():
+                    m2 = re.search(re.escape(v["match"][:40]), sentence, flags=re.IGNORECASE)
+                    if m2:
+                        out.append({"kind": v["kind"], "match": m2.group(0),
+                                    "offset": m2.start(), "suggestion": v["suggestion"]})
     if "genero" in kinds:
         for v in prior_violations:
             if v["kind"].startswith("genero"):
@@ -953,3 +1239,86 @@ def _reverify_sentence(sentence, prior_violations, chart):
                                f"a menção à cúspide/casa por completo."),
             })
     return out
+
+# ============================================================
+# spell_lint — CAMADA DE ORTOGRAFIA (ideia da Márcia, 17/07)
+# ============================================================
+# Mesmo padrão de pdf_lint / repetition_lint: asserção sobre o ARTEFATO,
+# reportada no meta. MODO FLAG-ONLY: não reescreve nada. A whitelist
+# (domain_lexicon.txt) cresce rodando sobre relatórios já limpos; só depois
+# disso spell_lint: [] entra como gate ao lado dos outros dois.
+#
+# DIVISÃO DE TRABALHO (documentada no ESTADO):
+#   · spell_lint pega o que NÃO É PALAVRA: mutable, orgullo, saturina,
+#     reencuadrar.
+#   · O GLOSSÁRIO DE SIGNO pega o que É palavra mas está errado no domínio:
+#     "virgiliana" existe em português (de Virgílio) — nenhum corretor a
+#     acusaria. Só a lista fechada da Márcia a pega.
+# Uma camada não substitui a outra.
+
+_DOMAIN_WORDS = None
+
+
+def _load_domain_lexicon():
+    global _DOMAIN_WORDS
+    if _DOMAIN_WORDS is not None:
+        return _DOMAIN_WORDS
+    import os
+    path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                        "domain_lexicon.txt")
+    words = set()
+    try:
+        with open(path, encoding="utf-8") as fh:
+            for line in fh:
+                line = line.strip().lower()
+                if line and not line.startswith("#"):
+                    words.add(line)
+    except Exception as e:
+        logger.warning("domain_lexicon.txt não carregou: %s", e)
+    _DOMAIN_WORDS = words
+    return words
+
+
+def spell_lint(report_text, chart=None, max_report=60):
+    """Palavras fora do dicionário pt-BR E fora do dicionário de domínio.
+
+    Retorna lista de {word, count, sample} — flag-only. Nomes próprios do
+    payload (nome do cliente, cidade) são excluídos.
+    """
+    out = []
+    try:
+        from spellchecker import SpellChecker
+    except ImportError:
+        return [{"error": "pyspellchecker não instalado — spell_lint inativo"}]
+    try:
+        sp = SpellChecker(language="pt")
+    except Exception as e:
+        return [{"error": f"dicionário pt indisponível: {e}"}]
+
+    domain = _load_domain_lexicon()
+    proper = set()
+    for key in ("name", "birth_city"):
+        val = (chart or {}).get(key) or ""
+        for tok in re.findall(r"[\wÀ-ÿ]+", str(val)):
+            proper.add(tok.lower())
+    # Palavras iniciadas por maiúscula no meio da frase = provável nome
+    # próprio; contadas à parte para não poluir a primeira rodada.
+    text = _mask_fixed_templates(report_text)
+    tokens = re.findall(r"[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\-']{2,}", text)
+    counts, samples = {}, {}
+    for tok in tokens:
+        low = tok.lower().strip("-'")
+        if not low or low in domain or low in proper:
+            continue
+        if tok[0].isupper():
+            continue                       # nome próprio / início de frase
+        if not sp.unknown([low]):
+            continue
+        counts[low] = counts.get(low, 0) + 1
+        if low not in samples:
+            i = text.lower().find(low)
+            samples[low] = text[max(0, i - 40):i + len(low) + 40].replace("\n", " ")
+    for w in sorted(counts, key=lambda w: -counts[w])[:max_report]:
+        out.append({"word": w, "count": counts[w], "sample": samples[w]})
+    return out
+

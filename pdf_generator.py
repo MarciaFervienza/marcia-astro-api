@@ -38,7 +38,7 @@ from reportlab.platypus import (
     HRFlowable,
     Image,
     KeepTogether,
-    PageBreak,
+    PageBreak, CondPageBreak,
     PageTemplate,
     Paragraph,
     Spacer,
@@ -1094,6 +1094,12 @@ def _pull_quote_flowables(sentence: str, styles):
     """
     if not sentence:
         return []
+    # A pull-quote SEMPRE começa em página própria (item 19, 17/07): sem
+    # isto ela caía na página onde o parágrafo anterior terminou, com o
+    # resto do texto no topo — visto pela Márcia no relatório da Helena.
+    # CondPageBreak em vez de PageBreak: só quebra se NÃO houver espaço
+    # (aqui, praticamente sempre) — numa página já vazia ele não faz nada,
+    # evitando a página em branco que um PageBreak incondicional geraria.
     quote_stack = KeepTogether([
         # 5cm above instead of 8cm — gives the quote more room to breathe
         # without pushing it past mid-page. Combined with the tighter
@@ -1107,7 +1113,7 @@ def _pull_quote_flowables(sentence: str, styles):
             hAlign="CENTER", lineCap="round",
         ),
     ])
-    return [quote_stack, PageBreak()]
+    return [CondPageBreak(24.0 * cm), quote_stack, PageBreak()]
 
 
 # ============================================================

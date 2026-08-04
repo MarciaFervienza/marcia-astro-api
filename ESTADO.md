@@ -423,3 +423,55 @@ produto é leitura de autoconhecimento para adultos. Consequências:
   memória), casa_5/urano com hora (filhos).
 - Atenção máxima: lua, sol_saturno e Fio Condutor — leitura parental
   descreve pais presentes e vivos; Fio tem amarração parental obrigatória.
+
+## Leitura completa da Márcia — 17/07/2026 (21 achados)
+
+### Diagnósticos
+1. **A regra dos 5° NÃO vazou para a mandala.** Provado: SVG byte-idêntico
+   com `points[*].house` intacto e mutado (o renderer reconstrói o subject
+   via `from_birth_data` e nunca lê `body["points"]`). O que a Márcia viu é
+   **o packing**: Júpiter está a 0.41° da cúspide 11 e é desenhado a 7.85°
+   (19× mais longe), enquanto o Sol fica a 0.15° dela. Causa: Sol e Júpiter
+   a 0.58° um do outro; o packing separa e empurra Júpiter para o único
+   lado com espaço. **Tensão em aberto, decisão dela:** com a regra dos 5°,
+   o texto lê Júpiter na casa 11 e a mandala o desenha fundo na 10 — cada
+   um correto pela sua regra, contraditórios para o leitor.
+2. **Fio Condutor em 3ª pessoa:** `voice_rules_block` retornava "" no modo
+   segunda pessoa, e o template do Fio nunca instruiu pessoa — ainda
+   enquadra o sujeito em 3ª ("relatório para {name}"). Corrigido: o bloco
+   de voz é SEMPRE emitido (2ª ou 3ª), com regra explícita para a síntese.
+
+### Regra dos 5° — condição de signo
+Corpo só é lido na casa seguinte se **corpo e cúspide seguinte no mesmo
+signo**. Fronteira de signo barra (regências diferentes). Efeito medido:
+- Juno da Helena (Gêmeos vs cúspide 8 em Câncer) — **barrada, fica na 7**
+  (o erro que a Márcia pegou);
+- Urano do Carlos (Libra vs Escorpião) — barrado, caso novo;
+- censo 500: média 2.95 → **2.75** corpos/mapa (97 movimentos barrados).
+
+### Camadas de lint — divisão de trabalho (importante)
+- `spell_lint` (novo, **flag-only**): corretor pt-BR + `domain_lexicon.txt`.
+  Pega **o que não é palavra**: mutable, orgullo, saturina, reencuadrar.
+- **Glossário de signo** (`_SIGN_ADJECTIVE_ERRORS`): pega **o que é palavra
+  mas está errada no domínio** e dá a correção certa: virgiliana →
+  virginiana. NOTA FACTUAL: o dicionário pt do pyspellchecker é lista de
+  frequência e também flagrou "virgiliana" — mas só como "desconhecida".
+  Um dicionário mais completo a deixaria passar; o glossário é a camada
+  autoritativa. As duas não se substituem.
+- `pyspellchecker` **não estava no requirements.txt** — a rodada 2e descrita
+  no docstring nunca rodou em produção. Adicionado.
+- `crutch_lint` (novo): palavra-muleta acima de 4 ocorrências por seção
+  ("real" foi a desta rodada). Reporta, não reescreve — pega a PRÓXIMA.
+
+### Doutrina de síntese (regras permanentes)
+- **Casa 4 = ambiente**, nunca figura de cuidado (figura de cuidado é a Lua).
+- **Planeta primeiro**: casa com planeta começa pelo planeta; signo da
+  cúspide compõe.
+- **Saturno-Quíron em oposição**: síntese obrigatória (ferida + autoridade),
+  independente de signo.
+- **Netuno-Plutão**: nunca mencionar (geracional) — prompt + detector.
+- **Signo não é agente geracional** — só planeta transpessoal em signo.
+
+### Pendente de decisão dela
+- **Item 18** (títulos por função): opções propostas, aguardando escolha.
+- **Tensão mandala × regra dos 5°** (diagnóstico 1).
