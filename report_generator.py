@@ -747,7 +747,7 @@ def _cluster_addendum_for_section(clusters, which):
         f"preserve a estrutura de possibilidade a reconhecer):\n"
         f"\"{anchor}\"\n\n"
         f"REGRAS PARA O DESENVOLVIMENTO:\n"
-        f"(a) NUNCA escreva 'seu pai', 'sua mãe', 'seu pai foi', 'sua mãe era'. "
+        f"(a) NOMEAR É PERMITIDO COM HIPÓTESE (17/07): 'sua mãe, ou quem exerceu essa função, provavelmente…', 'a figura parental masculina…'. PROIBIDO afirmar biografia como fato ('seu pai foi', 'sua mãe era'). Use sempre o hedge. "
         f"Refira-se sempre como 'quem exerceu essa função', 'a figura que "
         f"estruturou/cuidou', 'esse papel na sua história'.\n"
         f"(b) SEMPRE apresente como POSSIBILIDADE. Use 'pode ter sido', "
@@ -1417,15 +1417,7 @@ def build_sections(chart):
                     "que te alimenta emocionalmente e o que te esvazia), a sua resposta instintiva, o "
                     "que te acolhe e o que te desestabiliza.\n\n"
 
-                    "REGRA PERMANENTE E ABSOLUTA — LINGUAGEM SOBRE FIGURAS PARENTAIS: NUNCA, em "
-                    "nenhuma hipótese, escreva 'sua mãe', 'a sua mãe', 'sua mamãe', 'seu pai', 'seus "
-                    "pais' ou 'seus progenitores' como afirmação sobre a experiência real desta "
-                    "pessoa. Refira-se SEMPRE como 'a principal figura de cuidado', 'o vínculo "
-                    "primário', 'o cuidador principal', 'a figura que exerceu essa função', 'quem "
-                    "cuidou'. Essa regra é INDEPENDENTE de qualquer outra instrução: mesmo que outros "
-                    "trechos deste prompt sugiram uma leitura sobre a experiência materna, use SEMPRE "
-                    "a linguagem funcional. Você não conhece a biografia da pessoa e não pode "
-                    "afirmá-la — o mapa mostra função e intensidade, não enredo.\n\n"
+                    "PERMISSÃO DE NOMEAÇÃO (decisão da Márcia, 17/07 — SUBSTITUI a regra anterior de nunca nomear): as regras de não-nomear deixaram o texto impessoal. Você PODE nomear a figura, desde que com HIPÓTESE, nunca como afirmação biográfica — você não conhece a biografia desta pessoa; o mapa mostra função e intensidade.\n- Lua: 'mãe', 'cuidador primário', 'quem exerceu a função materna na infância'.\n- Sol: 'figura parental masculina', 'quem espelhou como se posicionar no mundo'.\n- Saturno: 'a referência de autoridade aprendida na infância'.\nCOMO NOMEAR: sempre com o hedge que a Márcia já usa — 'quem exerceu a função de…', 'provavelmente', 'é possível que', 'costuma indicar'. Escreva 'sua mãe, ou quem exerceu essa função, provavelmente…' e NUNCA 'sua mãe era…' como fato estabelecido. A estrutura de clusters NÃO muda: Sol e Saturno seguem no cluster paterno (C1), a Lua no materno (C2).\n\n"
 
                     "Leia a Lua com profundidade PLENA — não simplifique. Explore o signo (quando "
                     "conhecido), a casa (quando conhecida), os aspectos reais deste mapa, a relação "
@@ -1500,7 +1492,7 @@ def build_sections(chart):
                 "leitura. Use linguagem como 'pode ter sido' ou 'alternativamente'.\n\n"
 
                 "LINGUAGEM: use 'a principal figura de cuidado', 'quem exerceu esse papel', 'o "
-                "vínculo primário', 'quem cuidou' — NUNCA 'seu pai', 'sua mãe', 'seus pais'. Regra "
+                "vínculo primário', 'quem cuidou' — ou nomeando COM HIPÓTESE ('sua mãe, ou quem exerceu essa função, provavelmente…'). PROIBIDO afirmar biografia como fato. Regra "
                 "permanente que vale para esta seção."
             
                 + "\n\nDONO DA LEITURA (anti-repetição, 17/07): os corpos que estiverem na casa 4 "
@@ -1551,16 +1543,7 @@ def build_sections(chart):
                 "leituras — referencie em uma frase quando precisar delas e mantenha o foco no "
                 "eixo parental.\n\n"
 
-                "REGRA PERMANENTE E ABSOLUTA — LINGUAGEM SOBRE FIGURAS PARENTAIS: NUNCA, em nenhuma "
-                "hipótese, escreva 'seu pai', 'sua mãe', 'seu papai', 'sua mamãe', 'seus pais' ou "
-                "'seus progenitores' como afirmação sobre a experiência real desta pessoa. Refira-se "
-                "SEMPRE como 'a função de autoridade', 'quem exerceu esse papel estruturante', 'a "
-                "figura de autoridade internalizada', 'o modelo de referência', 'o papel de autoridade "
-                "na sua história'. Essa regra é INDEPENDENTE de qualquer outra instrução: mesmo que "
-                "outros trechos deste prompt sugiram uma leitura sobre a experiência parental, use "
-                "SEMPRE a linguagem funcional. Isso vale mesmo quando o mapa 'pede' claramente uma "
-                "leitura sobre a origem — o mapa mostra função e intensidade, você não conhece a "
-                "história biográfica da pessoa e não pode afirmá-la.\n\n"
+                "PERMISSÃO DE NOMEAÇÃO (decisão da Márcia, 17/07 — SUBSTITUI a regra anterior de nunca nomear): as regras de não-nomear deixaram o texto impessoal. Você PODE nomear a figura, desde que com HIPÓTESE, nunca como afirmação biográfica — você não conhece a biografia desta pessoa; o mapa mostra função e intensidade.\n- Lua: 'mãe', 'cuidador primário', 'quem exerceu a função materna na infância'.\n- Sol: 'figura parental masculina', 'quem espelhou como se posicionar no mundo'.\n- Saturno: 'a referência de autoridade aprendida na infância'.\nCOMO NOMEAR: sempre com o hedge que a Márcia já usa — 'quem exerceu a função de…', 'provavelmente', 'é possível que', 'costuma indicar'. Escreva 'sua mãe, ou quem exerceu essa função, provavelmente…' e NUNCA 'sua mãe era…' como fato estabelecido. A estrutura de clusters NÃO muda: Sol e Saturno seguem no cluster paterno (C1), a Lua no materno (C2).\n\n"
 
                 "Esta seção deve terminar com uma orientação concreta e específica ao mapa desta "
                 "pessoa — não uma frase genérica, mas algo que ela possa carregar sobre como trabalhar "
@@ -1889,8 +1872,13 @@ ORIENTAÇÃO AO FINAL DE SEÇÕES COM TENSÃO:
 Se — e somente se — a seção nomear uma tensão ou contradição interna, termine com uma ou duas frases que ofereçam uma orientação prática — não uma resolução, mas uma bússola. Como essa pessoa pode trabalhar conscientemente com essa tensão? O tom não é de conselho, mas de reconhecimento. Seja específica ao posicionamento — não genérica. Nunca termine uma seção deixando a pessoa apenas no peso da tensão sem nenhuma orientação.
 VARIE A FÓRMULA do fechamento — o leitor lê as seções em sequência e o mesmo molde vira metrônomo. Alterne entre formas como: "o que esse posicionamento pede de você é…", "a melhor forma de trabalhar com isso é…", "o convite aqui é…", ou um fechamento sem fórmula nenhuma, em que a orientação emerge da última frase da própria leitura. "Aprender a distinguir X de Y" É a mesma fórmula-metrônomo — conta como fechamento de fórmula e segue as mesmas regras de variação. Nunca use a mesma forma que a seção anterior usou (quando o contexto de seções anteriores estiver disponível acima).
 
-PLANETA PRIMEIRO (doutrina da Márcia, 17/07):
-Quando a casa que você está lendo tem um planeta dentro (asteroides e nodos não contam), a descrição COMEÇA pelo planeta — ele é o agente; o signo da cúspide COMPÕE o pano de fundo. Nunca abra com o caráter do signo da cúspide para em seguida introduzir um planeta cuja natureza contradiz o que acabou de ser afirmado. Sem planeta na casa, aí sim o signo da cúspide conduz a leitura.
+PLANETA PRIMEIRO — ORDEM COMPLETA (doutrina da Márcia, 17/07, corrigida):
+Quando a casa que você está lendo tem um corpo dentro (asteroides e nodos não contam), a leitura segue esta ordem, sem pular etapa:
+  1. O CORPO NO SIGNO DELE — sempre primeiro. "Lilith em Aquário", "Saturno em Escorpião". É a natureza do corpo, e ela vem do signo em que ELE está.
+  2. O CORPO NA CASA — o território onde essa natureza opera. "Lilith na casa 4".
+  3. O SIGNO DA CÚSPIDE — só como composição do ambiente, ao fundo. "com a casa 4 em Aquário".
+ERRO REAL A NÃO REPETIR (Helena, 17/07): Lilith na casa 4 foi lida como "Lilith na casa 4" e "casa 4 em Aquário", mas NUNCA como "Lilith em Aquário" — o signo do próprio corpo desapareceu do texto. O leitor ficou sem a informação mais básica sobre aquele corpo.
+Nunca abra com o caráter do signo da cúspide para em seguida introduzir um corpo cuja natureza contradiz o que acabou de ser afirmado. Sem corpo na casa, aí sim o signo da cúspide conduz a leitura sozinho.
 
 SIGNO NÃO É AGENTE GERACIONAL:
 Um signo não carrega nada "para toda uma geração" — todo mundo tem os doze signos no mapa. O que marca geração é o PLANETA TRANSPESSOAL (Urano, Netuno, Plutão) num signo, porque ele demora anos ali. Escreva "o que Plutão em Escorpião carrega para a sua geração", nunca "o signo de Escorpião carrega para a sua geração".
@@ -2272,7 +2260,8 @@ def _parental_dynamics_context(chart):
                 f"doméstico refletiu essa dinâmica; NÃO trate como cluster separado."
             )
         parts.append(
-            "  · REGRAS GERAIS: nunca escreva 'seu pai/sua mãe'; sempre "
+            "  · REGRAS GERAIS: nomear é permitido COM HIPÓTESE ('sua mãe, ou quem "
+            "exerceu essa função, provavelmente…'); nunca afirme biografia como fato; sempre "
             "'quem exerceu essa função'. Sempre modo de possibilidade; o mapa "
             "mostra a intensidade, não o enredo."
         )

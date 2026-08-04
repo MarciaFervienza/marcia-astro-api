@@ -84,6 +84,46 @@ _FORBIDDEN_LEXICON = [
      "sintagma invertido — 'um profissional de confiança'"),
     (r"\bno\s+quarto\s+sozinho\b", "gramatica_ambiguidade",
      "'sozinho' gruda em 'quarto' — reescrever ('sozinho no quarto')"),
+    # --- PORTUGUÊS EUROPEU (17/07, 2ª rodada) -------------------------
+    # São palavras portuguesas CORRETAS — em PT-PT. Nenhum corretor as
+    # acusa; só uma lista explícita as pega. O relatório é pt-BR.
+    (r"\bcontacto(s)?\b",   "pt_europeu", "contato(s)"),
+    (r"\bcontact(ar|a|ou|ando)\b", "pt_europeu", "contatar/contata/contatou/contatando"),
+    (r"\baspeto(s)?\b",     "pt_europeu", "aspecto(s)"),
+    (r"\bharmónic[ao](s)?\b", "pt_europeu", "harmônico(a)"),
+    (r"\bfenómeno(s)?\b",   "pt_europeu", "fenômeno(s)"),
+    (r"\bténue(s)?\b",      "pt_europeu", "tênue(s)"),
+    (r"\bgénese\b",         "pt_europeu", "gênese"),
+    (r"\bgénio(s)?\b",      "pt_europeu", "gênio(s)"),
+    (r"\banónim[ao](s)?\b", "pt_europeu", "anônimo(a)"),
+    (r"\bcómod[ao](s)?\b",  "pt_europeu", "cômodo(a)"),
+    (r"\becconómic|económic[ao](s)?\b", "pt_europeu", "econômico(a)"),
+    (r"\bcrónic[ao](s)?\b", "pt_europeu", "crônico(a)"),
+    (r"\btónic[ao](s)?\b",  "pt_europeu", "tônico(a)"),
+    (r"\bprémio(s)?\b",     "pt_europeu", "prêmio(s)"),
+    (r"\bbónus\b",          "pt_europeu", "bônus"),
+    (r"\bfacto(s)?\b",      "pt_europeu", "fato(s)"),
+    (r"\bactual(mente)?\b", "pt_europeu", "atual/atualmente"),
+    (r"\bacç(ão|ões)\b",    "pt_europeu", "ação/ações"),
+    (r"\bafectiv[ao](s)?\b","pt_europeu", "afetivo(a)"),
+    (r"\bobjectiv[ao](s)?\b","pt_europeu", "objetivo(a)"),
+    (r"\bdirecç(ão|ões)\b", "pt_europeu", "direção/direções"),
+    (r"\bsector(es)?\b",    "pt_europeu", "setor(es)"),
+    (r"\bperspetiva(s)?\b", "pt_europeu", "perspectiva(s)"),
+    (r"\breceção\b",        "pt_europeu", "recepção"),
+    (r"\badopt(ar|a|ou|ando)\b", "pt_europeu", "adotar/adota/adotou/adotando"),
+    (r"\bóptim[ao](s)?\b",  "pt_europeu", "ótimo(a)"),
+    (r"\beléctric[ao](s)?\b","pt_europeu", "elétrico(a)"),
+    (r"\bexact[ao](s)?\b",  "pt_europeu", "exato(a)"),
+    (r"\bprojecto(s)?\b",   "pt_europeu", "projeto(s)"),
+    (r"\bcorrect[ao](s)?\b","pt_europeu", "correto(a)"),
+    (r"\bdirect[ao](s)?\b", "pt_europeu", "direto(a)"),
+    (r"\bselecç(ão|ões)\b", "pt_europeu", "seleção/seleções"),
+    (r"\breflectir\b",      "pt_europeu", "refletir"),
+    (r"\brespetiv[ao](s)?\b","pt_europeu", "respectivo(a)"),
+    (r"\bconnosco\b",       "pt_europeu", "conosco"),
+    (r"\bregist[oa]\b",     "pt_europeu", "registro"),
+    (r"\bfactor(es)?\b",    "pt_europeu", "fator(es)"),
     # --- rodada 17/07 (leitura completa da Márcia) ---
     (r"\bpede\s+(?:a\s+)?descida\b", "termo_rejeitado",
      "usar 'pede aprofundamento' — 'descida' não é termo dela"),
@@ -185,6 +225,48 @@ def _detect_sign_adjectives(text):
                         "offset": m.start(), "suggestion": right})
     return out
 
+
+
+# ============================================================
+# GLOSSÁRIO DE ADJETIVOS PLANETÁRIOS (17/07, 2ª rodada)
+# ============================================================
+# Faltava: só existiam `saturina/saturino` soltos no léxico, e "saturniano"
+# escapava de tudo (a Márcia pegou no relatório). Agora espelha exatamente
+# o glossário de signos: lista fechada + variantes erradas com a correção.
+#
+# Formas canônicas confirmadas pela Márcia: saturnina / saturnino.
+# As demais seguem o uso corrente em pt-BR. Lista EXTENSÍVEL — quando
+# aparecer variante nova, entra aqui em vez de virar regex genérico, que
+# acusaria palavra comum.
+_PLANET_ADJECTIVE_ERRORS = {
+    "saturniano": "saturnino", "saturniana": "saturnina",
+    "saturnianos": "saturninos", "saturnianas": "saturninas",
+    "saturnal": "saturnino", "saturnino2": "saturnino",
+    "venusino": "venusiano", "venusina": "venusiana",
+    "venerino": "venusiano", "venerina": "venusiana",
+    "mercuriano2": "mercuriano", "mercurino": "mercurial",
+    "mercurina": "mercurial",
+    "jupiteriano2": "jupiteriano", "jupterino": "jupiteriano",
+    "marciano2": "marcial", "martino": "marcial", "martina": "marcial",
+    "uraniano2": "uraniano", "uranino": "uraniano",
+    "netuniano2": "netuniano", "netunino": "netuniano",
+    "plutonino": "plutoniano", "plutonina": "plutoniana",
+    "quironino": "quironiano", "quironina": "quironiana",
+    "lunino": "lunar", "lunina": "lunar",
+    "solino": "solar", "solina": "solar",
+}
+
+
+def _detect_planet_adjectives(text):
+    """Adjetivo planetário fora do glossário fechado."""
+    out = []
+    for wrong, right in _PLANET_ADJECTIVE_ERRORS.items():
+        if wrong.endswith("2"):
+            continue                      # marcador interno, não é padrão
+        for m in re.finditer(rf"\b{wrong}\b", text, flags=re.IGNORECASE):
+            out.append({"kind": "glossario_planeta", "match": m.group(0),
+                        "offset": m.start(), "suggestion": right})
+    return out
 
 
 # ============================================================
@@ -1066,6 +1148,7 @@ def run_verifier(text, chart, call_claude_fn):
     for fn, tag in ((_detect_netuno_plutao_mention, "netuno_plutao"),
                     (_detect_sign_as_generational_agent, "signo_geracional"),
                     (_detect_sign_adjectives, "glossario_signo"),
+                    (_detect_planet_adjectives, "glossario_planeta"),
                     (_detect_bare_ic, "ic_sozinho")):
         try:
             for v in fn(scan_text):
@@ -1237,7 +1320,7 @@ def _reverify_sentence(sentence, prior_violations, chart):
         for kind, match_text, offset, sugg in _detect_voice_violations(sentence, chart):
             out.append({"kind": kind, "match": match_text, "offset": offset,
                         "suggestion": sugg})
-    for _pref in ("geracional", "glossario_signo", "jargao", "aspecto:falsa",
+    for _pref in ("geracional", "glossario_signo", "glossario_planeta", "jargao", "aspecto:falsa",
                   "registro:clitico"):
         if any(k.startswith(_pref) for k in kinds):
             for v in prior_violations:
