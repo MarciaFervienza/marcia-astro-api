@@ -509,3 +509,35 @@ escolha correta.
   abaixo do exigido pela propriedade; posições verdadeiras em vez das
   clampadas) reduziram mas não zeraram — a redistribuição do solver acaba
   dando a algum par fatia menor que o ótimo geométrico.
+
+## Mandala — investigação FECHADA (17/07, decisão: fica no atual)
+
+Três tentativas de aproximar da cúspide um corpo colado nela. Todas medidas
+em 1000 mapas × 2 seeds, todas descartadas. **Não reabrir sem dado novo.**
+
+| tentativa | resultado |
+|---|---|
+| peso de afinidade de cúspide (PAVA com w) | **no-op**: sem folga para redistribuir (Sol+Mercúrio preenchem a caixa casa 11 ∩ Virgem, 4.32°) |
+| teto de separação no par que atravessa a cúspide | teto 4°: mapas com vão < 3° vão de **37 → 81**, 43 violações. Teto 6°: 40 mapas, **18 violações** |
+| anti-inversão (monotonicidade não-estrita) | **165 violações**, 37 mapas com vão mínimo pior (3.79° → 1.84°) |
+
+Critério da Márcia que decidiu: mesmo a 6° as 9 propriedades saem de zero.
+Zero é zero.
+
+**Baseline do estado aprovado:** 37 mapas em 1000 (3,7%) já têm vão mínimo
+abaixo de 3°. Não é defeito — é o piso geométrico com casa ∩ signo respeitada.
+
+**Ruído conhecido e aceito:** corpo a menos de ~1° de uma cúspide pode ser
+desenhado vários graus para dentro da casa anterior (Helena: Júpiter a 0.41°
+da cúspide 11, desenhado a 7.85°). A mandala é geometria; a leitura segue a
+regra dos 5°. Divergem visualmente nesses casos.
+
+**Pista para o futuro (não implementada):** o TEXTO pode absorver a
+divergência — quando a regra dos 5° re-atribui um corpo, a seção registra
+que ele está no fim da casa anterior e é lido na seguinte. Custo zero na
+mandala, zero risco de encavalamento. Não medido.
+
+**Nota de método:** a "versão antiga sem afastamento" que a Márcia lembrava
+era o PDF do protótipo b' gerado nesta mesma sessão (12:02), não uma versão
+de produção. Só existiram duas em produção: fábrica (até `84b1843`) e cadeia
+global (daí em diante).
