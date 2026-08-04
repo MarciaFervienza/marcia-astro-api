@@ -3110,6 +3110,7 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
 
     # ---- PARALLEL CLAUDE PHASE ----
     log(f"\n--- Generating {len(sections)} sections in parallel (max {PARALLEL_MAX_WORKERS} workers) ---", flush=True)
+    _stage = {}
     parallel_start = time.time()
     futures: dict = {}
 
@@ -3162,9 +3163,13 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
     for sec in sections:
         full_report += f"\n## {sec['title']}\n\n{section_texts[sec['name']]}\n"
 
+    _stage['secoes'] = round(time.time() - parallel_start, 1)
+
     if not skip_fio:
         log(f"\n--- Fio Condutor ---", flush=True)
+        _t_fio = time.time()
         fio = generate_fio_condutor(name, chart, full_report, gender)
+        _stage['fio_condutor'] = round(time.time() - _t_fio, 1)
         full_report += f"\n## Fio Condutor\n\n{fio}\n"
         log(f"    {len(fio.split())} words", flush=True)
 
@@ -3218,10 +3223,12 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
         # Passar nome do cliente pro chart pra spellcheck ignorar tokens do payload
         _chart_for_verifier = dict(chart or {})
         _chart_for_verifier.setdefault("_client_name", name)
+        _t_ver = time.time()
         full_report, verifier_log = _tv.run_verifier(
             full_report, _chart_for_verifier, call_claude,
         )
         verifier_ran = True
+        _stage['verifier'] = round(time.time() - _t_ver, 1)
     except Exception as _ve:
         log(f"[VERIFICADOR] erro fatal (ignorado): {_ve}")
         verifier_error = f"{type(_ve).__name__}: {_ve}"
@@ -3256,12 +3263,14 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
     # cresce rodando sobre relatórios já limpos; só depois disso
     # `spell_lint: []` entra como gate ao lado de pdf_lint/repetition_lint.
     try:
+        _t_lint = time.time()
         from text_verifier import spell_lint as _spell_lint, detect_crutch_words
         spell_lint_out = _spell_lint(full_report, chart)
         crutch_lint = detect_crutch_words(full_report)
     except Exception as e:
         log(f"spell/crutch lint failed: {e}")
         spell_lint_out, crutch_lint = [{"error": str(e)}], []
+    _stage['lints'] = round(time.time() - _t_lint, 1)
 
     # Build a compact aspect audit (for return + verbose print)
     aspect_audit = {}
@@ -3298,6 +3307,7 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
         "elapsed_seconds": elapsed,
         "aspect_audit": aspect_audit,
         "cleanup_changes": cleanup_changes,
+        "stage_timings": _stage,
         "repetition_lint": repetition_lint,
         "spell_lint": spell_lint_out,
         "crutch_lint": crutch_lint,

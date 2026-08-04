@@ -1121,18 +1121,28 @@ def run_verifier(text, chart, call_claude_fn):
     # Aplicação de trás para frente pra preservar offsets
     corrected = text
     log_out = []
-    for idx in sorted(per_sent.keys(), reverse=True):
-        vs = per_sent[idx]
-        s, e, orig_sent = sentences[idx]
-        current = orig_sent
+    # As reescritas são INDEPENDENTES entre si: cada uma só lê a própria frase
+    # e as próprias violações. Rodavam EM SÉRIE — uma chamada ao Claude por
+    # tentativa, por frase — e a geração passou dos 300s do proxy do Railway
+    # (o gunicorn aguenta 900s; o proxy corta antes e devolve 502).
+    # Aqui elas rodam em paralelo. A APLICAÇÃO no documento continua
+    # sequencial e de trás para frente, para preservar os offsets — o
+    # resultado é idêntico, só o relógio muda.
+    def _rewrite_one(idx):
+        vs_i = per_sent[idx]
+        _s, _e, orig_i = sentences[idx]
+        current = orig_i
         succeeded = False
-        last_violations = vs
+        last_violations = vs_i
+        attempt = 0
         for attempt in range(1, 3):
-            listing = [f"{v['kind']} — {v['match']!r} — {v['suggestion']}" for v in last_violations]
+            listing = [f"{v['kind']} — {v['match']!r} — {v['suggestion']}"
+                       for v in last_violations]
             try:
                 rewritten = _rewrite_sentence(current, listing, call_claude_fn)
-            except Exception as e:
-                logger.warning("verifier: rewrite call failed (attempt %d): %s", attempt, e)
+            except Exception as exc:
+                logger.warning("verifier: rewrite call failed (attempt %d): %s",
+                               attempt, exc)
                 break
             # Re-verifica a frase reescrita quanto às MESMAS categorias que
             # foram flagradas — se sumiram, sucesso.
@@ -1144,6 +1154,20 @@ def run_verifier(text, chart, call_claude_fn):
             # Se ainda tem violações, tenta de novo com a nova frase
             current = rewritten
             last_violations = new_hits
+        return idx, current, succeeded, last_violations, attempt
+
+    _idxs = sorted(per_sent.keys(), reverse=True)
+    _res = {}
+    if _idxs:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=min(6, len(_idxs))) as _ex:
+            for _r in _ex.map(_rewrite_one, _idxs):
+                _res[_r[0]] = _r
+
+    for idx in _idxs:
+        vs = per_sent[idx]
+        s, e, orig_sent = sentences[idx]
+        _, current, succeeded, last_violations, attempt = _res[idx]
         if succeeded:
             # O separador de cauda (espaço, \n, \n\n) pertence ao DOCUMENTO,
             # não à frase: o segmento de _split_sentences termina onde a

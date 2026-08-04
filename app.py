@@ -2188,6 +2188,7 @@ def generate_report_endpoint():
             "voice_rel_gender_conflict": _rel_gender_conflict,
             # Repetição quase-verbatim entre seções (janela de 12 palavras).
             # Gate pré-testers exige [].
+            "stage_timings": result.get("stage_timings", {}),
             "repetition_lint": result.get("repetition_lint", []),
             # spell_lint em modo FLAG-ONLY: reporta palavras fora do
             # dicionário pt-BR + domain_lexicon.txt. Vira gate quando a
