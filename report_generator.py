@@ -1526,7 +1526,7 @@ def build_sections(chart):
         },
         {
             "name": "sol_saturno",
-            "title": "Sol e Saturno: O Pai e as Ferramentas da Vida",
+            "title": "Sol e Saturno: Seu Ideal de Eu e Suas Ferramentas",
             "queries": [
                 f"Sol em {sun['sign_pt']} casa {sun['house']} figura paterna",
                 f"Saturno em {saturn['sign_pt']} casa {saturn['house']} pai modelo referência",
