@@ -124,6 +124,9 @@ _FORBIDDEN_LEXICON = [
     (r"\bconnosco\b",       "pt_europeu", "conosco"),
     (r"\bregist[oa]\b",     "pt_europeu", "registro"),
     (r"\bfactor(es)?\b",    "pt_europeu", "fator(es)"),
+    # Vocabulário rebuscado banido pela Márcia (ver rare_word_lint):
+    (r"\bguarec(?:er|e|em|ia|eu|endo|ido|ida)\b", "vocabulario_rebuscado",
+     "palavra que ninguém usaria falando — trocar por 'abrigar', 'proteger', 'acolher'"),
     # --- rodada 17/07 (leitura completa da Márcia) ---
     (r"\bpede\s+(?:a\s+)?descida\b", "termo_rejeitado",
      "usar 'pede aprofundamento' — 'descida' não é termo dela"),
@@ -1449,3 +1452,84 @@ def spell_lint(report_text, chart=None, max_report=60):
         out.append({"word": w, "count": counts[w], "sample": samples[w]})
     return out
 
+
+
+# ============================================================
+# rare_word_lint — VOCABULÁRIO REBUSCADO (pedido da Márcia, 17/07)
+# ============================================================
+# A leitora (Marcelle) precisou parar e buscar palavras mais de uma vez.
+# Régua da Márcia: proibido o que ninguém usaria FALANDO; mantido o que soa
+# elevado mas é corrente. Caso confirmado: "guarecer" fora, "arrefecer"
+# dentro.
+#
+# MODO FLAG-ONLY, como o spell_lint: reporta no meta, não reescreve. A
+# Márcia tria; o que for banido vai para _RARE_BANNED (que é reescrito),
+# o que for aprovado vai para domain_lexicon.txt.
+#
+# LIMITAÇÃO MEDIDA (a mesma do spell_lint): a lista de frequência do
+# pyspellchecker é de português EUROPEU e tem buracos. Ela acerta o caso
+# da Márcia — guarecer 0.00/milhão contra arrefecer 4.23 — mas dá ZERO a
+# palavras correntes como "pertencimento", "autoconhecimento", "sutil" e
+# "epifania". Por isso: (a) o domain_lexicon é aplicado antes, (b) o lint
+# reporta a frequência ao lado de cada palavra, para a triagem ser sobre
+# dado e não sobre a minha opinião, (c) nunca vira gate sozinho.
+RARE_PER_MILLION = 0.5      # abaixo disto = candidata a rebuscada
+RARE_MIN_LEN = 6            # palavras curtas raramente são rebuscadas
+
+# Banidas explicitamente pela Márcia — estas SÃO reescritas.
+_RARE_BANNED = {
+    "guarecer": "abrigar / proteger",
+}
+
+_RARE_FREQ = None
+
+
+def _rare_freq():
+    global _RARE_FREQ
+    if _RARE_FREQ is not None:
+        return _RARE_FREQ
+    try:
+        from spellchecker import SpellChecker
+        wf = SpellChecker(language="pt").word_frequency
+        _RARE_FREQ = (wf.dictionary, wf.total_words)
+    except Exception as e:
+        logger.warning("rare_word_lint indisponível: %s", e)
+        _RARE_FREQ = ({}, 0)
+    return _RARE_FREQ
+
+
+def rare_word_lint(report_text, chart=None, max_report=40):
+    """Palavras de baixa frequência — candidatas a rebuscadas.
+
+    Retorna [{word, per_million, count, sample}] ordenado da mais rara para
+    a menos rara. Flag-only.
+    """
+    freq, total = _rare_freq()
+    if not total:
+        return [{"error": "lista de frequência indisponível"}]
+    domain = _load_domain_lexicon()
+    proper = set()
+    for key in ("name", "birth_city"):
+        for tok in re.findall(r"[\wÀ-ÿ]+", str((chart or {}).get(key) or "")):
+            proper.add(tok.lower())
+    text = _mask_fixed_templates(report_text)
+    vistos, amostra = {}, {}
+    for m in re.finditer(rf"[A-Za-zÀ-ÿ][A-Za-zÀ-ÿ\-']{{{RARE_MIN_LEN - 1},}}", text):
+        w = m.group(0)
+        low = w.lower().strip("-'")
+        if low in domain or low in proper or w[0].isupper():
+            continue
+        pm = 1e6 * freq.get(low, 0) / total
+        if pm >= RARE_PER_MILLION:
+            continue
+        vistos[low] = vistos.get(low, 0) + 1
+        if low not in amostra:
+            i = m.start()
+            amostra[low] = text[max(0, i - 45):i + len(w) + 45].replace("\n", " ")
+    out = []
+    for w in sorted(vistos, key=lambda w: (1e6 * freq.get(w, 0) / total, -vistos[w])):
+        out.append({"word": w, "count": vistos[w],
+                    "per_million": round(1e6 * freq.get(w, 0) / total, 2),
+                    "banned": w in _RARE_BANNED,
+                    "sample": amostra[w]})
+    return out[:max_report]

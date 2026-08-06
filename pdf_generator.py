@@ -169,6 +169,11 @@ except ImportError:
 
 logger = logging.getLogger("pdf-generator")
 
+# Símbolos do SVG da mandala, extraídos uma vez por requisição e usados
+# pela tabela de posições. Fonte ÚNICA: o mesmo SVG que a página do mapa
+# desenha, já pós-processado (Lilith espelhada). Não há segundo desenho.
+_WHEEL_SYMBOLS = {}
+
 # requests is imported lazily inside the chart-image fetcher so this module
 # remains importable even in environments where it isn't installed.
 
@@ -201,7 +206,7 @@ COLOR_TABLE_GRID = HexColor("#E6DFCE")  # ivory-toned hairline
 # a 18cm — o cliente recebia 19% menor do que a Márcia julgava (achado de
 # 17/07). Agora é constante nomeada e os bancos importam DAQUI: um número,
 # um dono (regra R3 do ESTADO aplicada à tipografia).
-WHEEL_SIZE_CM = 14.5
+WHEEL_SIZE_CM = 18.0   # decisão da Márcia, 17/07 (era 14.5)
 
 PAGE_W, PAGE_H = A4
 # Generous margins — the whole point of the redesign is white space.
@@ -826,6 +831,7 @@ def _wheel_page_flowables(
     longitude,
     styles,
     wheel_cm: float = WHEEL_SIZE_CM,
+    points: dict = None,
 ):
     """Página dedicada à mandala.
 
@@ -874,6 +880,13 @@ def _wheel_page_flowables(
     target_w_pts = wheel_cm * cm
     target_h_pts = wheel_cm * cm
 
+    if chart_image_url and not _WHEEL_SYMBOLS.get("defs"):
+        try:
+            import positions_table as _pt0
+            with open(chart_image_url, "r", encoding="utf-8") as _fh:
+                _WHEEL_SYMBOLS["defs"] = _pt0.extract_symbols(_fh.read())
+        except Exception as e:
+            logger.warning("símbolos do wheel não extraídos: %s", e)
     chart_image = _fetch_chart_image(chart_image_url) if chart_image_url else None
     img = (
         _chart_image_flowable(chart_image, target_w_pts, target_h_pts)
@@ -882,8 +895,81 @@ def _wheel_page_flowables(
     if img is not None:
         flow.append(img)
 
+    # PAINEL DE ELEMENTOS E MODALIDADES — abaixo da mandala, alinhado à
+    # ESQUERDA (escolha da Márcia, 17/07: "lateral, não no centro").
+    # Respiro de 0.15cm: medido empiricamente como o MAIOR que ainda mantém
+    # tudo em uma página com a mandala a 18cm (0.20 já joga para a segunda).
+    if points:
+        try:
+            import positions_table as _pt
+            _rows = _pt.read_positions_from_points(points)
+            if _rows:
+                _el, _mo = _pt.count_elements_modalities(_rows)
+                _pan = _pt.elements_panel_flowable(_el, _mo, styles, 8.5)
+                _pan.hAlign = "LEFT"
+                flow.append(Spacer(1, 0.15 * cm))
+                flow.append(_pan)
+        except Exception as e:
+            logger.warning("painel de elementos falhou: %s", e)
+
     flow.append(PageBreak())
     return flow
+
+
+
+def _positions_page_flowables(points, aspects, styles):
+    """Página de referência: tabela de posições + tabela de aspectos, ambas
+    em DUAS COLUNAS (escolha da Márcia, 17/07).
+
+    Duas colunas porque a 8.5pt cada tabela ocupa metade da altura — a de
+    posições cai de 11.5cm para 6.6cm. As tabelas NÃO são aninhadas dentro
+    de outra que precise caber inteira: cada metade é atômica, mas o
+    conjunto flui para a página seguinte se não couber. Testado com 27, 45
+    e 60 aspectos — build OK em todos, degradando para 2 ou 3 páginas em
+    vez de falhar.
+    """
+    import positions_table as _pt
+    flow = []
+    rows = _pt.read_positions_from_points(points or {})
+    if not rows:
+        return flow
+
+    _CW = [0.6 * cm, 2.2 * cm, 0.6 * cm, 2.3 * cm, 0.8 * cm]
+    _AW = [1.9 * cm, 2.0 * cm, 1.9 * cm, 1.0 * cm]
+    _COL = 7.6 * cm
+
+    def _par(a, b):
+        t = Table([[a, b]], colWidths=[_COL, _COL], hAlign="CENTER")
+        t.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+        ]))
+        return t
+
+    symbols = _WHEEL_SYMBOLS.get("defs") or {}
+    meio = (len(rows) + 1) // 2
+    flow.append(Paragraph("Posições", styles["section_title"]))
+    flow.append(Spacer(1, 0.35 * cm))
+    flow.append(_par(
+        _pt.positions_table_flowable(rows[:meio], symbols, styles, 8.5, 8.5, _CW),
+        _pt.positions_table_flowable(rows[meio:], symbols, styles, 8.5, 8.5, _CW)))
+
+    if aspects:
+        in_sign = [a for a in aspects if a.get("planet_a_pt") and a.get("planet_b_pt")]
+        if in_sign:
+            m = (len(in_sign) + 1) // 2
+            def _col(items):
+                t = _aspects_table(items, styles)
+                t._argW = _AW
+                return t
+            flow.append(Spacer(1, 0.7 * cm))
+            flow.append(Paragraph("Aspectos", styles["section_title"]))
+            flow.append(Spacer(1, 0.35 * cm))
+            flow.append(_par(_col(in_sign[:m]), _col(in_sign[m:])))
+    flow.append(PageBreak())
+    return flow
+
 
 
 def _aspects_page_flowables(aspects: list, points: dict, styles,
@@ -1364,14 +1450,12 @@ def generate_pdf(
         story.extend(_wheel_page_flowables(
             chart_image_url, client_name, birth_date, birth_time,
             birth_place, latitude, longitude, styles,
-            wheel_cm=wheel_cm,
+            wheel_cm=wheel_cm, points=points,
         ))
-    # Aspects page (separate) — títutlo + tabela + rodapé.
-    if aspects:
-        story.extend(_aspects_page_flowables(
-            aspects, points or {}, styles,
-            show_row_separators=aspects_row_separators,
-        ))
+    # Página de referência: posições + aspectos em duas colunas (17/07).
+    # Substitui a antiga página só-de-aspectos.
+    story.extend(_positions_page_flowables(points or {}, aspects, styles))
+
 
     # Section flow with periodic pull-quote breather pages. Every fourth
     # section (skipping Abertura and Fio Condutor which bookend the report)

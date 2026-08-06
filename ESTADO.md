@@ -370,9 +370,45 @@ cinza (`ASPECT_COLORS` em `app.py`).
 > mudar no outro (foi assim que a Márcia quase aprovou um PDF que não era o
 > produto, 16/07).
 
+### 9.7 Tabela de posições, painel de elementos e Nodo Sul (17/07)
+
+**Tabela de posições** (`positions_table.py`): glifo + nome do corpo · glifo +
+nome do signo · casa. Sem grau nem minuto (a mandala e a tabela de aspectos
+já dão). Duas colunas, EB Garamond 8.5pt, sem separadores.
+- A CASA é a **geométrica** — a que a mandala desenha. `points[*]["house"]`
+  já vem mutado pela regra dos 5°, então `app.py` preserva a original em
+  `house_geometric` ANTES da mutação. Sem isso a tabela contradiria o desenho.
+- A lista de corpos vem de `app.ACTIVE_POINTS` (R3). A primeira versão tinha
+  lista própria e trouxe o Nodo Sul quando produção não o desenhava.
+- Os glifos são os `<symbol>` do MESMO SVG da mandala, já pós-processado
+  (Lilith espelhada). Nada é redesenhado.
+
+**Painel de elementos e modalidades**: contagem pura, sem interpretação.
+Conta 10 planetas tradicionais + Ascendente + MC = 12 (sem asteroides, nodos,
+Lilith ou Quíron). Property test: soma 12 nos dois eixos, cada corpo no
+elemento/modalidade certo; mordida provada (incluir Ceres faz virar 13).
+- Posição: **abaixo da mandala, alinhado à ESQUERDA** (escolha da Márcia).
+- Largura 4.04cm — medida com `stringWidth`, era 6.60cm com ~3.2cm de vazio.
+- Respiro de **0.15cm** entre mandala e painel: é o MAIOR que ainda mantém
+  uma página com o wheel a 18cm (0.20 já joga para a segunda). Medido no
+  build, não estimado.
+
+**Nodo Sul DESENHADO** na mandala. Ele já era calculado e usado em `points`,
+nos aspectos manuais e no texto — faltava só em `ACTIVE_POINTS`, que é o que
+alimenta o renderer. Com 20 corpos: censo 1000 mapas × 2 seeds = **0
+violações** nas 8 propriedades.
+
+**Defeito de glifo corrigido:** a maioria dos símbolos do Kerykeion é
+desenhada por TRAÇO (`stroke: #x; fill: none`), não por preenchimento.
+Recolorir tudo para `fill` apagava Lua, Mercúrio, Vênus, Marte, Júpiter e
+Saturno da tabela — o `fill: none` seguinte anulava. Cada atributo é
+recolorido no seu lugar.
+
+
 ### 9.6 Pendente de confirmação da Márcia
-- **Tamanho da mandala**: 14.5cm (atual) ou 18cm — as duas impressas em
-  `~/Desktop/mapa-natal-pdfs/TAMANHO_MANDALA/`.
+- ~~Tamanho da mandala~~: **18cm**, decidido 17/07. Nota: a 18cm a mandala
+  ultrapassa a margem de texto em 1.3cm de cada lado (frame 15.4cm). Cabe no
+  papel; rompe o alinhamento com o resto do relatório — é efeito desejado.
 - **Cabeçalho da tabela** em Inter-Medium: unificar em EB Garamond ou manter
   o contraste sans/serif?
 - **Legenda de glifos**: (a) página da tabela ou (b) página da mandala.

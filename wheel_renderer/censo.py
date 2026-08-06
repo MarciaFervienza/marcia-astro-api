@@ -65,7 +65,11 @@ def run(mode, seed, n):
             packing.uninstall()
         model = read_model(s); drawn = read_svg(svg)
         res = [(name, fn(model, drawn)) for name, fn in all_props]
-        bodies += len(s.__dict__.get("_active", [])) or 18
+        # Deriva da lista de produção — 18 estava CRAVADO aqui e não
+        # acompanhou a entrada do Nodo Sul (17/07): o censo reportava 9000
+        # corpos onde havia 10000. Número de relatório, não de asserção,
+        # mas é a mesma classe de erro que as duas listas de símbolos.
+        bodies += len(ACTIVE_POINTS)
         tot = 0
         for name, errs in res:
             per[name] += len(errs); tot += len(errs)

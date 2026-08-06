@@ -36,7 +36,13 @@ MAX_BODY_BYTES = int(os.environ.get("MAX_BODY_BYTES", str(256 * 1024)))  # 256 K
 ACTIVE_POINTS = [
     "Sun", "Moon", "Mercury", "Venus", "Mars", "Jupiter", "Saturn",
     "Uranus", "Neptune", "Pluto",
-    "Chiron", "Mean_Lilith", "Mean_North_Lunar_Node",
+    "Chiron", "Mean_Lilith",
+    # Nodo Sul (oposto ao Norte) DESENHADO na mandala — decisão da Márcia,
+    # 17/07. Ele já era calculado e usado em todo o resto (points, aspectos
+    # manuais, texto do relatório); só faltava na lista que alimenta o
+    # renderer, então o mapa não o mostrava. É ponto de cálculo, não
+    # derivação visual.
+    "Mean_North_Lunar_Node", "Mean_South_Lunar_Node",
     "Ceres", "Pallas", "Juno", "Vesta",
     # Angular axes — needed so the Asc/MC marks appear on the wheel.
     # Without them the wheel still renders the house cusps correctly
@@ -1632,6 +1638,12 @@ def generate_report_endpoint():
             for _pk, _pd in body["points"].items():
                 _pos = _abs5(_pd)
                 _h = _pd.get("house")
+                # A casa GEOMÉTRICA (a que a mandala desenha) é preservada
+                # ANTES de qualquer re-atribuição: a tabela de posições do PDF
+                # mostra a geométrica, o texto lê a da regra dos 5°. Sem isto
+                # a tabela herdaria a casa de leitura e contradiria o desenho.
+                if _h:
+                    _pd["house_geometric"] = _h
                 if _pos is None or not _h:
                     continue
                 _nxt = (_h % 12) + 1
@@ -2195,6 +2207,9 @@ def generate_report_endpoint():
             # whitelist estabilizar sobre relatórios limpos.
             "spell_lint": result.get("spell_lint", []),
             "crutch_lint": result.get("crutch_lint", []),
+            # Vocabulário rebuscado (flag-only): palavras de baixa frequência
+            # para a Márcia triar. O que ela banir vai para o léxico.
+            "rare_word_lint": result.get("rare_word_lint", []),
             "sign_divergences": result.get("sign_divergences", []),
             "correction_rewrites": result.get("correction_rewrites", []),
             "partial_coverage": result.get("partial_coverage", []),

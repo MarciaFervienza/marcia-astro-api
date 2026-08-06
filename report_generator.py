@@ -1893,6 +1893,9 @@ VOCABULÁRIO OBRIGATÓRIO — GLOSSÁRIO (nunca invente variante, nunca use ingl
 - "IC" nunca aparece sozinho: escreva "cúspide da casa 4", "fundo do céu", ou os dois juntos.
 - Diga "pede aprofundamento", nunca "pede descida".
 
+REGISTRO — CONVERSA CULTA, NÃO ENSAIO LITERÁRIO:
+Prefira sempre a palavra CORRENTE à rebuscada. A régua: se você não usaria a palavra FALANDO com a pessoa, não escreva. "Abrigar" no lugar de "guarecer"; "esfriar" ou "arrefecer" (esta é corrente) conforme o ritmo da frase. Palavra elevada mas de uso comum — arrefecer, vínculo, acolhimento, pertencimento — é bem-vinda; palavra que obriga o leitor a parar e buscar o significado, não. O texto é uma conversa culta, não um exercício de estilo.
+
 VARIEDADE VOCABULAR:
 Não repita a mesma palavra de ênfase ao longo de uma seção. "real/realmente" virou muleta — use no máximo duas vezes por seção e alterne com formulações que dispensem o reforço (em vez de "uma dificuldade real", diga qual é a dificuldade). O mesmo vale para "genuíno", "profundo", "exatamente", "concreto": se você precisou do adjetivo de ênfase, provavelmente a frase abaixo dele está vaga — reescreva a frase em vez de reforçá-la.
 
@@ -3253,12 +3256,14 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
     # `spell_lint: []` entra como gate ao lado de pdf_lint/repetition_lint.
     try:
         _t_lint = time.time()
-        from text_verifier import spell_lint as _spell_lint, detect_crutch_words
+        from text_verifier import (spell_lint as _spell_lint, detect_crutch_words,
+                                   rare_word_lint as _rare_word_lint)
         spell_lint_out = _spell_lint(full_report, chart)
         crutch_lint = detect_crutch_words(full_report)
+        rare_lint = _rare_word_lint(full_report, chart)
     except Exception as e:
         log(f"spell/crutch lint failed: {e}")
-        spell_lint_out, crutch_lint = [{"error": str(e)}], []
+        spell_lint_out, crutch_lint, rare_lint = [{"error": str(e)}], [], []
     _stage['lints'] = round(time.time() - _t_lint, 1)
 
     # Build a compact aspect audit (for return + verbose print)
@@ -3300,6 +3305,7 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
         "repetition_lint": repetition_lint,
         "spell_lint": spell_lint_out,
         "crutch_lint": crutch_lint,
+        "rare_word_lint": rare_lint,
         "sign_divergences": sign_divergences,
         "correction_rewrites": correction_rewrites,
         "verifier_log": verifier_log,
