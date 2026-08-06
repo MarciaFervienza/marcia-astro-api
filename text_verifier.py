@@ -439,20 +439,42 @@ _CRUTCH_CANDIDATES = [
     ("verdadeiro", r"\bverdadeir[ao]s?\b"),
 ]
 CRUTCH_PER_SECTION_LIMIT = 4
+# LIMIAR DE DOCUMENTO (17/07): a Márcia ouviu "real" ~30 vezes no relatório
+# inteiro, mas ~3 por seção — abaixo do limiar de seção, invisível para o
+# detector. Muleta dispersa é muleta igual. O documento tem ~16 seções, então
+# 12 ocorrências já é uma a cada seção e meia: audível.
+CRUTCH_PER_DOC_LIMIT = 12
 
 
 def detect_crutch_words(report_text):
-    """Palavra-muleta: mesma palavra repetida acima do limiar numa seção."""
-    out = []
+    """Palavra-muleta em DUAS escalas.
+
+    Retorna {"por_secao": [...], "documento": [...], "totais": {...}}.
+
+    · por_secao  — mesma palavra acima do limiar DENTRO de uma seção
+                   (concentração: o leitor tropeça no parágrafo).
+    · documento  — mesma palavra acima do limiar no relatório INTEIRO
+                   (dispersão: o leitor não tropeça, mas o ouvido registra).
+    · totais     — contagem de TODAS as candidatas no documento, mesmo
+                   abaixo do limiar, para a Márcia calibrar sobre dado.
+    """
+    por_secao, totais = [], {}
     blocos = re.split(r"\n##\s+", report_text)
     for blk in blocos[1:]:
         titulo, _, corpo = blk.partition("\n")
         for nome, pat in _CRUTCH_CANDIDATES:
             n = len(re.findall(pat, corpo, flags=re.IGNORECASE))
+            if not n:
+                continue
+            totais[nome] = totais.get(nome, 0) + n
             if n > CRUTCH_PER_SECTION_LIMIT:
-                out.append({"section": titulo.strip(), "word": nome, "count": n,
-                            "limit": CRUTCH_PER_SECTION_LIMIT})
-    return out
+                por_secao.append({"section": titulo.strip(), "word": nome,
+                                  "count": n, "limit": CRUTCH_PER_SECTION_LIMIT})
+    documento = [{"word": w, "count": c, "limit": CRUTCH_PER_DOC_LIMIT}
+                 for w, c in sorted(totais.items(), key=lambda x: -x[1])
+                 if c > CRUTCH_PER_DOC_LIMIT]
+    return {"por_secao": por_secao, "documento": documento,
+            "totais": dict(sorted(totais.items(), key=lambda x: -x[1]))}
 
 
 # ============================================================
