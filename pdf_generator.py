@@ -196,6 +196,13 @@ COLOR_GREY = HexColor("#8A8579")  # muted stone, for footer / birth-data
 COLOR_FOOTER = COLOR_GREY
 COLOR_TABLE_GRID = HexColor("#E6DFCE")  # ivory-toned hairline
 
+# TAMANHO DA MANDALA na página do mapa. Era literal 14.5 no meio da função,
+# enquanto o ESTADO §6.2 dizia 18cm e TODOS os bancos de teste renderizavam
+# a 18cm — o cliente recebia 19% menor do que a Márcia julgava (achado de
+# 17/07). Agora é constante nomeada e os bancos importam DAQUI: um número,
+# um dono (regra R3 do ESTADO aplicada à tipografia).
+WHEEL_SIZE_CM = 14.5
+
 PAGE_W, PAGE_H = A4
 # Generous margins — the whole point of the redesign is white space.
 # 2.8cm sides and 2.6cm top leave a Kinfolk-editorial measure at
@@ -777,7 +784,13 @@ def _aspects_table(in_sign_aspects: list, styles, show_row_separators: bool = Fa
         ("FONTNAME",      (0, 1), (0, -1), "EBGaramond-Regular"),
         ("FONTNAME",      (2, 1), (2, -1), "EBGaramond-Regular"),
         ("FONTNAME",      (1, 1), (1, -1), "EBGaramond-Italic"),
-        ("FONTNAME",      (3, 1), (3, -1), "Inter-Regular"),
+        # Coluna do ORBE em EB Garamond como as demais (pedido antigo da
+        # Márcia, reaplicado 17/07 depois da leitura da Marcelle — tinha
+        # ficado em Inter). EB Garamond tem algarismos de largura uniforme
+        # nas TTFs que usamos, então a coluna alinha à direita sem variante
+        # tabular; se algum dia desalinhar, trocar por EBGaramond-Regular
+        # com <font features="tnum"> ou padding fixo.
+        ("FONTNAME",      (3, 1), (3, -1), "EBGaramond-Regular"),
         ("FONTSIZE",      (0, 1), (-1, -1), 10),
         ("TEXTCOLOR",     (0, 1), (-1, -1), COLOR_CHARCOAL),
         ("ALIGN",         (0, 1), (0, -1),  "LEFT"),
@@ -812,6 +825,7 @@ def _wheel_page_flowables(
     latitude,
     longitude,
     styles,
+    wheel_cm: float = WHEEL_SIZE_CM,
 ):
     """Página dedicada à mandala.
 
@@ -857,8 +871,8 @@ def _wheel_page_flowables(
     # -------- Mandala centralizada, ampla --------
     # Largura útil A4 = 15.4cm. Com 14.5cm de mandala centralizada, sobram
     # ~0.45cm de respiro em cada lado. Não encosta nas margens.
-    target_w_pts = 14.5 * cm
-    target_h_pts = 14.5 * cm
+    target_w_pts = wheel_cm * cm
+    target_h_pts = wheel_cm * cm
 
     chart_image = _fetch_chart_image(chart_image_url) if chart_image_url else None
     img = (
@@ -1273,6 +1287,7 @@ def generate_pdf(
     points: dict = None,
     time_unknown: bool = False,
     aspects_row_separators: bool = False,
+    wheel_cm: float = WHEEL_SIZE_CM,
     chart_svg_url: str = "",  # backwards-compatible alias, deprecated
     lint_out: list = None,    # se fornecida, recebe as violações de lint_final_text
 ) -> bytes:
@@ -1349,6 +1364,7 @@ def generate_pdf(
         story.extend(_wheel_page_flowables(
             chart_image_url, client_name, birth_date, birth_time,
             birth_place, latitude, longitude, styles,
+            wheel_cm=wheel_cm,
         ))
     # Aspects page (separate) — títutlo + tabela + rodapé.
     if aspects:

@@ -304,6 +304,81 @@ aceitar. Critério: **zero**.
 - Prazo removido pela Márcia em 15/07: *"não há mais pressa... o trabalho continua até
   acabar, com ou sem Orkney."*
 
+## 9. DECISÕES VISUAIS — registro (criado 17/07)
+
+**Por que esta seção existe.** A fonte da coluna de orbe reapareceu TRÊS vezes
+como pedido, e o tamanho da mandala divergiu do código sem ninguém notar. O
+ESTADO tinha só duas entradas visuais (§6.1 cores, §6.2 layout da mandala);
+tipografia, tabela, capa, pull-quotes e pós-processamento viviam só na
+conversa. Decisão visual sem registro volta como pedido.
+
+**Regra:** toda decisão visual entra aqui COM O VALOR REAL DO CÓDIGO ao lado
+e o arquivo onde vive. Ao mudar o código, atualizar aqui no mesmo commit.
+
+### 9.1 Mandala
+| decisão | valor no código | onde |
+|---|---|---|
+| tamanho na página | `WHEEL_SIZE_CM = 14.5` | `pdf_generator.py` |
+| conteúdo do viewBox | 92 de 100 unidades | `wheel_renderer` |
+| mandala sozinha na página | sim, `PageBreak` ao fim | `_wheel_page_flowables` |
+| bloco de dados | canto superior esquerdo, antes da mandala | idem |
+
+> **DIVERGÊNCIA CORRIGIDA (17/07):** o §6.2 dizia "wheel a 18cm" e TODOS os
+> bancos de teste renderizavam a 18cm, enquanto produção usava 14.5cm — o
+> cliente recebia **19% menor** do que a Márcia julgava. Tamanhos reais
+> medidos no PDF final: grau **7.56pt** a 14.5cm contra **9.39pt** a 18cm;
+> minutos 7.00 vs 8.68; RX 6.05 vs 7.51. `clientes.py` agora IMPORTA
+> `WHEEL_SIZE_CM` — banco de teste não define tamanho próprio (regra R3).
+
+### 9.2 Tabela de aspectos
+| decisão | valor no código |
+|---|---|
+| planeta A / planeta B | `EBGaramond-Regular` |
+| aspecto | `EBGaramond-Italic` |
+| **orbe** | `EBGaramond-Regular` (era Inter — reaplicado 17/07, 3ª vez pedido) |
+| cabeçalho | `Inter-Medium` 8.5pt — **único elemento em sans; não confirmado pela Márcia** |
+| corpo | 10pt |
+| padding vertical | 2pt (densidade de tabela técnica) |
+| separadores de linha | `show_row_separators=False` (sem réguas entre linhas) |
+| ordenação | orbe crescente (mais apertados no topo) |
+| sem negrito em orbes apertados | todos os aspectos com o mesmo peso |
+| nota de rodapé | texto fixo aprovado; whitelisted de todos os scans |
+
+### 9.3 Cores
+`COLOR_IVORY #F8F5EF` (fundo) · `COLOR_CHARCOAL #2F2F2F` (texto) ·
+`COLOR_GOLD #C7A66A` (filetes, número de página) · `COLOR_TABLE_GRID #E6DFCE`.
+Aspectos: sextil verde, trígono azul, quadratura/oposição vermelha, conjunção
+cinza (`ASPECT_COLORS` em `app.py`).
+
+### 9.4 Pull-quotes (páginas de respiro)
+- Sempre em **página própria**: `CondPageBreak(24cm)` na entrada + `PageBreak`
+  na saída. A quebra de ENTRADA faltava até 17/07 — a citação caía na página
+  onde o parágrafo anterior terminava (pego pela Márcia no PDF da Helena).
+- Espaço acima: 5cm. Inseridas a cada 4 seções; nunca após Abertura nem antes
+  do Fio Condutor.
+- Duplicam texto por DESIGN — fora do `repetition_lint`.
+
+### 9.5 Pós-processamento do SVG (`app.py` ~392-440)
+| elemento | decisão |
+|---|---|
+| símbolo de aspecto no miolo (`#orbN`) | **REMOVIDO** — só as linhas coloridas |
+| leader lines (`kr:node='Indicator'`) | **REMOVIDAS** — comportamento Astro Gold |
+| glifo da Lua Negra Lilith | **ESPELHADO** (o do Kerykeion estava invertido) |
+
+> Os três são frágeis a atualização do Kerykeion: viram no-op silencioso se o
+> marcador semântico mudar. `clientes.py` replica os três — se mudar num,
+> mudar no outro (foi assim que a Márcia quase aprovou um PDF que não era o
+> produto, 16/07).
+
+### 9.6 Pendente de confirmação da Márcia
+- **Tamanho da mandala**: 14.5cm (atual) ou 18cm — as duas impressas em
+  `~/Desktop/mapa-natal-pdfs/TAMANHO_MANDALA/`.
+- **Cabeçalho da tabela** em Inter-Medium: unificar em EB Garamond ou manter
+  o contraste sans/serif?
+- **Legenda de glifos**: (a) página da tabela ou (b) página da mandala.
+
+---
+
 ## Decisões da Márcia — 16/07/2026 (adendo pós-revisão)
 
 - **"O Pai e as Ferramentas da Vida"** (título de seção): MANTÉM. Decisão

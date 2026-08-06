@@ -8,6 +8,9 @@ from reportlab.graphics import renderPDF
 from reportlab.lib.units import cm
 from reportlab.lib.colors import HexColor
 from props import ACTIVE_POINTS, check_all
+import os as _os, sys as _sys
+_sys.path.insert(0, _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))))
+from pdf_generator import WHEEL_SIZE_CM as _WHEEL_CM
 from prove_bite import stock_svg
 import packing
 
@@ -47,7 +50,15 @@ def como_producao(svg):
 
 def pdf(svg,out,sub):
     t=tempfile.mkdtemp(); p=f"{t}/w.svg"; open(p,"w").write(svg)
-    d=svg2rlg(p); r=18.0*cm/92.0
+    # TAMANHO: importado de pdf_generator.WHEEL_SIZE_CM — o banco de teste
+    # NUNCA define o seu próprio. Até 17/07 este banco renderizava a 18cm
+    # enquanto produção usava 14.5cm: a Márcia julgava legibilidade num
+    # tamanho 19% maior do que o cliente recebe. Uma constante, um dono.
+    #
+    # Produção escala a mandala para caber num quadrado de WHEEL_SIZE_CM
+    # (viewBox de 100 unidades); aqui o SVG cru tem 92 unidades de conteúdo,
+    # então o fator equivalente é WHEEL_SIZE_CM/100 por unidade.
+    d=svg2rlg(p); r=_WHEEL_CM*cm/100.0
     d.scale(r,r); d.width*=r; d.height*=r
     c=canvas.Canvas(out,pagesize=A4)
     c.setFillColor(HexColor("#F8F5EF")); c.rect(0,0,A4[0],A4[1],stroke=0,fill=1)
