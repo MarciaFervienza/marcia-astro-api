@@ -179,6 +179,14 @@ _LEX_CANARIOS = {
 # Frases que NÃO podem acender — falso positivo é tão grave quanto detector
 # morto: gasta reescrita em texto correto e pode corrompê-lo.
 NEGATIVOS = [
+    ("par sem hífen encadeado (Mercúrio e Marte / Quíron e Plutão)",
+     lambda t: tv._detect_asserted_aspect(t, L),
+     "Mercúrio e Marte em trígono, Quíron e Plutão em sextil: esses são "
+     "aspectos de um sistema que aprende fazendo."),
+    ("qualificador entre o aspecto e a preposição",
+     lambda t: tv._detect_asserted_aspect(t, H),
+     "O Sol em quadratura quase exata aos Nodos, e Saturno retrógrado em "
+     "oposição a Quíron, compõem o retrato."),
     ("'passagem' astrológica legítima é trânsito, não andaime",
      lambda t: tv._detect_prompt_scaffolding_leak(t),
      "A passagem de Saturno por Escorpião marcou esses anos."),

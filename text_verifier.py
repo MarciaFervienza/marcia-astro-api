@@ -1944,6 +1944,14 @@ def _corpo_da_secao(texto, pos):
     return [re.sub(r"\s+", " ", a.strip().lower()) for a in achados]
 
 
+def _par_antes(antes):
+    """Par de corpos IMEDIATAMENTE antes do nome do aspecto: "Vênus-Quíron
+    em sextil", "Mercúrio e Marte em trígono". Uma função só — as duas
+    cópias que isto substitui saíram de sincronia na primeira edição."""
+    return re.search(rf"\b({_CORPO_RE})\s*(?:[-–—]|\se\s)\s*({_CORPO_RE})\b"
+                     r"\s+em\s+$", antes, flags=re.IGNORECASE)
+
+
 def _detect_asserted_aspect(text, chart):
     """Aspecto AFIRMADO entre dois corpos, conferido contra a tabela.
 
@@ -1980,9 +1988,20 @@ def _detect_asserted_aspect(text, chart):
         # frase não relaciona — falso positivo na Helena, 18/07:
         # "a conjunção com Júpiter e Mercúrio, a quadratura aos Nodos, o
         #  sextil com Plutão" virou "Mercúrio quadratura Plutão".
-        m_com = re.match(r"\s+(?:com|ao?s?|às?)\s+(?:a|o|as|os|sua|seu)?\s*"
+        # QUALIFICADOR ENTRE O ASPECTO E A PREPOSIÇÃO (19/07). O texto real
+        # escreve "em quadratura QUASE EXATA aos Nodos", "em oposição
+        # APERTADA a Quíron". Sem prever isso, a preposição não era
+        # reconhecida, a forma caía na regra genérica e emparelhava dois
+        # corpos que a frase não relaciona: na Helena, "o Sol em quadratura
+        # quase exata aos Nodos, e Saturno retrógrado em oposição a Quíron"
+        # — frase inteiramente correta — virou "Sol quadratura Saturno".
+        _QUAL = (r"(?:\s+(?:muito|quase|bastante|perfeitamente|razoavelmente|"
+                 r"extremamente|relativamente)?\s*"
+                 r"(?:exat[ao]|apertad[ao]|fechad[ao]|ampl[ao]|larg[ao]|"
+                 r"just[ao]|precis[ao]|separativ[ao]|aplicativ[ao]))*")
+        m_com = re.match(rf"{_QUAL}\s+(?:com|ao?s?|às?)\s+(?:a|o|as|os|sua|seu)?\s*"
                          rf"({_CORPO_RE})\b", depois, flags=re.IGNORECASE)
-        m_entre = re.match(r"\s+entre\s+(?:a|o|as|os|sua|seu)?\s*"
+        m_entre = re.match(rf"{_QUAL}\s+entre\s+(?:a|o|as|os|sua|seu)?\s*"
                            rf"({_CORPO_RE})\b[^.]{{0,20}}?\se\s+(?:a|o|sua|seu)?\s*"
                            rf"({_CORPO_RE})\b", depois, flags=re.IGNORECASE)
         if m_entre:
@@ -2007,7 +2026,7 @@ def _detect_asserted_aspect(text, chart):
                 cand = [_sujs[0], _alvo]
             else:
                 continue        # ambíguo e nenhum serve: sinaliza pelo par explícito
-        elif re.match(r"\s+(?:com|ao?s?|às?|entre)\s", depois):
+        elif re.match(rf"{_QUAL}\s+(?:com|ao?s?|às?|entre)\s", depois):
             # A frase TEM preposição de aspecto, mas o que vem depois não é
             # um corpo reconhecido ("a quadratura aos Nodos"). Cair na regra
             # genérica aqui INVENTA um par: foi assim que "a conjunção com
@@ -2015,9 +2034,8 @@ def _detect_asserted_aspect(text, chart):
             # Plutão" virou "Mercúrio quadratura Plutão" (Helena, 18/07).
             # Sem par confiável, não acusa.
             continue
-        elif re.search(rf"\b({_CORPO_RE})\s*[-–—]\s*({_CORPO_RE})\b"
-                       r"\s+(?:em\s+|na\s+)?$", antes, flags=re.IGNORECASE):
-            # PAR HIFENIZADO "Vênus-Quíron em sextil" (19/07). É a notação
+        elif _par_antes(antes):
+            # PAR ANTES DO ASPECTO "Vênus-Quíron em sextil" (19/07). É a notação
             # mais explícita que existe: os DOIS corpos vêm antes do aspecto.
             # A regra genérica quebrava na frase encadeada
             #   "O Vênus-Quíron em sextil e o Saturno-Quíron em oposição"
@@ -2025,8 +2043,11 @@ def _detect_asserted_aspect(text, chart):
             # acusava "Quíron sextil Saturno" numa frase inteiramente certa
             # (Helena, 19/07; o par real é Saturno-Quíron em OPOSIÇÃO, e a
             # frase diz exatamente isso).
-            _h = re.search(rf"\b({_CORPO_RE})\s*[-–—]\s*({_CORPO_RE})\b"
-                           r"\s+(?:em\s+|na\s+)?$", antes, flags=re.IGNORECASE)
+            # A forma SEM hífen é igualmente explícita e apareceu no Lucca
+            # (19/07): "Mercúrio e Marte em trígono, Quíron e Plutão em
+            # sextil" — frase certa — virava "Marte trígono Quíron", com o
+            # Marte do primeiro par e o Quíron do segundo.
+            _h = _par_antes(antes)
             cand = [_h.group(1), _h.group(2)]
         elif c_antes and c_depois:
             cand = [c_antes[-1].group(1), c_depois[0].group(1)]
