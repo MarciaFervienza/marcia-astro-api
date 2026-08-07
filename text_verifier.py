@@ -1350,7 +1350,7 @@ def _detectar_tudo(text, chart):
         for v in _detect_false_no_aspect_claims(scan_text, chart):
             _add(v["kind"], v["match"], v["offset"], v["suggestion"])
         for fn in (_detect_house_inconsistency, _detect_angle_claims,
-                   _detect_rulership):
+                   _detect_rulership, _detect_asserted_aspect):
             for v in fn(scan_text, chart):
                 _add(v["kind"], v["match"], v["offset"], v["suggestion"])
     except Exception as e:
@@ -1742,36 +1742,209 @@ _ANGULOS = {
 }
 
 
-def _detect_angle_claims(text, chart):
-    """Menção a ângulo validada contra os dados.
 
-    Caso real (Lucca): "Vênus na cúspide do meio do céu" — Vênus está perto
-    da cúspide da 11, e o MC está em Touro. A frase junta dois erros.
+# ---- CLASSE NOVA (18/07): aspecto AFIRMADO que não existe --------------
+# O detector irmão (_detect_false_no_aspect_claims) cobre o inverso: negar
+# aspecto que existe. Ninguém cobria AFIRMAR aspecto que não existe — foi
+# "a conjunção com o Sol" na seção de Saturno da Helena (Saturno em Aquário,
+# Sol em Virgem: não há conjunção). Três frases de leitura sobre um aspecto
+# inventado.
+#
+# Duas formas de erro, ambas cobertas:
+#   · o par não se aspecta de jeito nenhum;
+#   · o par se aspecta, mas com OUTRO aspecto (diz trígono onde é quadratura).
+_ASPECTO_PT = {
+    "conjunção": "conjunction", "conjuncao": "conjunction",
+    "oposição": "opposition", "oposicao": "opposition",
+    "trígono": "trine", "trigono": "trine",
+    "quadratura": "square", "sextil": "sextile",
+}
+
+
+def _aspectos_reais_de(chart, key):
+    """[(outro_key, tipo)] dos aspectos REAIS do corpo neste mapa."""
+    out = []
+    for a in ((chart or {}).get("aspects") or []):
+        pa, pb = a.get("planet_a"), a.get("planet_b")
+        if key == pa:
+            out.append((pb, a.get("type")))
+        elif key == pb:
+            out.append((pa, a.get("type")))
+    return out
+
+
+
+def _corpo_da_secao(texto, pos):
+    """O corpo que é ASSUNTO da seção onde `pos` cai.
+
+    Necessário para a forma ELÍPTICA do aspecto: "o trígono com a Lua e a
+    conjunção com o Sol" — na seção de Saturno, o primeiro corpo é Saturno
+    e não aparece na frase. Sem isto o detector emparelhava "Lua × Sol",
+    que não é o que o texto afirma (18/07).
+    """
+    cab = None
+    for m in re.finditer(r"(?m)^##\s+(.+)$", texto[:pos]):
+        cab = m.group(1)
+    if not cab:
+        return None
+    prefixo = cab.split(":")[0]
+    achado = re.search(rf"\b({_CORPO_RE})\b", prefixo, flags=re.IGNORECASE)
+    if not achado:
+        return None
+    return re.sub(r"\s+", " ", achado.group(1).strip().lower())
+
+
+def _detect_asserted_aspect(text, chart):
+    """Aspecto AFIRMADO entre dois corpos, conferido contra a tabela.
+
+    Ancora no NOME DO ASPECTO e busca os corpos em volta (R: ancoragem por
+    proximidade, não pelo primeiro nome do trecho).
+    """
+    out = []
+    pontos = (chart or {}).get("points") or {}
+    aspectos = (chart or {}).get("aspects") or []
+    if not pontos or not aspectos:
+        return out
+    nomes = "|".join(_ASPECTO_PT.keys())
+    for m in re.finditer(rf"\b({nomes})\b", text, flags=re.IGNORECASE):
+        tipo = _ASPECTO_PT[re.sub(r"\s+", " ", m.group(1).strip().lower())]
+        antes = text[max(0, m.start() - 70):m.start()]
+        depois = text[m.end():m.end() + 70]
+        # corte em ponto final: aspecto e corpos têm de estar na mesma frase
+        if "." in antes:
+            antes = antes[antes.rindex(".") + 1:]
+        if "." in depois:
+            depois = depois[:depois.index(".")]
+        c_antes = list(re.finditer(rf"\b({_CORPO_RE})\b", antes, flags=re.IGNORECASE))
+        c_depois = list(re.finditer(rf"\b({_CORPO_RE})\b", depois, flags=re.IGNORECASE))
+        # par: o mais próximo de cada lado; ou os dois primeiros depois
+        # A FORMA decide quantos corpos a frase nomeia:
+        #   "<aspecto> COM X"        → elíptica: só X; o outro é o assunto
+        #                              da seção (a forma do defeito real).
+        #   "<aspecto> ENTRE A E B"  → par explícito.
+        #   "A <aspecto> B"          → par explícito.
+        cand = []
+        m_com = re.match(r"\s+com\s+(?:a|o|as|os|sua|seu)?\s*"
+                         rf"({_CORPO_RE})\b", depois, flags=re.IGNORECASE)
+        m_entre = re.match(r"\s+entre\s+(?:a|o|as|os|sua|seu)?\s*"
+                           rf"({_CORPO_RE})\b[^.]{{0,20}}?\se\s+(?:a|o|sua|seu)?\s*"
+                           rf"({_CORPO_RE})\b", depois, flags=re.IGNORECASE)
+        if m_entre:
+            cand = [m_entre.group(1), m_entre.group(2)]
+        elif m_com:
+            _suj = _corpo_da_secao(text, m.start())
+            if _suj:
+                cand = [_suj, m_com.group(1)]
+        elif c_antes and c_depois:
+            cand = [c_antes[-1].group(1), c_depois[0].group(1)]
+        if len(cand) != 2:
+            continue
+        k1 = _PT2KEY.get(re.sub(r"\s+", " ", cand[0].strip().lower()))
+        k2 = _PT2KEY.get(re.sub(r"\s+", " ", cand[1].strip().lower()))
+        if not k1 or not k2 or k1 == k2:
+            continue
+        reais = {(o, t) for o, t in _aspectos_reais_de(chart, k1)}
+        se_aspectam = [t for o, t in reais if o == k2]
+        if not se_aspectam:
+            # nenhum aspecto entre os dois
+            lista = _lista_aspectos_pt(chart, k1) or "nenhum"
+            out.append({"kind": "fato:aspecto_inexistente",
+                        "match": f"{cand[0]} {m.group(1)} {cand[1]}"[:70],
+                        "offset": m.start(),
+                        "suggestion": (f"{cand[0]} e {cand[1]} NÃO formam aspecto "
+                                       f"neste mapa. Os aspectos reais de {cand[0]} "
+                                       f"são: {lista}. Reescrever a partir desta "
+                                       f"lista ou remover a afirmação — nunca "
+                                       f"inventar o aspecto.")})
+        elif tipo not in se_aspectam:
+            certo = ", ".join(sorted({_pt_do_tipo(t) for t in se_aspectam}))
+            out.append({"kind": "fato:aspecto_tipo_errado",
+                        "match": f"{cand[0]} {m.group(1)} {cand[1]}"[:70],
+                        "offset": m.start(),
+                        "suggestion": (f"entre {cand[0]} e {cand[1]} a tabela deste "
+                                       f"mapa mostra {certo}, não {m.group(1)}. "
+                                       f"Corrigir para {certo}.")})
+    return out
+
+
+def _pt_do_tipo(tipo_en):
+    for pt, en in _ASPECTO_PT.items():
+        if en == tipo_en:
+            return pt
+    return tipo_en
+
+
+def _lista_aspectos_pt(chart, key):
+    partes = []
+    for outro, tipo in _aspectos_reais_de(chart, key):
+        nome = next((k for k, v in _PT2KEY.items() if v == outro), outro)
+        partes.append(f"{_pt_do_tipo(tipo)} com {nome}")
+    return "; ".join(partes)
+
+
+def _detect_angle_claims(text, chart):
+    """CORPO SOBRE ÂNGULO — dito de qualquer forma.
+
+    Generalizado a partir do CONCEITO, não do exemplo (18/07). A versão
+    anterior só conhecia nomes de ângulo ("meio do céu", "Ascendente") e
+    passou batido em "na cúspide da casa 10", que era exatamente o defeito
+    real. O conceito é: o texto afirma que um corpo está SOBRE um ângulo.
+
+    Os quatro ângulos e todas as formas de nomeá-los:
+      casa 1  = Ascendente, Asc, AC
+      casa 4  = fundo do céu, Imum Coeli, IC
+      casa 7  = Descendente, Desc, DC
+      casa 10 = meio do céu, Medium Coeli, MC
+    E as formas de dizer "sobre": na/no, sobre, junto a, colado a, conjunto
+    a, em conjunção com, na cúspide de.
     """
     out = []
     ch = chart or {}
-    pat = (r"\b(?:na|no|sobre\s+a|junto\s+à|conjunto\s+ao)\s+"
-           r"(?:cúspide\s+d[oa]\s+)?(meio[\s-]do[\s-]céu|ascendente|MC|Asc)\b")
-    for m in re.finditer(pat, text, flags=re.IGNORECASE):
-        nome, trecho = _corpo_mais_proximo_antes(text, m.start())
-        if not nome:
-            continue
-        ang = _ANGULOS.get(re.sub(r"[\s-]+", " ", m.group(1).strip().lower()))
-        key = _PT2KEY.get(nome)
-        if not key or not ang:
-            continue
-        p = (ch.get("points") or {}).get(key)
-        a = ch.get(ang if ang != "midheaven" else "midheaven")
-        if not p or not a:
-            continue
-        if str(p.get("sign", "")).lower() != str(a.get("sign", "")).lower():
-            out.append({"kind": "fato:angulo_errado",
-                        "match": ((trecho or "") + m.group(0))[:70],
-                        "offset": m.start(),
-                        "suggestion": (f"{nome} está em {p.get('sign_pt')} e o "
-                                       f"{m.group(1)} em {a.get('sign_pt')} — não estão "
-                                       f"juntos. REMOVER a afirmação de conjunção ao "
-                                       f"ângulo; não trocar por outro ângulo.")})
+    # nome do ângulo -> (chave no chart, número da casa)
+    ANG = {
+        r"ascendente|\basc\b|\bac\b": ("ascendant", 1),
+        r"fundo\s+do\s+céu|imum\s+coeli|\bic\b": (None, 4),
+        r"descendente|\bdesc\b|\bdc\b": (None, 7),
+        r"meio[\s-]do[\s-]céu|medium\s+coeli|\bmc\b": ("midheaven", 10),
+    }
+    SOBRE = (r"(?:n[ao]s?|sobre|junto\s+[àa]o?|colad[ao]\s+[àa]o?|"
+             r"conjunt[ao]\s+[àa]o?|em\s+conjunção\s+com|encostad[ao]\s+[àa]o?)"
+             # artigo opcional: "sobre O MC", "junto AO fundo do céu"
+             r"\s+(?:[oa]s?\s+)?(?:cúspide\s+d[oa]\s+)?")
+    for regex, (chave, casa_num) in ANG.items():
+        # forma 1: nome do ângulo
+        pat1 = rf"{SOBRE}(?:{regex})"
+        # forma 2: "cúspide da casa N" com o N do ângulo
+        pat2 = rf"{SOBRE}casa\s+{casa_num}\b"
+        for pat in (pat1, pat2):
+            for m in re.finditer(pat, text, flags=re.IGNORECASE):
+                nome, trecho = _corpo_mais_proximo_antes(text, m.start())
+                if not nome:
+                    continue
+                key = _PT2KEY.get(nome)
+                if not key:
+                    continue
+                p = (ch.get("points") or {}).get(key)
+                if not p:
+                    continue
+                # signo do ângulo: do chart quando existe, senão da cúspide
+                alvo = ch.get(chave) if chave else None
+                if not alvo:
+                    alvo = (ch.get("cusps") or {}).get(str(casa_num))
+                if not alvo:
+                    continue
+                if str(p.get("sign", "")).lower() == str(alvo.get("sign", "")).lower():
+                    continue          # mesmo signo: plausível, não acusa
+                rot = {1: "Ascendente", 4: "fundo do céu", 7: "Descendente",
+                       10: "meio do céu"}[casa_num]
+                out.append({"kind": "fato:angulo_errado",
+                            "match": ((trecho or "") + m.group(0))[:70],
+                            "offset": m.start(),
+                            "suggestion": (f"{nome} está em {p.get('sign_pt')} e o "
+                                           f"{rot} (cúspide da casa {casa_num}) em "
+                                           f"{alvo.get('sign_pt')} — não estão juntos. "
+                                           f"REMOVER a afirmação de conjunção ao "
+                                           f"ângulo; não trocar por outro ângulo.")})
     return out
 
 
