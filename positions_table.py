@@ -321,9 +321,20 @@ def read_positions_from_points(points: dict) -> list:
     produção já monta — sem reconstruir um subject do Kerykeion (uma fonte,
     um dono).
 
-    Usa `house_geometric` quando presente: é a casa que a MANDALA desenha.
-    O campo `house` pode ter sido re-atribuído pela regra dos 5°, que vale
-    para o TEXTO, não para o desenho nem para esta tabela.
+    USA A CASA DE LEITURA — `house` (decisão da Márcia, terceira vez pedida,
+    aplicada em 19/07).
+
+    Antes usava `house_geometric`, a casa que a MANDALA desenha. O resultado
+    era o relatório se contradizendo: índice "Júpiter · Casa 11", tabela
+    "10". O leitor não tem como saber que são duas perguntas diferentes; ele
+    lê duas respostas para a mesma.
+
+    A regra passa a ser uma só: índice, tabela e texto usam a casa de
+    LEITURA. Consequência aceita: num corpo de fronteira, a mandala desenha
+    o glifo 1º a 2º antes da cúspide enquanto a tabela nomeia a casa
+    seguinte — mas essa diferença é de milímetros no desenho, e o texto já
+    nomeia a fronteira explicitamente ("entre a casa 10 e a 11, com mais
+    força na 11").
     """
     _EN2SIGN = {"aries": "Ari", "taurus": "Tau", "gemini": "Gem",
                 "cancer": "Can", "leo": "Leo", "virgo": "Vir",
@@ -347,7 +358,7 @@ def read_positions_from_points(points: dict) -> list:
         rows.append({
             "slug": slug, "nome": nome, "sign": sign,
             "sign_pt": SIGN_PT[sign],
-            "house": d.get("house_geometric") or d.get("house"),
+            "house": d.get("house") or d.get("house_geometric"),
             "element": element_of(sign), "modality": modality_of(sign),
         })
     return rows

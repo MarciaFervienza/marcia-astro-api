@@ -283,3 +283,41 @@ usá-las
 usá-lo
 vice-versa
 visceralmente
+
+# pt-BR que o dicionário europeu do pyspellchecker desconhece (19/07).
+# Sem estas linhas, o lint de palavra acusava 'registrar', 'planejar',
+# 'seções', 'cotidianos' — corretas — junto com as corrupções reais.
+assertividade
+aterrissar
+autoafirmação
+autoexigência
+checar
+contenedor
+contraintuitivo
+cotidianos
+gerencia
+gerenciar
+insatisfatórias
+insatisfatório
+internalização
+intocadas
+intocado
+irrepetível
+monitorar
+perceptiva
+perceptivo
+planejada
+planejar
+planejou
+planejamento
+receptiva
+receptivo
+registrar
+sanitizadas
+seções
+seção
+tensiona
+tensionar
+aterrissagem
+assertivo
+assertiva

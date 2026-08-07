@@ -657,6 +657,63 @@ def _detect_third_person_leak(text, voice):
     return out
 
 
+# INSTANCIAÇÃO DO SUJEITO EM TERCEIRA PESSOA (19/07)
+#
+# A Abertura da Helena saiu com "há uma pessoa aqui que pensa muito… uma
+# régua que ela aplica" — relatório dirigido em SEGUNDA pessoa.
+#
+# Por que `_detect_third_person_leak` não via: ele procura pronome de 3ª, e
+# num relatório de astrologia quase todo "ela/ele" se refere a um PLANETA ou
+# a um ASPECTO ("a Lua… ela balança", "o trígono… ele conecta"). Medido:
+# 31 ocorrências de ela/ele na Helena, UMA é o vazamento. Um detector de
+# pronome cru daria 30 falsos positivos e seria desligado na primeira rodada.
+#
+# O que denuncia o vazamento não é o pronome — é a INSTANCIAÇÃO: o texto
+# cria um referente de terceira pessoa para quem deveria ser "você". O
+# pronome vem depois, arrastado.
+_PESSOA_TERCEIRA = [
+    (r"\bhá\s+uma\s+pessoa\b", "cria um referente em 3ª pessoa"),
+    (r"\buma\s+pessoa\s+aqui\b", "cria um referente em 3ª pessoa"),
+    (r"\ba\s+pessoa\s+que\b", "fala do sujeito em 3ª pessoa"),
+    (r"\b[oa]\s+nativ[oa]\b", "jargão astrológico em 3ª pessoa"),
+    (r"\b[oa]\s+consulente\b", "jargão astrológico em 3ª pessoa"),
+    (r"\b[oa]\s+sujeito\s+d", "jargão astrológico em 3ª pessoa"),
+]
+# "você é a pessoa que analisa" é SEGUNDA pessoa e está correto — sem esta
+# exceção, era falso positivo (medido, 19/07).
+_PESSOA_OK_ANTES = re.compile(r"(?:você\s+é|é\s+você|seja|se\s+torna)\s*$",
+                              re.IGNORECASE)
+
+
+def _detect_person_instantiation(text, voice):
+    """O texto inventa um 'ele/ela' para quem devia ser 'você'."""
+    if (voice or {}).get("person") == "terceira":
+        return []
+    out, vistos = [], set()
+    for pat, motivo in _PESSOA_TERCEIRA:
+        for m in re.finditer(pat, text, flags=re.IGNORECASE):
+            if _PESSOA_OK_ANTES.search(text[max(0, m.start() - 18):m.start()]):
+                continue
+            # a mesma ocorrência casa em mais de um padrão ("há uma pessoa"
+            # e "uma pessoa aqui"): reporta uma vez só
+            if any(abs(m.start() - v) < 20 for v in vistos):
+                continue
+            vistos.add(m.start())
+            out.append({
+                "kind": "voz:sujeito_em_terceira_pessoa",
+                "match": text[m.start():m.start() + 70].strip(),
+                "offset": m.start(),
+                "suggestion": (
+                    f"'{m.group(0)}' {motivo}, mas este relatório é dirigido "
+                    f"a ela em SEGUNDA pessoa. Reescrever falando com a "
+                    f"pessoa ('você pensa muito', 'você cresceu nesse "
+                    f"ambiente'), inclusive os pronomes que vêm depois e que "
+                    f"foram arrastados para a 3ª ('uma régua que ela aplica' "
+                    f"→ 'que você aplica')."),
+            })
+    return out
+
+
 def _detect_bare_ic(text):
     """Item 11: IC nunca aparece sozinho — precisa de tradução."""
     out = []
@@ -1540,10 +1597,25 @@ def _detectar_tudo(text, chart):
         logger.warning("verifier clitico failed: %s", e)
 
     try:
+        for v in _detect_person_instantiation(scan_text, (chart or {}).get("_voice")):
+            _add(v["kind"], v["match"], v["offset"], v["suggestion"])
         for v in _detect_prompt_scaffolding_leak(scan_text):
             _add(v["kind"], v["match"], v["offset"], v["suggestion"])
     except Exception as e:
         logger.warning("verifier andaime failed: %s", e)
+
+    # LINT DE PALAVRA (19/07) — a camada que faltava. O GPT achou sete
+    # corrupções que todos os lints deixaram passar; nenhuma vinha do
+    # splice (todas no meio da frase), eram erros de palavra do modelo.
+    # Entra aqui, e não como lint de meta, para passar pela MESMA máquina
+    # de reescrita e pós-verificação: se a correção não pegar, vira
+    # PERSISTIU em vez de sumir num campo que ninguém lê.
+    try:
+        from word_lint import word_lint as _wl
+        for v in _wl(scan_text):
+            _add(v["kind"], v["match"], v["offset"], v["suggestion"])
+    except Exception as e:
+        logger.warning("verifier word_lint failed: %s", e)
 
     # 4b/4c — afirmações sobre cúspides validadas contra a tabela real
     try:
@@ -2300,35 +2372,67 @@ _REGENCIA = {
 }
 
 
+def _pares_regencia(text):
+    """(regente, alvo, offset) para cada AFIRMAÇÃO de regência no texto.
+
+    LEVANTAMENTO DE FORMAS (19/07). A versão anterior ancorava no verbo
+    "rege" e assumia sempre regente-antes / alvo-depois. Cobria uma forma
+    só. A frase real do Lucca — "O Nodo Norte em Libra tem Marte como seu
+    regente" — não acendia, e a Márcia perguntou se era o Nodo sendo
+    tratado diferente. Não era: é a FORMA. Nesta construção os papéis se
+    invertem, o alvo vem antes e o regente depois, e a palavra é "regente",
+    que o regex do verbo nem alcançava.
+
+    Terceira vez hoje que um detector cobre o exemplo e não a classe (as
+    outras: formas de aspecto, adjetivos de signo/planeta).
+    """
+    C = _CORPO_RE
+    A = r"(?:[oa]s?\s+|seus?\s+|suas?\s+)?"
+    S = r"(?:\s+em\s+[A-Za-zÀ-ÿ]+)?"          # "em Libra" opcional
+    FORMAS = [
+        # (padrão, grupo do REGENTE, grupo do ALVO)
+        (rf"\b({C})\b\s+reg(?:e|em)\s+{A}({C})\b", 1, 2),
+        (rf"\b({C})\b{S}\s+(?:é|são|está)\s+regid[oa]s?\s+por\s+{A}({C})\b", 2, 1),
+        (rf"\b({C})\b{S}\s+tem\s+{A}({C})\b\s+como\s+{A}regente", 2, 1),
+        (rf"\bregente\s+d[eo]\s+{A}({C})\b{S}\s+(?:é|:)\s*{A}({C})\b", 2, 1),
+        (rf"\bregência\s+d[eo]\s+{A}({C})\b{S}\s+(?:é|cabe\s+a|pertence\s+a)\s*"
+         rf"{A}({C})\b", 2, 1),
+        (rf"\b({C})\b,\s+regente\s+d[eo]\s+{A}({C})\b", 1, 2),
+        (rf"\bregente\s+d[eo]\s+{A}({C})\b,\s+{A}({C})\b", 2, 1),
+    ]
+    vistos = set()
+    for pat, gr, ga in FORMAS:
+        for m in re.finditer(pat, text, flags=re.IGNORECASE):
+            chave = (m.start(), m.end())
+            if chave in vistos:
+                continue
+            vistos.add(chave)
+            yield m.group(gr), m.group(ga), m.start(), m.group(0)
+
+
 def _detect_rulership(text, chart):
-    """"X rege Y" conferido contra a regência do signo em que Y está.
+    """Regência AFIRMADA, conferida contra o signo em que o alvo está.
 
     Caso real (Lucca): "Marte rege o Nodo Norte" — o Nodo Norte está em
     Libra, regido por Vênus; Marte rege o Nodo Sul, que está em Áries.
     """
     out = []
     pontos = (chart or {}).get("points") or {}
-    for m in re.finditer(r"\breg(?:e|em|ida?\s+por|ência\s+d[eao])\b",
-                         text, flags=re.IGNORECASE):
-        reg_nome, _ = _corpo_mais_proximo_antes(text, m.start())
-        depois = text[m.end():m.end() + 40]
-        alvo_m = re.search(rf"\b({_CORPO_RE})\b", depois, flags=re.IGNORECASE)
-        if not reg_nome or not alvo_m:
-            continue
-        if re.search(r"[.!?]", depois[:alvo_m.start()]):
-            continue
-        reg = _PT2KEY.get(reg_nome)
-        alvo = _PT2KEY.get(re.sub(r"\s+", " ", alvo_m.group(1).strip().lower()))
-        if not reg or not alvo or alvo not in pontos:
+    if not pontos:
+        return out
+    for reg_nome, alvo_nome, pos, trecho in _pares_regencia(text):
+        reg = _PT2KEY.get(re.sub(r"\s+", " ", (reg_nome or "").strip().lower()))
+        alvo = _PT2KEY.get(re.sub(r"\s+", " ", (alvo_nome or "").strip().lower()))
+        if not reg or not alvo or reg == alvo or alvo not in pontos:
             continue
         signo = str(pontos[alvo].get("sign", "")).lower()
         validos = _REGENCIA.get(signo)
         if validos and reg not in validos:
             certo = ", ".join(sorted(validos))
             out.append({"kind": "fato:regencia_errada",
-                        "match": f"{reg_nome} rege {alvo_m.group(1)}"[:70],
-                        "offset": m.start(),
-                        "suggestion": (f"{alvo_m.group(1)} está em "
+                        "match": trecho[:70],
+                        "offset": pos,
+                        "suggestion": (f"{alvo_nome} está em "
                                        f"{pontos[alvo].get('sign_pt')}, regido por "
                                        f"{certo} — não por {reg_nome}. Corrigir para "
                                        f"{certo}.")})
