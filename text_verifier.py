@@ -136,6 +136,17 @@ _FORBIDDEN_LEXICON = [
      "'em' liga corpo a SIGNO ou CASA, nunca a outro corpo — se é aspecto, "
      "nomeá-lo ('Vênus em sextil com Lilith'); se é conjunção, usar 'com'"),
     # --- achados da leitura de cliente, 18/07 ---
+    # A METÁFORA É DELA e fica — rastreada nos transcripts (Valquiria
+    # Zampirolli, Mapa Natal): "autoestima e amor próprio costuma ser
+    # sentimentos que não fazem muito barulho… é uma autoestima que ela é
+    # BARULHENTA". O RAG recuperou certo; o texto colou torto: usou
+    # "barulhosa" (não é a palavra dela) e "circunda a casa 5" (não se
+    # circunda uma casa). Corrige a FORMA, preserva a imagem.
+    (r"\bbarulhos[ao]s?\b", "forma_da_metafora",
+     "a palavra dela é 'barulhenta' — manter a imagem, corrigir a forma"),
+    (r"\bcircund[ao]\s+a\s+casa\b|\bcircund[ao]\s+o\s+signo\b",
+     "erro_conceitual",
+     "não se circunda uma casa nem um signo — 'na casa 5', 'que atravessa a casa 5'"),
     (r"\bariando\b", "termo_inventado",
      "palavra inventada — reescrever ('em Áries', 'com qualidade ariana')"),
     (r"\babrí-l[oa]s?\b", "erro_acento", "abri-lo / abri-la (sem acento)"),
@@ -1329,6 +1340,10 @@ def run_verifier(text, chart, call_claude_fn):
     try:
         for v in _detect_false_no_aspect_claims(scan_text, chart):
             _add(v["kind"], v["match"], v["offset"], v["suggestion"])
+        for fn in (_detect_house_inconsistency, _detect_angle_claims,
+                   _detect_rulership):
+            for v in fn(scan_text, chart):
+                _add(v["kind"], v["match"], v["offset"], v["suggestion"])
     except Exception as e:
         logger.warning("verifier falsa_ausencia failed: %s", e)
     try:
@@ -1489,7 +1504,7 @@ def _reverify_sentence(sentence, prior_violations, chart):
         for kind, match_text, offset, sugg in _detect_voice_violations(sentence, chart):
             out.append({"kind": kind, "match": match_text, "offset": offset,
                         "suggestion": sugg})
-    for _pref in ("geracional", "glossario_signo", "glossario_planeta", "jargao", "aspecto:falsa",
+    for _pref in ("geracional", "glossario_signo", "glossario_planeta", "jargao", "fato", "aspecto:falsa",
                   "registro:clitico"):
         if any(k.startswith(_pref) for k in kinds):
             for v in prior_violations:
@@ -1515,6 +1530,143 @@ def _reverify_sentence(sentence, prior_violations, chart):
                                f"a menção à cúspide/casa por completo."),
             })
     return out
+
+# ============================================================
+# DETECTORES FACTUAIS — prioridade 3 (leitura de cliente, 18/07)
+# ============================================================
+# Mesma família da alucinação de signo: o texto afirma DADO, e o dado está
+# errado. É a classe mais grave depois da ausência falsa de aspecto, porque
+# o cliente tem a tabela na mesma página.
+
+_CORPO_RE = (r"Sol|Lua|Mercúrio|Mercurio|Vênus|Venus|Marte|Júpiter|Jupiter|"
+             r"Saturno|Urano|Netuno|Plutão|Plutao|Quíron|Quiron|Lilith|"
+             r"Ceres|Palas|Pallas|Juno|Vesta|Nodo\s+Norte|Nodo\s+Sul")
+_PT2KEY = {
+    "sol":"sun","lua":"moon","mercúrio":"mercury","mercurio":"mercury",
+    "vênus":"venus","venus":"venus","marte":"mars","júpiter":"jupiter",
+    "jupiter":"jupiter","saturno":"saturn","urano":"uranus","netuno":"neptune",
+    "plutão":"pluto","plutao":"pluto","quíron":"chiron","quiron":"chiron",
+    "lilith":"lilith","ceres":"ceres","palas":"pallas","pallas":"pallas",
+    "juno":"juno","vesta":"vesta","nodo norte":"north_node","nodo sul":"south_node",
+}
+
+
+def _detect_house_inconsistency(text, chart):
+    """Um corpo com DUAS casas diferentes ao longo do relatório.
+
+    Caso real (Lucca, 18/07): Plutão na casa 6 numa seção e na 5 na seção
+    própria. Contradição interna — o leitor não tem como saber qual vale.
+    Confere cada afirmação contra `points`, e reporta a divergência.
+    """
+    out = []
+    pontos = (chart or {}).get("points") or {}
+    if not pontos:
+        return out
+    vistos = {}
+    pat = rf"\b({_CORPO_RE})\b[^.!?]{{0,40}}?\bcasa\s+(\d{{1,2}})\b"
+    for m in re.finditer(pat, text, flags=re.IGNORECASE):
+        nome = re.sub(r"\s+", " ", m.group(1).strip().lower())
+        casa = int(m.group(2))
+        key = _PT2KEY.get(nome)
+        if not key or key not in pontos:
+            continue
+        real = pontos[key].get("house_geometric") or pontos[key].get("house")
+        vistos.setdefault(key, []).append((casa, m.start(), m.group(0)))
+        if real and casa != real:
+            out.append({"kind": "fato:casa_errada", "match": m.group(0)[:60],
+                        "offset": m.start(),
+                        "suggestion": (f"o texto diz casa {casa} para {m.group(1)}, "
+                                       f"mas a tabela deste mapa diz casa {real}. "
+                                       f"Corrigir para {real} ou remover a menção.")})
+    for key, itens in vistos.items():
+        casas = {c for c, _, _ in itens}
+        if len(casas) > 1:
+            out.append({"kind": "fato:casa_inconsistente",
+                        "match": itens[0][2][:60], "offset": itens[0][1],
+                        "suggestion": (f"o relatório atribui MAIS DE UMA casa ao mesmo "
+                                       f"corpo ({sorted(casas)}) — contradição interna.")})
+    return out
+
+
+_ANGULOS = {
+    "meio do céu": "midheaven", "meio-do-céu": "midheaven", "mc": "midheaven",
+    "ascendente": "ascendant", "asc": "ascendant",
+}
+
+
+def _detect_angle_claims(text, chart):
+    """Menção a ângulo validada contra os dados.
+
+    Caso real (Lucca): "Vênus na cúspide do meio do céu" — Vênus está perto
+    da cúspide da 11, e o MC está em Touro. A frase junta dois erros.
+    """
+    out = []
+    ch = chart or {}
+    pat = (rf"\b({_CORPO_RE})\b[^.!?]{{0,45}}?"
+           r"\b(?:na|no|sobre\s+a|junto\s+à|conjunto\s+ao)\s+"
+           r"(?:cúspide\s+d[oa]\s+)?(meio[\s-]do[\s-]céu|ascendente|MC|Asc)\b")
+    for m in re.finditer(pat, text, flags=re.IGNORECASE):
+        nome = re.sub(r"\s+", " ", m.group(1).strip().lower())
+        ang = _ANGULOS.get(re.sub(r"[\s-]+", " ", m.group(2).strip().lower()))
+        key = _PT2KEY.get(nome)
+        if not key or not ang:
+            continue
+        p = (ch.get("points") or {}).get(key)
+        a = ch.get(ang if ang != "midheaven" else "midheaven")
+        if not p or not a:
+            continue
+        if str(p.get("sign", "")).lower() != str(a.get("sign", "")).lower():
+            out.append({"kind": "fato:angulo_errado", "match": m.group(0)[:70],
+                        "offset": m.start(),
+                        "suggestion": (f"{m.group(1)} está em {p.get('sign_pt')} e o "
+                                       f"{m.group(2)} em {a.get('sign_pt')} — não estão "
+                                       f"juntos. Remover a afirmação de conjunção ao ângulo.")})
+    return out
+
+
+# REGÊNCIA: aceita tradicional E moderna. Só acusa quando a afirmação está
+# errada nos DOIS sistemas — a escolha entre eles é da Márcia, não minha.
+_REGENCIA = {
+    "aries": {"mars"}, "áries": {"mars"},
+    "taurus": {"venus"}, "touro": {"venus"},
+    "gemini": {"mercury"}, "gêmeos": {"mercury"},
+    "cancer": {"moon"}, "câncer": {"moon"},
+    "leo": {"sun"}, "leão": {"sun"},
+    "virgo": {"mercury"}, "virgem": {"mercury"},
+    "libra": {"venus"},
+    "scorpio": {"mars", "pluto"}, "escorpião": {"mars", "pluto"},
+    "sagittarius": {"jupiter"}, "sagitário": {"jupiter"},
+    "capricorn": {"saturn"}, "capricórnio": {"saturn"},
+    "aquarius": {"saturn", "uranus"}, "aquário": {"saturn", "uranus"},
+    "pisces": {"jupiter", "neptune"}, "peixes": {"jupiter", "neptune"},
+}
+
+
+def _detect_rulership(text, chart):
+    """"X rege Y" conferido contra a regência do signo em que Y está.
+
+    Caso real (Lucca): "Marte rege o Nodo Norte" — o Nodo Norte está em
+    Libra, regido por Vênus; Marte rege o Nodo Sul, que está em Áries.
+    """
+    out = []
+    pontos = (chart or {}).get("points") or {}
+    pat = (rf"\b({_CORPO_RE})\b[^.!?]{{0,25}}?\breg[e|em|ência\s+d]"
+           rf"[^.!?]{{0,25}}?\b({_CORPO_RE})\b")
+    for m in re.finditer(pat, text, flags=re.IGNORECASE):
+        reg = _PT2KEY.get(re.sub(r"\s+", " ", m.group(1).strip().lower()))
+        alvo = _PT2KEY.get(re.sub(r"\s+", " ", m.group(2).strip().lower()))
+        if not reg or not alvo or alvo not in pontos:
+            continue
+        signo = str(pontos[alvo].get("sign", "")).lower()
+        validos = _REGENCIA.get(signo)
+        if validos and reg not in validos:
+            certo = ", ".join(sorted(validos))
+            out.append({"kind": "fato:regencia_errada", "match": m.group(0)[:70],
+                        "offset": m.start(),
+                        "suggestion": (f"{m.group(2)} está em {pontos[alvo].get('sign_pt')}, "
+                                       f"regido por {certo} — não por {m.group(1)}.")})
+    return out
+
 
 # ============================================================
 # spell_lint — CAMADA DE ORTOGRAFIA (ideia da Márcia, 17/07)

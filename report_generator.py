@@ -1464,7 +1464,7 @@ def build_sections(chart):
         # (iii) hora desconhecida COM ingresso — usa APENAS aspectos, signo é indeterminado
         {
             "name": "lua",
-            "title": "Lua: seu mundo emocional",
+            "title": "Seu mundo emocional",
             "queries": (
                 # Quando o signo da Lua é INDETERMINADO (ingress no dia), buscamos
                 # material por AFECTOS, sem âncora em signo — os aspectos são o

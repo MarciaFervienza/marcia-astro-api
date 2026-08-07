@@ -45,7 +45,7 @@ fi
 # ---- 3. SUÍTES DE MORDIDA ----------------------------------------------
 echo
 echo "3. Provas de mordida (detectores reprovam o passado?)"
-for t in prove_text prove_doutrina prove_positions; do
+for t in prove_text prove_doutrina prove_positions prove_ausencia_aspecto prove_fatos; do
   OUT=$(python3 "tests/$t.py" 2>&1)
   if echo "$OUT" | grep -qE "FALHOU|Traceback|Error"; then
     bad "$t"
