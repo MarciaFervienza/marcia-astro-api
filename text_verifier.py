@@ -397,8 +397,16 @@ _PESSOAIS = ("sol", "lua", "mercúrio", "mercurio", "vênus", "venus", "marte")
 # volta de", "faixa etária" servem também para social — Saturno em Escorpião
 # É compartilhado com quem nasceu na mesma época, só não é uma geração.
 _GER_FORTE = r"gera(?:ção|cao|cional|cionais)|toda\s+uma\s+gera|sua\s+gera"
+# "coletivo" NÃO é marcador de coorte (19/07). Todos os outros termos desta
+# lista falam de TEMPO DE NASCIMENTO; "coletivo" fala de grupo — e é
+# vocabulário nativo da casa 11 e de Aquário: "projetos coletivos",
+# "vida coletiva", "círculos coletivos". Solto, ele acusou duas frases
+# corretas da Helena, e o reescritor DEFORMOU uma delas ("Com Vênus na casa
+# 11, seus vínculos afetivos…"). Só o uso NOMINAL — "um coletivo", "todo um
+# coletivo" — carrega a ideia de grupo-de-nascimento.
 _GER_FRACO = (r"coorte|quem\s+nasceu|faixa\s+etária|mesma\s+época|"
-              r"nascid[oa]s?\s+n[ao]|coletiv[ao]")
+              r"nascid[oa]s?\s+n[ao]|"
+              r"(?:um|o|seu|sua|esse|essa|todo\s+um)\s+coletiv[ao]\b")
 
 
 def _detect_sign_as_generational_agent(text):
@@ -1278,9 +1286,19 @@ def _detectar_tudo(text, chart):
     violations_all = []  # cada item: {"kind","match","offset","suggestion","sentence_idx"}
 
     def _add(kind, match_text, offset, suggestion=""):
+        # NORMALIZAÇÃO DO OFFSET (19/07). Vários padrões abrem com uma classe
+        # negada tipo `[^.;:!?]{5,60}` — que, logo depois de um ponto final,
+        # começa a casar NO ESPAÇO separador. O offset então caía na frase
+        # ANTERIOR, e `_sentence_for_offset` mandava o reescritor consertar a
+        # frase errada: na Helena (19/07) ele reescreveu "Outras pessoas
+        # percebem em você algo expansivo…" — correta — enquanto
+        # "…a camada de chegada — e não necessariamente…" ficava intacta.
+        # Pior: o re-verify olhava a frase reescrita, não achava nada e
+        # registrava "corrected". Defeito vivo + log dizendo que foi curado.
+        _lead = len(match_text) - len(match_text.lstrip())
         violations_all.append({
             "kind": kind, "match": match_text[:120],
-            "offset": offset, "suggestion": suggestion,
+            "offset": offset + _lead, "suggestion": suggestion,
         })
 
     # 2a — léxico proibido (com validator opcional por entrada)
@@ -1447,15 +1465,24 @@ def run_verifier(text, chart, call_claude_fn):
     # Agrupa violações por frase
     sentences = _split_sentences(text)
     per_sent = {}
+    log_out = []            # nasce aqui: o laço abaixo já registra descartes
     for v in violations_all:
         # Violação SINALIZADA: entra no log, não vai para reescrita. É a
         # saída honesta quando não se sabe qual lado é o certo — melhor que
         # deixar o reescritor adivinhar (foi assim que o casa_inconsistente
         # corrompeu texto correto, 18/07).
         if v.get("no_rewrite"):
+            log_out.append({**v, "status": "sinalizada_sem_reescrita"})
             continue
         info = _sentence_for_offset(sentences, v["offset"])
         if info is None:
+            # DROP SILENCIOSO (19/07). Isto dava `continue` mudo: na Helena,
+            # 19 violações detectadas e 17 no log — duas evaporaram sem
+            # deixar rastro. Uma violação que ninguém consegue localizar numa
+            # frase é justamente a que precisa ser vista.
+            logger.warning("verifier: violação sem frase correspondente: %s %r @%d",
+                           v["kind"], v["match"][:60], v["offset"])
+            log_out.append({**v, "status": "SEM_FRASE_NAO_CORRIGIDA"})
             continue
         idx, s, e, txt = info
         v["sentence_idx"] = idx
@@ -1464,7 +1491,6 @@ def run_verifier(text, chart, call_claude_fn):
     # Reescreve cada frase afetada (até 2 tentativas)
     # Aplicação de trás para frente pra preservar offsets
     corrected = text
-    log_out = []
     # As reescritas são INDEPENDENTES entre si: cada uma só lê a própria frase
     # e as próprias violações. Rodavam EM SÉRIE — uma chamada ao Claude por
     # tentativa, por frase — e a geração passou dos 300s do proxy do Railway
@@ -1912,6 +1938,19 @@ def _detect_asserted_aspect(text, chart):
             # Plutão" virou "Mercúrio quadratura Plutão" (Helena, 18/07).
             # Sem par confiável, não acusa.
             continue
+        elif re.search(rf"\b({_CORPO_RE})\s*[-–—]\s*({_CORPO_RE})\b"
+                       r"\s+(?:em\s+|na\s+)?$", antes, flags=re.IGNORECASE):
+            # PAR HIFENIZADO "Vênus-Quíron em sextil" (19/07). É a notação
+            # mais explícita que existe: os DOIS corpos vêm antes do aspecto.
+            # A regra genérica quebrava na frase encadeada
+            #   "O Vênus-Quíron em sextil e o Saturno-Quíron em oposição"
+            # — pegava o Quíron do primeiro par e o Saturno do segundo, e
+            # acusava "Quíron sextil Saturno" numa frase inteiramente certa
+            # (Helena, 19/07; o par real é Saturno-Quíron em OPOSIÇÃO, e a
+            # frase diz exatamente isso).
+            _h = re.search(rf"\b({_CORPO_RE})\s*[-–—]\s*({_CORPO_RE})\b"
+                           r"\s+(?:em\s+|na\s+)?$", antes, flags=re.IGNORECASE)
+            cand = [_h.group(1), _h.group(2)]
         elif c_antes and c_depois:
             cand = [c_antes[-1].group(1), c_depois[0].group(1)]
         if len(cand) != 2:

@@ -51,6 +51,15 @@ def build_chart(caso=HELENA):
             "orb": round(float(a.orbit), 2)}
            for a in NatalAspects(s).relevant_aspects
            if a.aspect in _PA and a.p1_name in _K and a.p2_name in _K]
+    # Kerykeion NÃO gera aspectos de asteróides nem de Nodos — produção os
+    # computa à parte. Sem esta linha a fixture entregava um chart onde Juno
+    # não aspectava nada, e uma varredura local acusou de "inventada" a
+    # quadratura Mercúrio-Juno da Helena, que é real (orbe 0,4°). Chamamos a
+    # rotina DE PRODUÇÃO — não uma segunda implementação (R3).
+    _tem = {(frozenset((a["planet_a"], a["planet_b"])), a["type"]) for a in asp}
+    for a in app._compute_missing_aspects(pts):
+        if (frozenset((a["planet_a"], a["planet_b"])), a["type"]) not in _tem:
+            asp.append(a)
     hs = [s.first_house, s.second_house, s.third_house, s.fourth_house,
           s.fifth_house, s.sixth_house, s.seventh_house, s.eighth_house,
           s.ninth_house, s.tenth_house, s.eleventh_house, s.twelfth_house]

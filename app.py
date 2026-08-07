@@ -1213,6 +1213,110 @@ def diag_retrieval_endpoint():
     return jsonify({"queries": out, "sample_meta": sample}), 200
 
 
+
+# ==================================================================
+# ASPECTOS DE ASTERÓIDES E NODOS — FONTE ÚNICA (extraído 19/07).
+#
+# Isto vivia ANINHADO dentro de generate_report_endpoint, portanto
+# inalcançável por qualquer teste. A fixture de testes então computava
+# aspectos por conta própria, via NatalAspects do Kerykeion — que NÃO
+# gera aspectos de asteróides. Resultado: a fixture dizia que Juno da
+# Helena não tinha aspecto nenhum, e uma varredura local acusou
+# 'mercúrio quadratura Juno' como inventada. Ela é real: orbe 0,4°.
+# O defeito era do instrumento, não do produto.
+#
+# Regra R3: um cálculo, um lugar. Testes importam ESTA função.
+# ==================================================================
+
+_POINTS_SIGN_ORDER = [
+    "aries", "taurus", "gemini", "cancer", "leo", "virgo",
+    "libra", "scorpio", "sagittarius", "capricorn", "aquarius", "pisces",
+]
+# Só três tipos são considerados para asteróides e Nodos:
+# conjunção, oposição, quadratura. Trígono e sextil desses corpos
+# NÃO são interpretados na prática da Marcia — não computar.
+_ASPECT_PT_LABELS = {
+    "conjunction": "conjunção", "sextile": "sextil", "square": "quadratura",
+    "trine": "trígono", "opposition": "oposição",
+}
+# Ângulos + orbes máximos para o cálculo manual dos aspectos ausentes.
+# Para asteróides/Nodos: conj 6° · opp 6° · quadratura 4°. Trígono/
+# sextil ficam de fora deliberadamente.
+_MANUAL_ASPECT_SPECS = [
+    ("conjunction",   0, 6.0),
+    ("opposition",  180, 6.0),
+    ("square",       90, 4.0),
+]
+
+def _abs_pos(pdict):
+    """Retorna a posição absoluta em graus 0-360 a partir de sign + degrees."""
+    if not isinstance(pdict, dict):
+        return None
+    sign = (pdict.get("sign") or "").lower()
+    deg = pdict.get("degrees")
+    if sign not in _POINTS_SIGN_ORDER or deg is None:
+        return None
+    try:
+        return _POINTS_SIGN_ORDER.index(sign) * 30.0 + float(deg)
+    except (ValueError, TypeError):
+        return None
+
+def _compute_missing_aspects(points):
+    """Computa aspectos que o Kerykeion não gera. Só conjunção/oposição/
+    quadratura, com orbes 6°/6°/4° — trígono e sextil de asteróides e
+    Nodos não são interpretados na prática da Marcia. Retorna lista no
+    mesmo formato dos aspectos do payload."""
+    ASTEROIDS = ["ceres", "vesta", "juno", "pallas"]
+    MAIN_PLANETS = ["sun", "moon", "mercury", "venus", "mars",
+                    "jupiter", "saturn", "uranus", "neptune", "pluto"]
+    NODES = ["north_node", "south_node"]
+
+    pairs = []
+    for a in ASTEROIDS:
+        for p in MAIN_PLANETS:
+            pairs.append((a, p))
+    for n in NODES:
+        for p in MAIN_PLANETS:
+            pairs.append((n, p))
+    for n in NODES:
+        for a in ASTEROIDS:
+            pairs.append((n, a))
+
+    out = []
+    for pa_key, pb_key in pairs:
+        pos_a = _abs_pos(points.get(pa_key))
+        pos_b = _abs_pos(points.get(pb_key))
+        if pos_a is None or pos_b is None:
+            continue
+
+        # Distância angular circular
+        raw = abs(pos_a - pos_b)
+        dist = min(raw, 360.0 - raw)
+
+        # Testar SÓ conjunção/oposição/quadratura contra a distância.
+        # Escolher o de menor orbe entre os três; se nenhum estiver
+        # dentro do seu orbe máximo específico, o par não forma aspecto.
+        best = None  # (type, orb, max_orb)
+        for atype, angle, max_orb in _MANUAL_ASPECT_SPECS:
+            orb = abs(dist - angle)
+            if orb <= max_orb:
+                if best is None or orb < best[1]:
+                    best = (atype, orb, max_orb)
+
+        if best is None:
+            continue
+
+        atype, orb, _max = best
+        out.append({
+            "planet_a": pa_key,
+            "planet_b": pb_key,
+            "type": atype,
+            "type_pt": _ASPECT_PT_LABELS[atype],
+            "orb": round(orb, 2),
+            "applying": None,  # sem velocidade nos points do payload
+        })
+    return out
+
 @app.route("/generate-report", methods=["POST"])
 def generate_report_endpoint():
     """Accept chart JSON, generate the report, return as JSON.
@@ -1697,94 +1801,7 @@ def generate_report_endpoint():
     # Aspectos abaixo do threshold passam pelo mesmo caminho de qualquer
     # outro aspecto.
     # ==================================================================
-    _POINTS_SIGN_ORDER = [
-        "aries", "taurus", "gemini", "cancer", "leo", "virgo",
-        "libra", "scorpio", "sagittarius", "capricorn", "aquarius", "pisces",
-    ]
-    # Só três tipos são considerados para asteróides e Nodos:
-    # conjunção, oposição, quadratura. Trígono e sextil desses corpos
-    # NÃO são interpretados na prática da Marcia — não computar.
-    _ASPECT_PT_LABELS = {
-        "conjunction": "conjunção", "sextile": "sextil", "square": "quadratura",
-        "trine": "trígono", "opposition": "oposição",
-    }
-    # Ângulos + orbes máximos para o cálculo manual dos aspectos ausentes.
-    # Para asteróides/Nodos: conj 6° · opp 6° · quadratura 4°. Trígono/
-    # sextil ficam de fora deliberadamente.
-    _MANUAL_ASPECT_SPECS = [
-        ("conjunction",   0, 6.0),
-        ("opposition",  180, 6.0),
-        ("square",       90, 4.0),
-    ]
-
-    def _abs_pos(pdict):
-        """Retorna a posição absoluta em graus 0-360 a partir de sign + degrees."""
-        if not isinstance(pdict, dict):
-            return None
-        sign = (pdict.get("sign") or "").lower()
-        deg = pdict.get("degrees")
-        if sign not in _POINTS_SIGN_ORDER or deg is None:
-            return None
-        try:
-            return _POINTS_SIGN_ORDER.index(sign) * 30.0 + float(deg)
-        except (ValueError, TypeError):
-            return None
-
-    def _compute_missing_aspects(points):
-        """Computa aspectos que o Kerykeion não gera. Só conjunção/oposição/
-        quadratura, com orbes 6°/6°/4° — trígono e sextil de asteróides e
-        Nodos não são interpretados na prática da Marcia. Retorna lista no
-        mesmo formato dos aspectos do payload."""
-        ASTEROIDS = ["ceres", "vesta", "juno", "pallas"]
-        MAIN_PLANETS = ["sun", "moon", "mercury", "venus", "mars",
-                        "jupiter", "saturn", "uranus", "neptune", "pluto"]
-        NODES = ["north_node", "south_node"]
-
-        pairs = []
-        for a in ASTEROIDS:
-            for p in MAIN_PLANETS:
-                pairs.append((a, p))
-        for n in NODES:
-            for p in MAIN_PLANETS:
-                pairs.append((n, p))
-        for n in NODES:
-            for a in ASTEROIDS:
-                pairs.append((n, a))
-
-        out = []
-        for pa_key, pb_key in pairs:
-            pos_a = _abs_pos(points.get(pa_key))
-            pos_b = _abs_pos(points.get(pb_key))
-            if pos_a is None or pos_b is None:
-                continue
-
-            # Distância angular circular
-            raw = abs(pos_a - pos_b)
-            dist = min(raw, 360.0 - raw)
-
-            # Testar SÓ conjunção/oposição/quadratura contra a distância.
-            # Escolher o de menor orbe entre os três; se nenhum estiver
-            # dentro do seu orbe máximo específico, o par não forma aspecto.
-            best = None  # (type, orb, max_orb)
-            for atype, angle, max_orb in _MANUAL_ASPECT_SPECS:
-                orb = abs(dist - angle)
-                if orb <= max_orb:
-                    if best is None or orb < best[1]:
-                        best = (atype, orb, max_orb)
-
-            if best is None:
-                continue
-
-            atype, orb, _max = best
-            out.append({
-                "planet_a": pa_key,
-                "planet_b": pb_key,
-                "type": atype,
-                "type_pt": _ASPECT_PT_LABELS[atype],
-                "orb": round(orb, 2),
-                "applying": None,  # sem velocidade nos points do payload
-            })
-        return out
+    # (extraído para o nível do módulo — ver _compute_missing_aspects acima)
 
     # Aspectos que já vieram do cliente (Kerykeion) — planetas + Quíron + Lilith
     _client_aspects = body.get("aspects") or []

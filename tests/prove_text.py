@@ -227,3 +227,53 @@ ok = ok and m=="a"
 
 print()
 print("VOZ 17/07: TUDO PROVADO" if ok else ">>> ALGO FALHOU NA VOZ")
+
+
+# ============================================================
+# 19/07 — INVARIANTE DE ROTEAMENTO: o offset aponta para a frase certa?
+#
+# Todo detector devolve (match, offset). run_verifier usa esse offset para
+# escolher QUE FRASE mandar ao reescritor. Se o offset cair na frase
+# anterior, o reescritor conserta a frase errada, o re-verify olha a frase
+# reescrita, não acha nada, e o log grava "corrected" — defeito vivo com
+# atestado de curado. Foi o que aconteceu na Helena (19/07): dois
+# `y_travessao_e_nao_x` "corrigidos" que nunca saíram do texto, porque o
+# padrão abre com `[^.;:!?]{5,60}` e começa a casar NO ESPAÇO após o ponto.
+#
+# A propriedade é geral e barata: a frase que contém o offset tem de conter
+# o match. Vale para TODOS os detectores, inclusive os que ainda nem existem.
+# ============================================================
+print()
+print("=" * 60)
+print("INVARIANTE: offset cai na frase que contém o match")
+_txt = (
+    "Outras pessoas percebem em você algo expansivo. Mas o Ascendente é a "
+    "interface, a camada de chegada — e não necessariamente o que está "
+    "embaixo.\n\n"
+    "Isso não é ressentimento — é uma leitura fria do que sobrou. "
+    "Ela não precisa de uma análise — precisa de tempo.\n\n"
+    "O Vênus-Quíron em sextil abre o tema. Você busca menos o brilho "
+    "externo e mais a consistência.\n"
+)
+from _fixture import build_chart, HELENA
+_H = build_chart(HELENA)
+_sents = tv._split_sentences(_txt)
+_bad = 0
+for _d in tv._detectar_tudo(_txt, _H):
+    _m = _d["match"].strip()
+    _info = tv._sentence_for_offset(_sents, _d["offset"])
+    if _info is None:
+        print(f"  ERRADO  {_d['kind']}: offset {_d['offset']} não cai em frase alguma")
+        _bad += 1
+        continue
+    # o match pode transbordar a frase; basta o INÍCIO dele estar lá dentro
+    if _m[:25] not in _info[3]:
+        print(f"  ERRADO  {_d['kind']}: offset aponta para {_info[3][:50]!r}, "
+              f"mas o match é {_m[:50]!r}")
+        _bad += 1
+    else:
+        print(f"  OK      {_d['kind']:<34} → {_info[3][:44]!r}")
+if _bad:
+    print(f">>> {_bad} DETECÇÃO(ÕES) COM OFFSET NA FRASE ERRADA — FALHOU")
+    raise SystemExit(1)
+print("OFFSET 19/07: TUDO PROVADO")

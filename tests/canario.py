@@ -162,6 +162,19 @@ _LEX_CANARIOS = {
 # Frases que NÃO podem acender — falso positivo é tão grave quanto detector
 # morto: gasta reescrita em texto correto e pode corrompê-lo.
 NEGATIVOS = [
+    # --- 19/07: as três frases CORRETAS da Helena que os detectores acusavam.
+    ("par hifenizado encadeado (Vênus-Quíron / Saturno-Quíron)",
+     lambda t: tv._detect_asserted_aspect(t, H),
+     "O Vênus-Quíron em sextil e o Saturno-Quíron em oposição completam "
+     "o panorama."),
+    ("'projetos coletivos' é vocabulário de casa 11, não de coorte",
+     lambda t: tv._detect_sign_as_generational_agent(t),
+     "Esse Mercúrio opera na sua casa 11 — o território dos grupos, dos "
+     "círculos de afinidade, dos projetos coletivos e da vida social."),
+    ("'vínculos em projetos coletivos' com Vênus",
+     lambda t: tv._detect_sign_as_generational_agent(t),
+     "Com Vênus na casa 11, seus vínculos afetivos se organizam em torno "
+     "de projetos coletivos."),
     ("transpessoal pode dizer geração",
      lambda t: tv._detect_sign_as_generational_agent(t),
      "Netuno em Peixes dá a essa geração uma permeabilidade ao invisível."),
