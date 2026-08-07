@@ -1,5 +1,6 @@
 """Prova de mordida — rodada 17/07 (21 achados da leitura da Márcia)."""
 import warnings; warnings.filterwarnings("ignore")
+import re
 import os
 import sys; sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import text_verifier as tv, report_generator as rg
@@ -89,3 +90,44 @@ chk("cobre a síntese final", [b] if "síntese final" in b else [])
 
 print()
 print("RODADA 17/07: TUDO PROVADO" if ok else ">>> ALGO FALHOU")
+
+# ---- rodada de 18/07: 8 achados da leitura de cliente ----
+print("\n--- #1 BLOQUEANTE: ausência de aspecto concluída, em qualquer forma ---")
+CH_ASP = {"aspects": [{"planet_a": "pluto", "planet_b": "chiron", "type": "square"}]}
+for frase in (
+    "Plutão na casa 12 tem aspectos? Nesta seção, a lista está vazia — o que "
+    "significa que Plutão opera aqui sem os canais de troca que os aspectos criariam.",
+    "Os aspectos de Plutão estão ausentes nesta leitura.",
+    "Plutão não forma nenhum aspecto neste mapa.",
+    "Para Plutão, não há aspectos a considerar.",
+    "Nenhum aspecto envolve Plutão."):
+    chk(f"ausência: {frase[:44]}…", tv._detect_false_no_aspect_claims(frase, CH_ASP))
+chk("NÃO acusa 'seus pais estão ausentes'",
+    tv._detect_false_no_aspect_claims("Seus pais estão ausentes emocionalmente.", CH_ASP), False)
+chk("NÃO acusa ausência VERDADEIRA (Vesta)",
+    tv._detect_false_no_aspect_claims("Vesta não forma nenhum aspecto.", CH_ASP), False)
+
+print("\n--- #2,#4,#6,#7,#8: léxico e sintaxe ---")
+for frase, cat in (
+    ("Vênus em Lilith sugere", "erro_astrologico_em_corpo"),
+    ("na posição mais interior do mapa", "erro_conceitual"),
+    ("um num-a-num comprometido", "termo_inexistente"),
+    ("de maneiras que você não completamente antecipou", "sintaxe_adverbio_encaixado"),
+    ("forças vivas no tecido da época", "metafora_sem_referente"),
+    ("a ferida pode se activar", "pt_europeu"),
+    ("esse cluster libriano", "termo_ingles")):
+    chk(f"{cat}: {frase[:38]}", [c for p, c, *_ in tv._FORBIDDEN_LEXICON
+                                 for _ in re.finditer(p, frase, 2) if c == cat])
+for frase in ("Vênus em Libra na casa 7", "Plutão em Escorpião", "a Lua em Gêmeos"):
+    chk(f"NÃO acusa '{frase}'", [c for p, c, *_ in tv._FORBIDDEN_LEXICON
+                                 for _ in re.finditer(p, frase, 2)], False)
+
+print("\n--- #5: 'ela mesma' em texto de 2ª pessoa ---")
+_, _log = tv.run_verifier(
+    "# R\n\n## S\n\nquando você sente que há espaço para ser ela mesma.",
+    {"gender": "feminino", "points": {}, "aspects": [], "_voice": {"person": "segunda"}},
+    lambda p, max_tokens=500: "quando você sente que há espaço para ser você mesma.")
+chk("'ser ela mesma' pego", [x for x in _log if "terceira" in x["kind"]])
+
+print()
+print("ACHADOS 18/07: TUDO PROVADO" if ok else ">>> ALGO FALHOU")

@@ -290,6 +290,7 @@ described_aspect_themes: set = set()
 # Per-section audit — records the filtered+deduplicated aspect list that
 # was passed to Claude for each section. Used for verification/debugging.
 _section_aspect_audit: dict = {}
+_section_suppressed: dict = {}   # seção -> aspectos reais suprimidos por dedup
 
 # Registro por relatório das seções que rodaram em modo COBERTURA PARCIAL
 # (nenhum chunk cobre simultaneamente signo × casa da posição consultada).
@@ -352,15 +353,43 @@ def aspects_for_section_filtered(section_name: str, chart: dict, exclude_describ
         exclude_described = False
 
     if exclude_described:
+        _antes = filtered
         filtered = [a for a in filtered if _aspect_dedup_key(a) not in described_aspect_themes]
+        # Guarda os que EXISTEM mas foram suprimidos por já terem sido lidos
+        # noutra seção. Sem isto, a seção recebe lista vazia e o modelo pode
+        # concluir "este corpo não tem aspectos" — foi o que aconteceu com o
+        # Plutão da Helena (17/07): a quadratura com Quíron foi entregue à
+        # seção de Quíron, e a de Plutão construiu TRÊS frases sobre uma
+        # ausência falsa. Lista vazia significa "nada NOVO", nunca "nenhum".
+        _sup = [a for a in _antes if a not in filtered]
+        if _sup:
+            _section_suppressed[section_name] = _sup
     _section_aspect_audit[section_name] = filtered
     return filtered
 
 
-def fmt_filtered_aspects(filtered_aspects: list) -> str:
-    """Pretty-print the prioritized aspect list with tier annotation."""
+def fmt_filtered_aspects(filtered_aspects: list, section_name: str = None) -> str:
+    """Pretty-print the prioritized aspect list with tier annotation.
+
+    Lista vazia NUNCA significa "o corpo não tem aspectos" — significa que
+    os dele já foram lidos noutra seção. Quando há suprimidos, eles são
+    NOMEADOS aqui, com proibição explícita de concluir ausência.
+    """
     if not filtered_aspects:
-        return "(nenhum aspecto novo a destacar nesta seção — outros já foram descritos antes)"
+        sup = _section_suppressed.get(section_name or "", [])
+        if sup:
+            nomes = "; ".join(f"{a['_pa_pt']}-{a['_pb_pt']} ({a['type_pt']}, "
+                              f"orbe {a['orb']:.1f}°)" for a in sup)
+            return ("NENHUM ASPECTO NOVO PARA ESTA SEÇÃO — mas os corpos desta seção "
+                    f"TÊM aspectos, já lidos antes no relatório: {nomes}. "
+                    "PROIBIDO afirmar, sugerir ou perguntar-e-responder que este corpo "
+                    "não tem aspectos, que 'a lista está vazia', que ele 'opera sem "
+                    "canais de troca' ou qualquer leitura construída sobre ausência: "
+                    "seria FALSO e o leitor vê a tabela de aspectos na mesma página. "
+                    "Referencie em uma frase se precisar e siga para o resto da leitura.")
+        return ("(nenhum aspecto novo a destacar nesta seção. ATENÇÃO: isto NÃO "
+                "significa que o corpo não tenha aspectos — nunca conclua ausência "
+                "a partir desta linha.)")
     parts = []
     for a in filtered_aspects:
         pa, pb = a["_pa_pt"], a["_pb_pt"]
@@ -909,7 +938,7 @@ def section_chart_context(section_name, chart):
 
     # Compute filtered aspects for this section once (also records into _section_aspect_audit)
     filtered_aspects = aspects_for_section_filtered(section_name, chart)
-    aspects_line = fmt_filtered_aspects(filtered_aspects)
+    aspects_line = fmt_filtered_aspects(filtered_aspects, section['name'])
 
     if section_name == "abertura":
         if moon_uncertain:
@@ -1266,7 +1295,7 @@ def build_sections(chart):
         }
         _triade_section = {
             "name": "triade",
-            "title": "Sol: Sua Vitalidade e Direção",
+            "title": "Sol: sua vitalidade e direção",
             "queries": [
                 f"Sol em {sun['sign_pt']} direção de vida vitalidade",
                 f"Sol em {sun['sign_pt']} identidade consciente propósito",
@@ -1310,7 +1339,7 @@ def build_sections(chart):
         }
         _triade_section = {
             "name": "triade",
-            "title": "Sol e Lua: O Núcleo Emocional-Vital",
+            "title": "Sol e Lua: o núcleo emocional-vital",
             "queries": [
                 f"Sol em {sun['sign_pt']}",
                 f"Lua em {moon['sign_pt']} vida emocional",
@@ -1350,7 +1379,7 @@ def build_sections(chart):
         }
         _triade_section = {
             "name": "triade",
-            "title": "Sua Tríade: Sol, Lua e Ascendente",
+            "title": "Sua tríade: Sol, Lua e Ascendente",
             "queries": [
                 f"Sol em {sun['sign_pt']} casa {sun['house']}",
                 f"Lua em {moon['sign_pt']} casa {moon['house']}",
@@ -1373,7 +1402,7 @@ def build_sections(chart):
         _triade_section,
         {
             "name": "mercurio",
-            "title": "Mercúrio: Como Você Pensa",
+            "title": "Mercúrio: como você pensa",
             "queries": [
                 f"Mercúrio em {mercury['sign_pt']} casa {mercury['house']}",
                 f"como pensa processa informação {mercury['sign_pt']} comunicação",
@@ -1387,7 +1416,7 @@ def build_sections(chart):
         # (iii) hora desconhecida COM ingresso — usa APENAS aspectos, signo é indeterminado
         {
             "name": "lua",
-            "title": "Lua: Suas Raízes Emocionais",
+            "title": "Lua: suas raízes emocionais",
             "queries": (
                 # Quando o signo da Lua é INDETERMINADO (ingress no dia), buscamos
                 # material por AFECTOS, sem âncora em signo — os aspectos são o
@@ -1458,7 +1487,7 @@ def build_sections(chart):
         },
         {
             "name": "casa_4",
-            "title": "Casa 4: Suas Raízes e Sua Casa Interna",
+            "title": "Casa 4: suas raízes e sua casa interna",
             "queries": casa4_queries,
             "planets_filter": h4_planets_pt if h4_planets_pt else None,
             "psychological_frame": (
@@ -1518,7 +1547,7 @@ def build_sections(chart):
         },
         {
             "name": "sol_saturno",
-            "title": "Sol e Saturno: Seu Ideal de Eu e Suas Ferramentas",
+            "title": "Sol e Saturno: seu ideal de eu e suas ferramentas",
             "queries": [
                 f"Sol em {sun['sign_pt']} casa {sun['house']} figura paterna",
                 f"Saturno em {saturn['sign_pt']} casa {saturn['house']} pai modelo referência",
@@ -1561,7 +1590,7 @@ def build_sections(chart):
         },
         {
             "name": "venus_marte",
-            "title": "Vênus e Marte: Como Você Ama e Luta pelo Que Deseja",
+            "title": "Vênus e Marte: como você ama e luta pelo que deseja",
             "queries": [
                 f"Vênus em {venus['sign_pt']} casa {venus['house']} amor relacionamento",
                 f"Marte em {mars['sign_pt']} casa {mars['house']} desejo ação",
@@ -1592,7 +1621,7 @@ def build_sections(chart):
         },
         {
             "name": "jupiter",
-            "title": "Júpiter: Onde Você Acredita em Si Mesmo",
+            "title": "Júpiter: onde você acredita em si mesmo",
             "queries": [
                 f"Júpiter em {jupiter['sign_pt']} casa {jupiter['house']}",
                 f"onde acredita em si mesmo expansão {jupiter['sign_pt']} dons naturais",
@@ -1603,7 +1632,7 @@ def build_sections(chart):
         },
         {
             "name": "saturno",
-            "title": "Saturno: Onde Você Amadurece com o Tempo",
+            "title": "Saturno: onde você amadurece com o tempo",
             "queries": [
                 f"Saturno em {saturn['sign_pt']} casa {saturn['house']}",
                 f"dúvida insegurança {saturn['sign_pt']} crescimento tempo esforço repetição",
@@ -1624,7 +1653,7 @@ def build_sections(chart):
         },
         {
             "name": "quiron",
-            "title": "Quíron: Sua Ferida e Seu Dom",
+            "title": "Quíron: sua ferida e seu dom",
             "queries": [
                 f"Quíron em {chiron['sign_pt']} casa {chiron['house']}",
                 f"ferida integração cura {chiron['sign_pt']}",
@@ -1635,7 +1664,7 @@ def build_sections(chart):
         },
         {
             "name": "urano",
-            "title": "Urano: Onde Você Não Se Encaixa",
+            "title": "Urano: onde você não se encaixa",
             "queries": [
                 f"Urano em {uranus['sign_pt']} casa {uranus['house']}",
                 f"não se encaixa recusa liberdade ruptura {uranus['sign_pt']}",
@@ -1646,7 +1675,7 @@ def build_sections(chart):
         },
         {
             "name": "netuno",
-            "title": "Netuno: Onde Você Se Dissolve",
+            "title": "Netuno: onde você se dissolve",
             "queries": [
                 f"Netuno em {neptune['sign_pt']} casa {neptune['house']}",
                 f"ilusão sacrifício dissolução entrega excessiva {neptune['sign_pt']}",
@@ -1657,7 +1686,7 @@ def build_sections(chart):
         },
         {
             "name": "plutao",
-            "title": "Plutão: Onde Você Precisa de Controle",
+            "title": "Plutão: onde você precisa de controle",
             "queries": [
                 f"Plutão em {pluto['sign_pt']} casa {pluto['house']}",
                 f"controle poder medo perder transformação {pluto['sign_pt']}",
@@ -1668,7 +1697,7 @@ def build_sections(chart):
         },
         {
             "name": "lilith",
-            "title": "Lilith: Onde Você Deve Insistir em Ser Você",
+            "title": "Lilith: onde você deve insistir em ser você",
             "queries": (
                 # Sem hora: só signo. Com hora: signo + casa como âncora da busca.
                 [
@@ -1722,7 +1751,7 @@ def build_sections(chart):
         },
         {
             "name": "nodos",
-            "title": "Nodo Sul e Nodo Norte: De Onde Você Vem e Para Onde Vai",
+            "title": "Nodo Sul e Nodo Norte: de onde você vem e para onde vai",
             "queries": [
                 f"Nodo Sul em {south_node['sign_pt']} casa {south_node['house']} zona de conforto excesso",
                 f"Nodo Norte em {north_node['sign_pt']} casa {north_node['house']} aprender desafio direção",
@@ -1745,7 +1774,7 @@ def build_sections(chart):
         },
         {
             "name": "asteroides",
-            "title": "Asteróides: Ceres, Vesta, Juno e Palas",
+            "title": "Asteroides: Ceres, Vesta, Juno e Palas",
             "queries": [
                 f"Ceres em {ceres['sign_pt']} casa {ceres['house']} cuidado nutrição",
                 f"Vesta em {vesta['sign_pt']} casa {vesta['house']} dedicação foco sagrado",
@@ -1904,7 +1933,11 @@ REGISTRO — CONVERSA CULTA, NÃO ENSAIO LITERÁRIO:
 Prefira sempre a palavra CORRENTE à rebuscada. A régua: se você não usaria a palavra FALANDO com a pessoa, não escreva. "Abrigar" no lugar de "guarecer"; "esfriar" ou "arrefecer" (esta é corrente) conforme o ritmo da frase. Palavra elevada mas de uso comum — arrefecer, vínculo, acolhimento, pertencimento — é bem-vinda; palavra que obriga o leitor a parar e buscar o significado, não. O texto é uma conversa culta, não um exercício de estilo.
 
 VARIEDADE VOCABULAR:
-Não repita a mesma palavra de ênfase ao longo de uma seção. "real/realmente" e "exatamente" são as muletas medidas neste projeto — "exatamente" apareceu 13 vezes num relatório e 10 noutro, sempre disperso (2 a 3 por seção, nunca concentrado). Use cada uma no MÁXIMO duas vezes por seção E no máximo oito no relatório inteiro. O mesmo vale para "genuíno", "profundo", "concreto", "específico". Se você precisou do advérbio ou do adjetivo de ênfase, a frase abaixo dele está vaga — reescreva a frase em vez de reforçá-la. ATENÇÃO: a muleta MIGRA a cada rodada — quando uma é contida, outra ocupa o lugar. Não troque "real" por "exatamente" nem "exatamente" por "precisamente": afirme sem o reforço.
+Não repita a mesma palavra de ênfase ao longo de uma seção. EVITE ADVÉRBIOS DE ÊNFASE E ADJETIVOS DE REFORÇO COMO CLASSE — não como lista de palavras. A classe inclui, sem se limitar a: real, realmente, exatamente, precisamente, genuíno, genuinamente, profundo, profundamente, específico, especificamente, concreto, concretamente, verdadeiro, efetivamente, justamente. Nomear palavras não resolve: quando uma é contida, outra ocupa o lugar — foi medido duas vezes neste projeto ("real" 11x, depois "exatamente" 13x).
+A REGRA: o reforço é sintoma de frase vaga. Se você escreveu "uma dificuldade real", pergunte qual é a dificuldade e escreva ISSO. Se escreveu "genuinamente seu", diga o que o torna seu. Um relatório inteiro deve ter POUCOS desses — se você usou mais de um por parágrafo, está reforçando em vez de dizer.
+
+METÁFORA PRECISA TER REFERENTE:
+Não escreva imagem abstrata que o leitor precise decifrar. "Forças vivas no tecido da época" não diz nada concreto — a leitora parou para se perguntar o que era, e isso já é falha. Toda metáfora tem que apontar para algo nomeável: em vez de "no tecido da época", diga o que na época, ou corte a imagem e afirme diretamente. Proibidas as construções vazias do tipo "tecido de", "trama de", "malha de", "tessitura de" seguidas de abstração.
 
 DENSIDADE DE CONTRASTE:
 A estrutura antitética — "tensão entre X e Y", "distinguir X de Y", "mais X do que Y", "quando X e quando Y", "X, mas Y" — é ferramenta legítima, mas em excesso vira tique que o leitor passa a ouvir. Máximo DOIS pivôs antitéticos por seção, nunca dois com a mesma forma. No resto, afirme diretamente: descreva o que É, sem armar o par de opostos. NUNCA use a família negação-substituição em nenhuma variante: "não é X — é Y", "não como X, mas como Y", "Y — e não X", "não pede X. Pede Y", "a pergunta não é X, é Y", "nunca X. Apenas Y", "não porque X. Mas porque Y". Afirme o Y diretamente, sem negar o X antes.
@@ -3024,6 +3057,7 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
     # Reset cross-section tracking for this run (module-level state)
     described_aspect_themes.clear()
     _section_aspect_audit.clear()
+    _section_suppressed.clear()
     _partial_coverage_log.clear()
 
     sections = build_sections(chart)

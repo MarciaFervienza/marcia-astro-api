@@ -88,6 +88,7 @@ _FORBIDDEN_LEXICON = [
     # São palavras portuguesas CORRETAS — em PT-PT. Nenhum corretor as
     # acusa; só uma lista explícita as pega. O relatório é pt-BR.
     (r"\bcontacto(s)?\b",   "pt_europeu", "contato(s)"),
+    (r"\bactiv(?:ar|a|ou|ando|ado|ada)\b", "pt_europeu", "ativar/ativa/ativou/ativando"),
     (r"\bcontact(ar|a|ou|ando)\b", "pt_europeu", "contatar/contata/contatou/contatando"),
     (r"\baspeto(s)?\b",     "pt_europeu", "aspecto(s)"),
     (r"\bharmónic[ao](s)?\b", "pt_europeu", "harmônico(a)"),
@@ -124,10 +125,40 @@ _FORBIDDEN_LEXICON = [
     (r"\bconnosco\b",       "pt_europeu", "conosco"),
     (r"\bregist[oa]\b",     "pt_europeu", "registro"),
     (r"\bfactor(es)?\b",    "pt_europeu", "fator(es)"),
+    # ITEM 2 — "<corpo> em <corpo>": erro astrológico grosseiro. "em" liga
+    # corpo a SIGNO ou a CASA, nunca a outro corpo. "Vênus em Lilith" (17/07).
+    (r"\b(?:Sol|Lua|Mercúrio|Vênus|Marte|Júpiter|Saturno|Urano|Netuno|"
+     r"Plutão|Quíron|Lilith|Ceres|Palas|Juno|Vesta|Ascendente|Meio-do-Céu)"
+     r"\s+em\s+"
+     r"(?:Sol|Lua|Mercúrio|Vênus|Marte|Júpiter|Saturno|Urano|Netuno|"
+     r"Plutão|Quíron|Lilith|Ceres|Palas|Juno|Vesta|Ascendente|Meio-do-Céu)\b",
+     "erro_astrologico_em_corpo",
+     "'em' liga corpo a SIGNO ou CASA, nunca a outro corpo — se é aspecto, "
+     "nomeá-lo ('Vênus em sextil com Lilith'); se é conjunção, usar 'com'"),
+    # "num-a-num" não existe em português (17/07):
+    (r"\bnum[- ]a[- ]num\b", "termo_inexistente",
+     "não existe em português — reescrever ('um a um', 'individualmente')"),
+    # "posição interior do mapa" — não existe; provável confusão com o
+    # hemisfério INFERIOR (17/07):
+    (r"\bposiç(?:ão|ões)\s+(?:mais\s+)?interior(?:es)?\s+do\s+mapa\b",
+     "erro_conceitual", "não existe 'posição interior' — se é hemisfério, é INFERIOR"),
+    # Advérbio encaixado entre "não" e o verbo — sintaxe torta (17/07):
+    (r"\bnão\s+(?:completamente|totalmente|inteiramente|plenamente|"
+     r"exatamente|realmente|necessariamente|inteiramente)\s+"
+     r"(?:antecipou|previu|percebeu|entendeu|compreendeu|reconheceu|"
+     r"assimilou|integrou|elaborou|processou)\b", "sintaxe_adverbio_encaixado",
+     "advérbio encaixado entre 'não' e o verbo — mover ('não antecipou completamente')"),
+    # Metáfora abstrata sem referente concreto (17/07): "tecido da época"
+    (r"\b(?:tecido|trama|malha|tessitura)\s+d[aoe]s?\s+"
+     r"(?:época|tempo|mundo|vida|existência|real|realidade|história)\b",
+     "metafora_sem_referente",
+     "metáfora abstrata sem referente concreto — dizer o que é, concretamente"),
     # Vocabulário rebuscado / grafia banidos pela Márcia (triagem 17/07):
     (r"\basteróide?s?\b", "grafia_pre_reforma",
      "asteroide / asteroides — sem acento desde o Acordo de 1990"),
     (r"\bequilibrio\b", "erro_acento", "equilíbrio"),
+    (r"\bcluster(s)?\b", "termo_ingles",
+     "traduzir ('aglomerado', 'agrupamento') ou reescrever"),
     (r"\bmainstream\b", "termo_ingles",
      "traduzir ('convencional', 'estabelecido') ou remover"),
     (r"\blilitian[ao]s?\b", "termo_rejeitado",
@@ -378,21 +409,49 @@ def _detect_false_no_aspect_claims(text, chart):
                 aspected.add(v.strip().lower())
     if not aspected:
         return out
-    pat = (r"\b(Sol|Lua|Mercúrio|Mercurio|Vênus|Venus|Marte|Júpiter|Jupiter|"
-           r"Saturno|Urano|Netuno|Plutão|Plutao|Quíron|Quiron|Lilith|Ceres|"
-           r"Palas|Pallas|Juno|Vesta)\b[^.!?]{0,90}?"
-           r"(não\s+(?:faz|forma|recebe|tem|possui)\s+(?:nenhum\s+)?aspecto|"
-           r"sem\s+(?:nenhum\s+)?aspecto|nenhum\s+aspecto)")
-    for m in re.finditer(pat, text, flags=re.IGNORECASE):
-        body_pt = m.group(1).lower()
-        key = _PT_BODY_TO_KEY.get(body_pt)
-        if key and key in aspected:
-            out.append({"kind": "aspecto:falsa_ausencia", "match": m.group(0)[:70],
-                        "offset": m.start(),
-                        "suggestion": (f"o texto afirma que {m.group(1)} não tem aspectos, "
-                                       f"mas a tabela deste mapa LISTA aspectos para ele. "
-                                       f"REMOVER a afirmação de ausência (ou reescrever "
-                                       f"para 'poucos aspectos', se for o caso).")})
+    # A construção de ausência tem MUITAS formas. A que passou em 17/07 foi
+    # pergunta-e-resposta: "Plutão na casa 12 tem aspectos? Nesta seção, a
+    # lista está vazia — o que significa que Plutão opera sem os canais de
+    # troca…". Três frases de interpretação sobre ausência FALSA, com a
+    # quadratura Plutão-Quíron impressa na mesma página.
+    _AUSENCIA = (
+        r"não\s+(?:faz|forma|recebe|tem|possui|estabelece)\s+(?:nenhum\s+)?aspecto|"
+        r"sem\s+(?:nenhum\s+)?aspecto|nenhum\s+aspecto|"
+        r"a\s+lista\s+(?:está|fica|aparece)\s+vazia|lista\s+vazia|"
+        r"não\s+há\s+aspectos|nenhuma\s+conex(?:ão|ões)\s+por\s+aspecto|"
+        r"ausência\s+de\s+aspectos|estão\s+ausentes|"
+        r"não\s+(?:aparece|surge|consta)\s+(?:em\s+)?nenhum\s+aspecto|"
+        r"opera\s+(?:aqui\s+)?sem\s+(?:os\s+)?canais"
+    )
+    _CORPOS = (r"Sol|Lua|Mercúrio|Mercurio|Vênus|Venus|Marte|Júpiter|Jupiter|"
+               r"Saturno|Urano|Netuno|Plutão|Plutao|Quíron|Quiron|Lilith|Ceres|"
+               r"Palas|Pallas|Juno|Vesta")
+    # POR JANELA, não por ordem. A afirmação de ausência pode vir antes ou
+    # depois do nome do corpo, e pode atravessar frases (pergunta retórica +
+    # resposta). Exigir os TRÊS elementos na mesma janela — corpo, marca de
+    # ausência e a palavra "aspecto" — evita acusar "seus pais estão
+    # ausentes", que é conteúdo legítimo.
+    JANELA = 260
+    for m in re.finditer(_AUSENCIA, text, flags=re.IGNORECASE):
+        ini_j = max(0, m.start() - JANELA)
+        janela = text[ini_j:m.end() + 60]
+        if not re.search(r"aspecto", janela, flags=re.IGNORECASE):
+            continue
+        for bm in re.finditer(rf"\b({_CORPOS})\b", janela, flags=re.IGNORECASE):
+            body_pt = bm.group(1).lower()
+            key = _PT_BODY_TO_KEY.get(body_pt)
+            if key and key in aspected:
+                trecho = janela[max(0, bm.start() - 10):].strip()
+                out.append({"kind": "aspecto:falsa_ausencia",
+                            "match": trecho[:90], "offset": ini_j + bm.start(),
+                            "suggestion": (
+                                f"o texto conclui que {bm.group(1)} não tem aspectos, mas a "
+                                f"tabela deste mapa LISTA aspectos para ele — e o leitor vê "
+                                f"essa tabela na mesma página. REMOVER a conclusão de ausência "
+                                f"e toda a interpretação construída sobre ela. Se a seção não "
+                                f"recebeu aspectos novos, é porque já foram lidos antes: "
+                                f"referencie, não negue.")})
+                break
     return out
 
 
@@ -669,6 +728,21 @@ def _detect_voice_violations(text, chart):
             out.append(("voz:pessoa_terceira_em_segunda", m.group(0), m.start(),
                         "o relatório fala com 'você' — reescrever em 2ª pessoa "
                         "('cria em você…')"))
+        # REFLEXIVO de 3ª pessoa — o vazamento de 17/07 ("há espaço para ser
+        # ela mesma" num texto em 2ª pessoa). O padrão acima só cobria
+        # verbo + nele/nela e por isso não pegou. Formas estreitas: só as
+        # que não têm leitura legítima falando com "você".
+        for pat, sug in (
+            (r"\bser\s+el[ea]\s+mesm[ao]\b",
+             "usar 'ser você mesma' / 'ser quem você é'"),
+            (r"\b(?:para|por|com)\s+el[ea]\s+mesm[ao]\b",
+             "usar 'para você mesma' ou 'para si mesma'"),
+            (r"\bel[ea]\s+mesm[ao]\s+(?:precisa|sente|busca|quer|pode|vive)\b",
+             "reescrever com 'você'"),
+        ):
+            for m in re.finditer(pat, text, flags=re.IGNORECASE):
+                out.append(("voz:pessoa_terceira_em_segunda", m.group(0), m.start(),
+                            f"texto em 2ª pessoa — {sug}"))
     return out
 
 
@@ -1506,6 +1580,11 @@ def spell_lint(report_text, chart=None, max_report=60):
 # reporta a frequência ao lado de cada palavra, para a triagem ser sobre
 # dado e não sobre a minha opinião, (c) nunca vira gate sozinho.
 RARE_PER_MILLION = 0.5      # abaixo disto = candidata a rebuscada
+# Sufixos de flexão que o corpus europeu não cobre: derivados regulares de
+# palavras comuns. Verificados contra a RAIZ — se a raiz é conhecida, a
+# flexão não é rebuscada. Também estrutural, não lista.
+_RARE_SUFIXOS = ("mente", "ção", "ções", "dade", "dades", "ismo", "ista",
+                 "istas", "vel", "veis", "oso", "osa", "osos", "osas")
 RARE_MIN_LEN = 6            # palavras curtas raramente são rebuscadas
 
 # Banidas explicitamente pela Márcia — estas SÃO reescritas.
@@ -1532,12 +1611,33 @@ def _rare_freq():
     return _RARE_FREQ
 
 
+RARE_LINT_ENABLED = False   # DESLIGADO em 17/07 — ver docstring
+
+
 def rare_word_lint(report_text, chart=None, max_report=40):
     """Palavras de baixa frequência — candidatas a rebuscadas.
+
+    DESLIGADO (17/07). Duas tentativas de torná-lo útil falharam:
+      1. whitelist do vocabulário corrente → a lista seguinte veio MAIOR
+         (69 → 78), porque o texto muda a cada geração;
+      2. ignorar enclíticos e compostos por REGRA → limpou a morfologia
+         gerativa, mas sobraram 272 palavras com 3% de sinal.
+    A causa é o corpus: o dicionário "pt" do pyspellchecker é europeu e não
+    conhece vocabulário brasileiro comum (afetivo, receptiva, decepção,
+    acadêmica, ingênuo, transitar, resiliência). Não é lacuna preenchível.
+
+    O que FUNCIONA é o léxico explícito, com a forma correta na sugestão:
+    guarecer, asteróide, equilibrio, mainstream, cluster, activar, lilitiana,
+    subvalorado — todos pegos por lista, nenhum por frequência.
+
+    A função fica para quem quiser reativar com um dicionário pt-BR de
+    verdade (hunspell tem pt_BR). `RARE_LINT_ENABLED = True` a religa.
 
     Retorna [{word, per_million, count, sample}] ordenado da mais rara para
     a menos rara. Flag-only.
     """
+    if not RARE_LINT_ENABLED:
+        return []
     freq, total = _rare_freq()
     if not total:
         return [{"error": "lista de frequência indisponível"}]
@@ -1553,9 +1653,32 @@ def rare_word_lint(report_text, chart=None, max_report=40):
         low = w.lower().strip("-'")
         if low in domain or low in proper or w[0].isupper():
             continue
+        # RUÍDO ESTRUTURAL, ignorado por REGRA e não por lista (17/07).
+        # O corpus é europeu e não tem formas GERATIVAS do português:
+        #   · enclíticos e mesóclitos — qualquer verbo + pronome forma uma
+        #     palavra nova (habitá-la, dizê-lo, articulá-los, recebê-las).
+        #     Nenhuma whitelist alcança: a primeira rodada whitelistou 64
+        #     palavras e a lista seguinte veio MAIOR (69 → 78).
+        #   · compostos com hífen (bem-estar, boa-fé, matéria-prima).
+        # Estas formas nunca são "vocabulário rebuscado" — são morfologia.
+        if "-" in low:
+            continue
         pm = 1e6 * freq.get(low, 0) / total
         if pm >= RARE_PER_MILLION:
             continue
+        # Derivado regular de palavra comum? Se a RAIZ é frequente, o
+        # derivado não é rebuscado — é morfologia que o corpus não listou
+        # ("cronicamente" de "crônico", "assertividade" de "assertivo").
+        _raiz = None
+        for suf in _RARE_SUFIXOS:
+            if low.endswith(suf) and len(low) - len(suf) >= 4:
+                _raiz = low[:-len(suf)]
+                break
+        if _raiz:
+            _cands = (_raiz, _raiz + "o", _raiz + "a", _raiz + "e",
+                      _raiz + "co", _raiz + "ca", _raiz + "vo", _raiz + "va")
+            if any(1e6 * freq.get(c, 0) / total >= RARE_PER_MILLION for c in _cands):
+                continue
         vistos[low] = vistos.get(low, 0) + 1
         if low not in amostra:
             i = m.start()
