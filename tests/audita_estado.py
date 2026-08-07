@@ -210,6 +210,10 @@ confere("19/07", "word_lint.py existe e o ESTADO o descreve",
 confere("19/07", "retry no produto, registrado e implementado",
         os.path.exists(os.path.join(RAIZ, "retry_util.py"))
         and "### Retry no produto" in ESTADO)
+confere("19/07", "8 formas de negação-substituição (varredura das 22 reais)",
+        len(getattr(tv, "_NEGACAO_FORMAS", [])) == 8
+        and "VARREDURA DE FORMAS" in TV,
+        f"_NEGACAO_FORMAS tem {len(getattr(tv, '_NEGACAO_FORMAS', []))}")
 confere("19/07", "graceful-timeout no start command (502)",
         "--graceful-timeout" in fonte("Procfile")
         and "--graceful-timeout" in fonte("railway.json"))

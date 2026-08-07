@@ -430,6 +430,46 @@ as grafias brasileiras.
 regra lexical alcança. Registrado como NÃO COBERTO; é o caso da passada de
 revisão de língua.
 
+### Negação-substituição — varredura de formas sobre as 22 reais
+A Márcia mediu: dos ~22 casos genuínos do inventário do GPT, os padrões
+antigos pegavam **~35%**. E o meu instrumento de MEDIÇÃO tinha o MESMO viés
+do detector — achei 5 das 22 e reportei "70% de cobertura", número
+produzido pelo próprio viés. Por isso a enumeração saiu das 22 FRASES
+REAIS, não do que os padrões conseguem enxergar.
+
+**A cegueira não era o travessão.** A forma dominante é a INVERTIDA —
+afirmação primeiro, negação depois ("como ferramenta, não como filtro") —
+**8 das 22**, e não havia NENHUMA cobertura dela. Separador: 18 vírgula,
+1 travessão, 2 ponto.
+
+| forma | exemplo | nº no corpus |
+|---|---|---|
+| A `não X, mas Y` | "não por falta de clareza, mas por" | 9 |
+| B `X, não Y` **(invertida)** | "como ferramenta, não como filtro" | 10 |
+| C `não porque X, mas porque Y` | "não porque você as nega, mas porque" | 2 |
+| D `não V X. V Y` | "não pede… Pede que você se conheça" | 1 |
+| E `não V X, V Y` | "não vem de fora para dentro, vem" | 1 |
+| F `não V X — V Y` | "não ficam do lado de fora — entram" | 3 |
+| G `X em vez de Y` | "alimenta em vez de drenar" | 6 |
+| H `não X, não Y. É Z` | "não era leve, não era superficial. Era" | 1 |
+
+**Medido:** 22/22 das reais acendem; 12/12 dos contrastes comuns ficam
+limpos. No corpus entregue: 33 ocorrências onde antes se via **zero**.
+
+Dois defeitos aparecidos na construção, ambos de padrão ANTIGO:
+- `y_e_nao_x` acusava negação COORDENADA ("não pede permissão, e não há
+  nada de errado") — língua normal, não substituição;
+- e ele resistia a duas correções porque o match **começava no próprio
+  "não"**: a lookahead negativa só valia do 2º caractere em diante, e a
+  checagem de oração lia um trecho vazio. Corrigido com a lookahead
+  ancorada no início.
+
+**Limite de escopo (Márcia, 19/07):** esta é a última rodada de estilo
+antes dos testers. Os factuais estão fechados. Negação-substituição é
+estilo e é gerativa — se cair de novo, é bom o suficiente para dez
+testers. O teste existe para saber se as pessoas gostam do relatório e
+pagariam por ele, não para validar métrica de prosa.
+
 ### Detectores reescritos por FORMA, não por exemplo
 Três no mesmo dia, todos pela mesma causa — o detector cobria a frase que o
 motivou e não a classe:

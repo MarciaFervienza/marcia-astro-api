@@ -833,6 +833,68 @@ def detect_crutch_words(report_text):
 # ============================================================
 # Alguns padrões são frouxos por design — o "é" ou "mas" completa a estrutura.
 # Todos foram calibrados pra evitar match em construções legítimas.
+# ============================================================
+# NEGAÇÃO-SUBSTITUIÇÃO — VARREDURA DE FORMAS (19/07)
+# ============================================================
+# A Márcia mediu: das 22 ocorrências genuínas do inventário do GPT, os
+# padrões antigos pegavam ~35%. E o meu instrumento de MEDIÇÃO tinha o
+# mesmo viés do detector — achei 5 das 22 e reportei "70% de cobertura",
+# número produzido pelo próprio viés. Por isso a enumeração abaixo saiu das
+# 22 FRASES REAIS, não do que os padrões conseguem enxergar.
+#
+# A cegueira NÃO era só o travessão. A forma dominante é a INVERTIDA —
+# afirmação primeiro, negação depois ("como ferramenta, não como filtro") —
+# 8 das 22, e não havia NENHUMA cobertura dela. Separador: 18 das 22 usam
+# vírgula, 1 travessão, 2 ponto.
+#
+# Oito formas, cada uma com separador variável:
+#   A  não X, mas Y                    (9 no corpus)
+#   B  X, não Y   ← a invertida        (10)
+#   C  não porque X, mas porque Y      (2)
+#   D  não V X. V Y                    (1)
+#   E  não V X, V Y                    (1)
+#   F  não V X — V Y                   (3)
+#   G  X em vez de Y                   (6)
+#   H  não X, não Y. É Z               (1)
+#
+# Medição: 22/22 das reais acendem; 12/12 dos contrastes comuns ficam
+# limpos ("X, mas Y", "tensão entre X e Y", "quando X e quando Y",
+# comparativos). No corpus dos dois relatórios: 33 ocorrências.
+_NS_SEP = r"[,;]|\s[—–]"
+_NS_NEG = r"(?:não|nao|nunca|jamais)"
+_NS_ADV = r"(?:mas|porém|porem|contudo|todavia|e\s+sim|senão|senao)"
+_NS_INT = r"(?:apenas|só|so|somente|necessariamente|exatamente|propriamente)"
+
+_NEGACAO_FORMAS = [
+    (rf"\b{_NS_NEG}\s+porque\b[^.;:!?]{{2,90}}?(?:{_NS_SEP})\s*{_NS_ADV}\s+porque\b",
+     "forma_C_nao_porque_mas_porque"),
+    (rf"\b{_NS_NEG}\s+(?:{_NS_INT}\s+)?[^.;:!?]{{2,90}}?(?:{_NS_SEP})\s*{_NS_ADV}\b",
+     "forma_A_nao_x_mas_y"),
+    (rf"\b{_NS_NEG}\s+(?:era|é|e|foi|seria)\s+[^.;:!?]{{2,50}}?,\s*"
+     rf"{_NS_NEG}\s+(?:era|é|e|foi)\b", "forma_H_dupla_negacao"),
+    (rf"\b{_NS_NEG}\s+(\w{{3,}})\b[^.!?]{{2,90}}?\.\s*\1\b",
+     "forma_D_verbo_repetido_ponto"),
+    # F exige VERBO contrastante sem sujeito depois do travessão. Sem a
+    # exclusão, pegava qualquer negação seguida de travessão ("não são
+    # fixos — cada um…"): 13 ocorrências no corpus, quase todas continuação.
+    (rf"\b{_NS_NEG}\s+\w{{3,}}\b[^.;:!?]{{2,90}}?\s[—–]\s*"
+     rf"(?!e\b|mas\b|ou\b|que\b|porque\b|se\b|quando\b|como\b|onde\b|"
+     rf"[oa]s?\b|um\b|uma\b|para\b|por\b|com\b|de\b|em\b|isso\b|"
+     rf"ele\b|ela\b|você\b|é\b|há\b|no\b|na\b|ao\b|à\b|até\b|já\b|"
+     rf"talvez\b|nem\b|sem\b|antes\b|depois\b|aquilo\b|esse\b|essa\b)"
+     rf"\w+(?:a|e|am|em|ou|iu|ia|va|ram|rem)\b", "forma_F_verbo_travessao"),
+    (rf"\b{_NS_NEG}\s+(\w{{3,}})\b[^.;:!?]{{2,90}}?,\s*\1\b",
+     "forma_E_verbo_repetido_virgula"),
+    (r"\b(?:em\s+vez\s+d[eoa]|ao\s+invés\s+d[eoa])\b", "forma_G_em_vez_de"),
+    # B — a INVERTIDA. A negação tem de vir colada no separador, senão é
+    # oração nova. Exclui tag de fala ("…, não sei", "…, não é?").
+    (rf"(?:{_NS_SEP})\s*{_NS_NEG}\s+(?:{_NS_INT}\s+)?"
+     rf"(?!sei\b|é\?|e\?|vou\b|posso\b|dá\b|há\b|tem\b)"
+     rf"(?:[oa]s?|um|uma|uns|umas|n[oa]s?|d[oa]s?|ao?s?|como|para|por|"
+     rf"pel[oa]s?|que|se|te|lhe|me|apenas|só|sempre|\w+ndo|\w+r)\b",
+     "forma_B_invertida"),
+]
+
 _NEGATION_SUBSTITUTION_PATTERNS = [
     # "não é X, é Y" / "não é X. É Y"
     (r"\bnão\s+é\s+[^.,;:!?]{1,60}[,.]\s*[éÉ]\b", "nao_e_x_e_y"),
@@ -849,14 +911,19 @@ _NEGATION_SUBSTITUTION_PATTERNS = [
     # "isso não significa X, significa Y"
     (r"\bnão\s+significa\s+[^.,;:!?]{1,60},?\s*significa\b", "nao_significa_significa"),
     # "Y, e não X"
-    (r"[^.,;:!?]{5,60},\s+e\s+não\s+[a-záéíóúãõçâêôà]", "y_e_nao_x"),
+    # A oração ANTES do "e não" tem de ser AFIRMATIVA. Sem isso, "não pede
+    # permissão, e não há nada de errado nisso" — negação COORDENADA, língua
+    # normal — era acusada como negação-substituição (19/07).
+    (r"\b(?![Nn]ão\b)\w(?:(?![Nn]ão\b)[^.,;:!?]){4,59},\s+e\s+não\s+"
+     r"[a-záéíóúãõçâêôà]", "y_e_nao_x"),
     # ---- variantes do inventário 17/07 (balde 1: nega E substitui) ----
     # "não é X — é Y" / "não são X — são Y" / "não é X; é Y"
     (r"\bnão\s+(?:é|são)\s+[^.,;:!?]{1,60}[;—–]\s*(?:é|são)\b", "nao_e_x_e_y_pausa"),
     # "não como X, mas como Y"
     (r"\bnão\s+como\s+[^.,;:!?]{1,50},?\s*mas\s+como\b", "nao_como_x_mas_como_y"),
     # "Y — e não X" (a variante com travessão da y_e_nao_x)
-    (r"[^.;:!?]{5,60}\s+[—–]\s*e\s+não\s+[a-záéíóúãõçâêôà]", "y_travessao_e_nao_x"),
+    (r"\b(?![Nn]ão\b)\w(?:(?![Nn]ão\b)[^.;:!?]){4,59}\s+[—–]\s*e\s+não\s+"
+     r"[a-záéíóúãõçâêôà]", "y_travessao_e_nao_x"),
     # "— e não apenas X"
     (r"\be\s+não\s+apenas\s+[a-záéíóúãõçâêôà]", "e_nao_apenas_x"),
     # "não X; ao contrário, Y"
@@ -1488,8 +1555,27 @@ def _detectar_tudo(text, chart):
 
     # 2b — negação-substituição
     try:
-        for pat, cat in _NEGATION_SUBSTITUTION_PATTERNS:
+        # As formas se SOBREPÕEM por construção (a mesma frase casa em A e
+        # em B). Sem dedupe o reescritor recebia a mesma instrução duas
+        # vezes para o mesmo trecho.
+        _neg_pos = []
+        for pat, cat in (_NEGACAO_FORMAS + _NEGATION_SUBSTITUTION_PATTERNS):
             for m in re.finditer(pat, scan_text, flags=re.IGNORECASE):
+                # "X, e não Y" só é SUBSTITUIÇÃO se X for afirmativo. Em
+                # "não pede permissão, e não há nada de errado" a oração já
+                # é negativa: negação COORDENADA, língua normal. O regex
+                # sozinho não resolve — ele desliza e começa a casar DEPOIS
+                # do "não", e lookbehind em Python é de largura fixa. Aqui a
+                # oração inteira é conferida.
+                if cat in ("y_e_nao_x", "y_travessao_e_nao_x"):
+                    _ini = max(scan_text.rfind(c, 0, m.start())
+                               for c in ".;:!?\n") + 1
+                    if re.search(r"\bn[ãa]o\b", scan_text[_ini:m.start()],
+                                 flags=re.IGNORECASE):
+                        continue
+                if any(abs(m.start() - p) < 40 for p in _neg_pos):
+                    continue
+                _neg_pos.append(m.start())
                 _add(f"neg_subst:{cat}", m.group(0), m.start(),
                      "reescrever a frase afirmando diretamente, sem passar por 'não X'")
     except Exception as e:
