@@ -135,6 +135,31 @@ _FORBIDDEN_LEXICON = [
      "erro_astrologico_em_corpo",
      "'em' liga corpo a SIGNO ou CASA, nunca a outro corpo — se é aspecto, "
      "nomeá-lo ('Vênus em sextil com Lilith'); se é conjunção, usar 'com'"),
+    # --- achados da leitura de cliente, 18/07 ---
+    (r"\bariando\b", "termo_inventado",
+     "palavra inventada — reescrever ('em Áries', 'com qualidade ariana')"),
+    (r"\babrí-l[oa]s?\b", "erro_acento", "abri-lo / abri-la (sem acento)"),
+    (r"\bperforma(?:r|ndo|tiv[ao]s?|tic[ao]s?)\b", "termo_ingles",
+     "anglicismo — 'atuar', 'desempenhar', 'representar'"),
+    (r"\bperformances?\b", "termo_ingles",
+     "anglicismo — 'desempenho', 'atuação'"),
+    (r"\binsights?\b", "termo_ingles",
+     "anglicismo — 'percepção', 'compreensão', 'estalo'"),
+    (r"\besse\s+endereço\s+fala\b|\bo\s+endereço\s+fala\b",
+     "termo_rejeitado", "'endereço' não é termo astrológico — usar 'posicionamento'"),
+    # Gramática pontual (frases REAIS, 18/07 — nunca mais verbatim):
+    (r"\bum[ao]\s+calor\s+humano\b", "concordancia",
+     "'calor' é masculino — 'um calor humano'"),
+    (r"\bvocê\s+tem\s+para\s+o\s+outro\b", "sintaxe",
+     "falta o objeto — 'o que você tem para oferecer ao outro'"),
+    (r"\braramente\s+deixava\s+de\s+sentir\s+como\b", "sintaxe",
+     "dupla negação embaralha o sentido — reescrever afirmativamente"),
+    (r"\ba\s+gente\s+precisa\s+brilhar\b", "registro_pessoa",
+     "'a gente' quebra a 2ª pessoa — reescrever com 'você'"),
+    (r"\bque\s+individualize\b", "modo_verbal",
+     "subjuntivo indevido — 'o que individualiza'"),
+    (r"\bmapa\s+emocional\s+mais\s+antigo\s+que\s+você\s+carrega\b",
+     "frase_vazia", "não diz nada concreto — nomear o que é, de fato"),
     # "num-a-num" não existe em português (17/07):
     (r"\bnum[- ]a[- ]num\b", "termo_inexistente",
      "não existe em português — reescrever ('um a um', 'individualmente')"),
@@ -476,6 +501,29 @@ def _detect_clitic_third_person(text, voice):
                     "offset": m.start(),
                     "suggestion": ("o relatório usa 'te' como pronome de 2ª pessoa — "
                                    f"trocar por 'te {m.group(2)}'.")})
+    return out
+
+
+def _detect_third_person_leak(text, voice):
+    """Item 5 (18/07): "ser ela mesma" num texto de 2ª pessoa.
+
+    Passou pelos dois detectores existentes — o de clítico só olha
+    'o que a move', e o léxico não tinha entrada. Aqui: 'ela mesma' /
+    'ele mesmo' / 'ela própria' com um 'você' por perto (60 caracteres)
+    é vazamento. A janela evita acusar referência legítima a substantivo
+    feminino ('a Lua… ela mesma'), que existe sem 'você' ao lado.
+    """
+    out = []
+    if (voice or {}).get("person") == "terceira":
+        return out
+    for m in re.finditer(r"\b(?:ela|ele)\s+(?:mesm[ao]|própri[ao])\b",
+                         text, flags=re.IGNORECASE):
+        janela = text[max(0, m.start() - 60):m.start()]
+        if re.search(r"\bvocê\b|\bseu\b|\bsua\b", janela, flags=re.IGNORECASE):
+            out.append({"kind": "registro:vazamento_terceira", "match": m.group(0),
+                        "offset": m.start(),
+                        "suggestion": ("o relatório fala com 'você' — trocar por "
+                                       "'você mesma' / 'você mesmo'")})
     return out
 
 
@@ -1285,6 +1333,8 @@ def run_verifier(text, chart, call_claude_fn):
         logger.warning("verifier falsa_ausencia failed: %s", e)
     try:
         for v in _detect_clitic_third_person(scan_text, (chart or {}).get("_voice")):
+            _add(v["kind"], v["match"], v["offset"], v["suggestion"])
+        for v in _detect_third_person_leak(scan_text, (chart or {}).get("_voice")):
             _add(v["kind"], v["match"], v["offset"], v["suggestion"])
     except Exception as e:
         logger.warning("verifier clitico failed: %s", e)

@@ -372,6 +372,15 @@ def aspects_for_section_filtered(section_name: str, chart: dict, exclude_describ
     if section_name in OWNER_SECTIONS:
         exclude_described = False
 
+    # DESEMPATE (18/07): um aspecto entre dois corpos tem DUAS seções donas
+    # (Plutão-Quíron pertence a Plutão e a Quíron). Sem desempate, as duas
+    # descreveriam por inteiro — a duplicação que a correção da dedup criou.
+    # Regra: quem CHEGA PRIMEIRO descreve, quem vem depois referencia. O dado
+    # nunca é removido, só rotulado — é isso que impede a conclusão de
+    # ausência sem reintroduzir a repetição.
+    for _a in filtered:
+        _a["_ja_descrito"] = _aspect_dedup_key(_a) in described_aspect_themes
+
     if exclude_described:
         _antes = filtered
         filtered = [a for a in filtered if _aspect_dedup_key(a) not in described_aspect_themes]
@@ -395,6 +404,25 @@ def fmt_filtered_aspects(filtered_aspects: list, section_name: str = None) -> st
     os dele já foram lidos noutra seção. Quando há suprimidos, eles são
     NOMEADOS aqui, com proibição explícita de concluir ausência.
     """
+    def _rot(a):
+        return (f"{a['_pa_pt']}-{a['_pb_pt']} ({a['type_pt']}, "
+                f"orbe {a['orb']:.1f}°, T{a['_combined_tier']})")
+
+    if filtered_aspects:
+        novos = [a for a in filtered_aspects if not a.get("_ja_descrito")]
+        velhos = [a for a in filtered_aspects if a.get("_ja_descrito")]
+        blocos = []
+        if novos:
+            blocos.append("DESCREVA POR INTEIRO (primeira vez no relatório): "
+                          + "; ".join(_rot(a) for a in novos))
+        if velhos:
+            blocos.append(
+                "JÁ DESCRITOS noutra seção — aqui só REFERENCIE em no máximo "
+                "uma frase, sem redesenvolver o significado: "
+                + "; ".join(_rot(a) for a in velhos)
+                + ". ATENÇÃO: eles EXISTEM neste mapa — nunca diga que este "
+                  "corpo não tem aspectos.")
+        return "\n".join(blocos)
     if not filtered_aspects:
         sup = _section_suppressed.get(section_name or "", [])
         if sup:
@@ -1436,7 +1464,7 @@ def build_sections(chart):
         # (iii) hora desconhecida COM ingresso — usa APENAS aspectos, signo é indeterminado
         {
             "name": "lua",
-            "title": "Lua: suas raízes emocionais",
+            "title": "Lua: seu mundo emocional",
             "queries": (
                 # Quando o signo da Lua é INDETERMINADO (ingress no dia), buscamos
                 # material por AFECTOS, sem âncora em signo — os aspectos são o
