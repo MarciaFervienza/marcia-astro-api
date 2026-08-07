@@ -1751,6 +1751,28 @@ def _detect_house_inconsistency(text, chart):
     if not pontos:
         return out
     vistos = {}
+    # CORPO NA FRONTEIRA (regra dos 5°, reconciliado 19/07).
+    #
+    # `fmt_position` MANDA o texto nomear as duas casas: "na fronteira entre
+    # a casa 7 e a casa 8, com mais força na 8" — porque a mandala desenha na
+    # geométrica e a leitura é na seguinte. Este detector tomava só
+    # `house_geometric` como verdade, então acusava a frase que o próprio
+    # prompt exigiu: casa_errada pela 8, casa_inconsistente por citar as duas.
+    # A sugestão mandava colapsar para a 7, o reescritor obedecia, e a
+    # fronteira — que existe justamente para o leitor não ver contradição
+    # entre texto e mandala — era destruída. Para esses corpos, AS DUAS
+    # casas são verdadeiras.
+    _moves = {m.get("planet"): m
+              for m in ((chart or {}).get("_house_moves") or [])}
+
+    def _casas_ok(key, real):
+        _s = {real}
+        _mv = _moves.get(key)
+        if _mv:
+            _s |= {_mv.get("from_house"), _mv.get("to_house")}
+        _s.discard(None)
+        return _s
+
     # LIGAÇÃO PELO CORPO MAIS PRÓXIMO (corrigido 18/07).
     # A primeira versão casava `(corpo) … casa N` e pegava o PRIMEIRO nome do
     # trecho: em "Saturno acompanha Plutão em Capricórnio na casa 4" ela
@@ -1777,7 +1799,7 @@ def _detect_house_inconsistency(text, chart):
         real = pontos[key].get("house_geometric") or pontos[key].get("house")
         _trecho = janela[ult.start():] + m.group(0)
         vistos.setdefault(key, []).append((casa, m.start(), _trecho))
-        if real and casa != real:
+        if real and casa not in _casas_ok(key, real):
             out.append({"kind": "fato:casa_errada", "match": _trecho[:60],
                         "offset": m.start(),
                         "suggestion": (f"o texto diz casa {casa} para {nome}, "
@@ -1787,6 +1809,8 @@ def _detect_house_inconsistency(text, chart):
         casas = {c for c, _, _ in itens}
         if len(casas) > 1:
             real = pontos[key].get("house_geometric") or pontos[key].get("house")
+            if casas <= _casas_ok(key, real) and key in _moves:
+                continue          # é a fronteira que o prompt pediu, não contradição
             nome_pt = itens[0][2]
             # A SUGESTÃO PRECISA DIZER QUAL É A CERTA (18/07).
             # A primeira versão dizia só "atribui mais de uma casa ([4, 5]) —
@@ -2030,8 +2054,19 @@ def _detect_angle_claims(text, chart):
     for regex, (chave, casa_num) in ANG.items():
         # forma 1: nome do ângulo
         pat1 = rf"{SOBRE}(?:{regex})"
-        # forma 2: "cúspide da casa N" com o N do ângulo
-        pat2 = rf"{SOBRE}casa\s+{casa_num}\b"
+        # forma 2: "cúspide da casa N" com o N do ângulo.
+        #
+        # "na casa 7" NÃO é conjunção ao Descendente (19/07) — é a maneira
+        # ordinária de dizer que o corpo está DENTRO da casa 7. Enquanto
+        # `n[ao]s?` entrava aqui, "Netuno em Peixes está na casa 7" era lido
+        # como "Netuno sobre a cúspide da casa 7" e acusado por divergência
+        # de signo. Para a forma "casa N" a conjunção precisa ser explícita:
+        # ou a palavra "cúspide", ou uma preposição que só significa
+        # conjunção ("sobre", "junto à", "colado à"…) — nunca "na".
+        _CONJ = (r"sobre|junto\s+[àa]o?|colad[ao]\s+[àa]o?|conjunt[ao]\s+[àa]o?|"
+                 r"em\s+conjunção\s+com|encostad[ao]\s+[àa]o?")
+        pat2 = (rf"(?:(?:n[ao]s?|{_CONJ})\s+(?:[oa]s?\s+)?cúspide\s+d[oa]\s+"
+                rf"|(?:{_CONJ})\s+(?:[oa]s?\s+)?)casa\s+{casa_num}\b")
         for pat in (pat1, pat2):
             for m in re.finditer(pat, text, flags=re.IGNORECASE):
                 nome, trecho = _corpo_mais_proximo_antes(text, m.start())

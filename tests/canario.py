@@ -26,11 +26,25 @@ H = build_chart(HELENA)
 L = build_chart(LUCCA)
 
 # (nome da classe, chamada, frase-canário) — cada uma DEVE acender
+
+# Chart com um corpo na FRONTEIRA (regra dos 5°): Netuno geométrico na 7,
+# lido na 8. `fmt_position` MANDA o texto nomear as duas casas — os
+# detectores de casa precisam aceitar ambas, e não colapsar para uma.
+import copy as _copy
+FRONT = _copy.deepcopy(H)
+FRONT["points"]["neptune"] = {"sign": "pisces", "sign_pt": "Peixes",
+                              "degrees": 1.0, "house": 8, "house_geometric": 7}
+FRONT["_house_moves"] = [{"planet": "neptune", "from_house": 7,
+                          "to_house": 8, "gap_to_cusp": 1.2}]
+
 CANARIOS = [
     # ---- detectores factuais (chart) ----
     ("casa errada / inconsistente",
      lambda t: tv._detect_house_inconsistency(t, L),
      "Quíron conversa com Plutão em Capricórnio na casa 9."),
+    ("fronteira não é salvo-conduto: casa fora do par ainda é erro",
+     lambda t: tv._detect_house_inconsistency(t, FRONT),
+     "Netuno em Peixes está na casa 5, onde encontra o brilho."),
     ("ângulo afirmado errado",
      lambda t: tv._detect_angle_claims(t, L),
      "Mercúrio circula enquanto Vênus se firma, na cúspide do meio do céu."),
@@ -162,6 +176,20 @@ _LEX_CANARIOS = {
 # Frases que NÃO podem acender — falso positivo é tão grave quanto detector
 # morto: gasta reescrita em texto correto e pode corrompê-lo.
 NEGATIVOS = [
+    # --- 19/07: a fronteira que o próprio prompt exige não pode ser acusada.
+    ("fronteira: as duas casas nomeadas, como o prompt manda",
+     lambda t: tv._detect_house_inconsistency(t, FRONT),
+     "Netuno em Peixes está na fronteira entre a casa 7 e a casa 8, "
+     "com mais força na 8."),
+    ("fronteira: só a casa de leitura",
+     lambda t: tv._detect_house_inconsistency(t, FRONT),
+     "Netuno em Peixes está na casa 8."),
+    ("'na casa 7' não é conjunção ao Descendente",
+     lambda t: tv._detect_angle_claims(t, FRONT),
+     "Netuno em Peixes está na casa 7."),
+    ("'na casa 10' não é conjunção ao meio do céu",
+     lambda t: tv._detect_angle_claims(t, H),
+     "Vênus está na casa 10 e organiza a cena."),
     # --- 19/07: as três frases CORRETAS da Helena que os detectores acusavam.
     ("par hifenizado encadeado (Vênus-Quíron / Saturno-Quíron)",
      lambda t: tv._detect_asserted_aspect(t, H),
