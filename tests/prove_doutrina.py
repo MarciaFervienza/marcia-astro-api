@@ -60,8 +60,20 @@ chk("virginiana (correto)", tv._detect_sign_adjectives("A energia virginiana org
 
 print("\n--- item 13: lint de muleta ---")
 doc = "# R\n\n## Seção X\n\n" + "Há uma dificuldade real e um ganho real, com valor real, de forma real e efeito real. " * 1
-chk("'real' 5x numa seção (limite 4)", rg.detect_crutch_words(doc) if hasattr(rg,'detect_crutch_words') else tv.detect_crutch_words(doc))
-chk("'real' 2x (dentro do limite)", tv.detect_crutch_words("# R\n\n## S\n\nUm ganho real e um risco real."), False)
+# CONCENTRAÇÃO: acima do limiar dentro de uma seção
+_c1 = tv.detect_crutch_words(doc)
+chk("'real' 5x numa seção (limiar 4)", _c1["por_secao"])
+# DISPERSÃO: abaixo do limiar por seção, acima no documento — o caso real
+# que a Márcia ouviu ("exatamente" 13x, ~3 por seção)
+_disperso = "# R\n" + "".join(
+    f"\n## Seção {i}\n\nUm ganho real, uma dificuldade real e um valor real.\n"
+    for i in range(1, 11))
+_c2 = tv.detect_crutch_words(_disperso)
+chk("dispersa: 3x por seção NÃO dispara por_secao", _c2["por_secao"], False)
+chk("dispersa: 30x no documento DISPARA documento", _c2["documento"])
+chk("totais reportam mesmo abaixo do limiar", [_c2["totais"]] if _c2["totais"] else [])
+chk("'real' 2x (dentro dos dois limiares)",
+    tv.detect_crutch_words("# R\n\n## S\n\nUm ganho real e um risco real.")["por_secao"], False)
 
 print("\n--- spell_lint x glossário: divisão de trabalho ---")
 sl = [x["word"] for x in tv.spell_lint("# R\n\n## S\n\nO signo mutable e o orgullo saturina, e a leitura virgiliana.", {}) if "word" in x]
