@@ -124,6 +124,16 @@ _FORBIDDEN_LEXICON = [
     (r"\bconnosco\b",       "pt_europeu", "conosco"),
     (r"\bregist[oa]\b",     "pt_europeu", "registro"),
     (r"\bfactor(es)?\b",    "pt_europeu", "fator(es)"),
+    # Vocabulário rebuscado / grafia banidos pela Márcia (triagem 17/07):
+    (r"\basteróide?s?\b", "grafia_pre_reforma",
+     "asteroide / asteroides — sem acento desde o Acordo de 1990"),
+    (r"\bequilibrio\b", "erro_acento", "equilíbrio"),
+    (r"\bmainstream\b", "termo_ingles",
+     "traduzir ('convencional', 'estabelecido') ou remover"),
+    (r"\blilitian[ao]s?\b", "termo_rejeitado",
+     "neologismo que a Márcia não usa — dizer 'a energia de Lilith'"),
+    (r"\bsubvalorad[ao]s?\b", "termo_rejeitado",
+     "não é palavra corrente — usar 'subestimado' ou 'desvalorizado'"),
     # Vocabulário rebuscado banido pela Márcia (ver rare_word_lint):
     (r"\bguarec(?:er|e|em|ia|eu|endo|ido|ida)\b", "vocabulario_rebuscado",
      "palavra que ninguém usaria falando — trocar por 'abrigar', 'proteger', 'acolher'"),
@@ -1501,6 +1511,8 @@ RARE_MIN_LEN = 6            # palavras curtas raramente são rebuscadas
 # Banidas explicitamente pela Márcia — estas SÃO reescritas.
 _RARE_BANNED = {
     "guarecer": "abrigar / proteger",
+    "lilitiana": "a energia de Lilith",
+    "subvalorado": "subestimado / desvalorizado",
 }
 
 _RARE_FREQ = None

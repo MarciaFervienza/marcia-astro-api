@@ -1535,13 +1535,20 @@ def build_sections(chart):
                 "merecimento (ou de falta dele), a relação com limite, disciplina e responsabilidade, "
                 "o medo estrutural, e onde a estrutura psíquica se forma pela contenção.\n\n"
 
-                "DONO DA LEITURA (anti-repetição, 17/07): esta seção é a DONA da leitura da função "
-                "de autoridade/estrutura parental — aqui ela ganha profundidade plena: signo, casa "
-                "(quando disponível), aspectos reais deste mapa e a interação Sol–Saturno. Mas a "
-                "identidade solar em si já foi lida na tríade, e o Saturno ADULTO (a área da vida "
-                "onde o limite opera hoje) pertence à seção própria de Saturno: não refaça essas "
-                "leituras — referencie em uma frase quando precisar delas e mantenha o foco no "
-                "eixo parental.\n\n"
+                "DONO DA LEITURA (anti-repetição, reforçado 17/07): esta seção é a DONA da "
+                "função de autoridade/estrutura parental — aqui ela ganha profundidade plena: "
+                "signo, casa, aspectos reais e a interação Sol–Saturno.\n"
+                "MAS O EIXO SOL NÃO É SEU. A leitura do Sol (signo, casa, o que essa identidade "
+                "busca) pertence à TRÍADE e já foi feita. É PROIBIDO reabrir a frase de "
+                "apresentação do Sol aqui — nada de 'o Sol em <signo> na casa <N> fala de "
+                "alguém que…'. Se você precisa do Sol, REFERENCIE em meia frase e siga: "
+                "'esse mesmo Sol que busca pertencer encontra, em Saturno, …'. O que é seu é a "
+                "INTERAÇÃO, não a apresentação.\n"
+                "O Saturno ADULTO (a área da vida onde o limite opera hoje) pertence à seção "
+                "própria de Saturno — mesma regra.\n"
+                "Verificação antes de entregar: se alguma frase sua sobre o Sol poderia ser "
+                "colada na Tríade sem ninguém notar, ela está no lugar errado — reescreva "
+                "ancorando na relação com Saturno.\n\n"
 
                 "PERMISSÃO DE NOMEAÇÃO (decisão da Márcia, 17/07 — SUBSTITUI a regra anterior de nunca nomear): as regras de não-nomear deixaram o texto impessoal. Você PODE nomear a figura, desde que com HIPÓTESE, nunca como afirmação biográfica — você não conhece a biografia desta pessoa; o mapa mostra função e intensidade.\n- Lua: 'mãe', 'cuidador primário', 'quem exerceu a função materna na infância'.\n- Sol: 'figura parental masculina', 'quem espelhou como se posicionar no mundo'.\n- Saturno: 'a referência de autoridade aprendida na infância'.\nCOMO NOMEAR: sempre com o hedge que a Márcia já usa — 'quem exerceu a função de…', 'provavelmente', 'é possível que', 'costuma indicar'. Escreva 'sua mãe, ou quem exerceu essa função, provavelmente…' e NUNCA 'sua mãe era…' como fato estabelecido. A estrutura de clusters NÃO muda: Sol e Saturno seguem no cluster paterno (C1), a Lua no materno (C2).\n\n"
 
@@ -1897,7 +1904,7 @@ REGISTRO — CONVERSA CULTA, NÃO ENSAIO LITERÁRIO:
 Prefira sempre a palavra CORRENTE à rebuscada. A régua: se você não usaria a palavra FALANDO com a pessoa, não escreva. "Abrigar" no lugar de "guarecer"; "esfriar" ou "arrefecer" (esta é corrente) conforme o ritmo da frase. Palavra elevada mas de uso comum — arrefecer, vínculo, acolhimento, pertencimento — é bem-vinda; palavra que obriga o leitor a parar e buscar o significado, não. O texto é uma conversa culta, não um exercício de estilo.
 
 VARIEDADE VOCABULAR:
-Não repita a mesma palavra de ênfase ao longo de uma seção. "real/realmente" virou muleta — use no máximo duas vezes por seção e alterne com formulações que dispensem o reforço (em vez de "uma dificuldade real", diga qual é a dificuldade). O mesmo vale para "genuíno", "profundo", "exatamente", "concreto": se você precisou do adjetivo de ênfase, provavelmente a frase abaixo dele está vaga — reescreva a frase em vez de reforçá-la.
+Não repita a mesma palavra de ênfase ao longo de uma seção. "real/realmente" e "exatamente" são as muletas medidas neste projeto — "exatamente" apareceu 13 vezes num relatório e 10 noutro, sempre disperso (2 a 3 por seção, nunca concentrado). Use cada uma no MÁXIMO duas vezes por seção E no máximo oito no relatório inteiro. O mesmo vale para "genuíno", "profundo", "concreto", "específico". Se você precisou do advérbio ou do adjetivo de ênfase, a frase abaixo dele está vaga — reescreva a frase em vez de reforçá-la. ATENÇÃO: a muleta MIGRA a cada rodada — quando uma é contida, outra ocupa o lugar. Não troque "real" por "exatamente" nem "exatamente" por "precisamente": afirme sem o reforço.
 
 DENSIDADE DE CONTRASTE:
 A estrutura antitética — "tensão entre X e Y", "distinguir X de Y", "mais X do que Y", "quando X e quando Y", "X, mas Y" — é ferramenta legítima, mas em excesso vira tique que o leitor passa a ouvir. Máximo DOIS pivôs antitéticos por seção, nunca dois com a mesma forma. No resto, afirme diretamente: descreva o que É, sem armar o par de opostos. NUNCA use a família negação-substituição em nenhuma variante: "não é X — é Y", "não como X, mas como Y", "Y — e não X", "não pede X. Pede Y", "a pergunta não é X, é Y", "nunca X. Apenas Y", "não porque X. Mas porque Y". Afirme o Y diretamente, sem negar o X antes.
