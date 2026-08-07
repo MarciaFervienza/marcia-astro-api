@@ -510,10 +510,29 @@ def _detect_sign_as_generational_agent(text):
                 "transpessoal em signo, ou remover a moldura coletiva")
         if alvo is None:
             continue
+        # A INSTRUÇÃO PRECISA NOMEAR O TEXTO REAL (19/07). O motivo fixo
+        # dizia "Trocar 'geração' por 'coorte'". Na Helena a palavra presente
+        # era "geracional" (adjetivo) e a frase JÁ dizia "coorte" na oração
+        # seguinte: "esse Saturno carrega algo GERACIONAL: toda uma COORTE
+        # nasceu…". A instrução não descrevia o texto, o reescritor não achou
+        # o que trocar, falhou duas vezes e a violação ficou. Terceira vez
+        # que instrução genérica quebra a reescrita — agora ela cita o
+        # trecho exato e trata o adjetivo à parte do substantivo.
+        _pal = alvo.group(0)
+        _adj = _pal.lower().startswith("gerac") and "cional" in _pal.lower()
+        _como = (f"O termo a substituir é '{_pal}', nesta ocorrência exata. "
+                 + ("Como é ADJETIVO, não basta trocar por 'coorte' (que é "
+                    "substantivo): reescrever para 'compartilhado com quem "
+                    "nasceu por volta dessa época' ou 'de coorte'. Se a frase "
+                    "já usa 'coorte' adiante, basta remover o adjetivo. "
+                    if _adj else
+                    "Trocar por 'coorte', 'quem nasceu por volta dessa época' "
+                    "ou 'faixa etária'. ")
+                 + "NÃO reescrever o resto da frase.")
         out.append({"kind": "geracional:signo_como_agente",
                     "match": par.strip()[:70],
                     "offset": base + alvo.start(),
-                    "suggestion": motivo + "."})
+                    "suggestion": motivo + ". " + _como})
     return out
 
 
