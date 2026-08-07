@@ -832,7 +832,13 @@ def _detect_count_mismatch(text):
     countables_alt = "|".join(_COUNTABLES)
     numbers_alt = "|".join(_NUMBER_WORDS.keys())
     pat = re.compile(
-        rf"\b({numbers_alt})\s+({countables_alt})\s*[—:–-]\s*([^.!?\n]+)",
+        # Até 3 palavras de modificador entre o contável e o separador
+        # ("três conjunções CENTRAIS:", "quatro planetas MAIS APERTADOS —").
+        # Sem isso o detector só via a forma colada e passava batido em
+        # qualquer frase com adjetivo — buraco revelado pela suíte-canário
+        # (18/07), não por um relatório.
+        rf"\b({numbers_alt})\s+({countables_alt})"
+        rf"(?:\s+\w+){{0,3}}\s*[—:–-]\s*([^.!?\n]+)",
         flags=re.IGNORECASE,
     )
     for m in pat.finditer(text):

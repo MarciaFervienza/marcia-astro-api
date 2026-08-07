@@ -160,6 +160,47 @@ Qualquer instância restaura o original real.
 
 ---
 
+### R6. "Mordeu no teste" ≠ "classe coberta"
+Todo detector é provado **também com frase INVENTADA**, não só com a real
+que o motivou. O gate confirma o exemplo; a classe é outra coisa.
+
+> Prova: em 18/07, três detectores foram criados e provados com as frases
+> reais da leitura de cliente. Os três falharam em produção, em variações
+> da mesma classe — "conjunção com o Sol" (aspecto afirmado inexistente,
+> classe que nem existia), "cúspide da casa 10" (o detector só conhecia
+> nomes de ângulo, não "cúspide da casa N") e a casa do Plutão (ancoragem
+> no primeiro nome do trecho).
+
+### R7. A prova de ontem não protege o código de hoje
+Detector pode MORRER por edição futura, e detector morto devolve vazio —
+indistinguível de "está limpo".
+
+> Prova: `_detect_rulership` rodou morto por uma edição minha que apagou a
+> tabela `_REGENCIA`. Foi encontrado **por acaso**, não por teste.
+
+**A rede:** `tests/canario.py` no gate. Uma frase sabidamente defeituosa
+por classe; se qualquer detector parar de acender, o gate falha.
+Estado em 18/07: **48 vivos, 0 mortos**.
+
+> O canário já pagou na estreia: revelou que `_detect_count_mismatch` só
+> via a forma colada ("três conjunções:") e passava batido em qualquer
+> frase com adjetivo ("três conjunções CENTRAIS:"). Buraco encontrado por
+> teste, não por relatório.
+
+### R8. Instrução de reescrita carrega a resposta — ou não dispara reescrita
+Apontar o conflito sem dizer qual lado é o certo transforma detector em
+CORRUPTOR: o reescritor resolve como pode, e "como pode" pode ser para o
+lado errado.
+
+> Prova: `casa_inconsistente` dizia "atribui mais de uma casa ([4, 5]) —
+> contradição interna". O texto dizia casa 5 (correta) e saiu casa 4. O log
+> registrou "corrected". Pior que não detectar: estraga texto certo.
+
+Quando não há resposta possível — como na contagem anunciada, em que não
+se sabe se falta um item ou sobra no anúncio — o detector **sinaliza sem
+reescrever** (`no_rewrite: True`).
+
+
 ## 3. As 7 propriedades — `wheel_renderer/props.py`
 
 Leem **só** o modelo do Kerykeion e o SVG emitido. Se discordam, o desenho mente.

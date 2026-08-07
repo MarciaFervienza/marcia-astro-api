@@ -55,6 +55,17 @@ for t in prove_text prove_doutrina prove_positions prove_ausencia_aspecto prove_
   fi
 done
 
+# ---- 3b. SUÍTE-CANÁRIO: algum detector morreu? ---------------------------
+echo
+echo "3b. Canário — todo detector acende na sua frase?"
+OUT=$(python3 tests/canario.py 2>&1)
+if echo "$OUT" | grep -q "MORTOS: 0"; then
+  ok "$(echo "$OUT" | grep 'VIVOS:')"
+else
+  bad "detector(es) MORTO(S)"
+  echo "$OUT" | grep -E "MORTO" | head -6
+fi
+
 # ---- 4. PROPRIEDADES DA MANDALA ----------------------------------------
 echo
 echo "4. Mandala: 8 propriedades num censo curto"
