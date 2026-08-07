@@ -104,6 +104,9 @@ CANARIOS = [
     ("geracional: pessoal + coletivo (proibido)",
      lambda t: tv._detect_sign_as_generational_agent(t),
      "Vênus em Libra descreve o gosto coletivo de toda uma geração."),
+    ("geracional: 'quem nasceu por volta de' com corpo pessoal",
+     lambda t: tv._detect_sign_as_generational_agent(t),
+     "Marte em Áries é compartilhado com quem nasceu por volta dessa época."),
     ("geracional: sem planeta (proibido)",
      lambda t: tv._detect_sign_as_generational_agent(t),
      "O signo de Peixes carrega, para toda a sua geração, uma névoa."),
@@ -263,6 +266,20 @@ NEGATIVOS = [
      lambda t: tv._detect_asserted_aspect(t, H),
      "O Sol em quadratura quase exata aos Nodos, e Saturno retrógrado em "
      "oposição a Quíron, compõem o retrato."),
+    # 19/07 (2ª correção): "coletivo" é vocabulário de CASA 11, não marcador
+    # de coorte. Medido: 6 das 8 ocorrências no corpus são grupos/círculos,
+    # e as 2 de coorte nomeiam transpessoal. Derrotou o reescritor 3×.
+    ("casa 11: 'dimensão coletiva' não é reivindicação de coorte",
+     lambda t: tv._detect_sign_as_generational_agent(t),
+     "Com Vênus na casa 11, o território do afeto tem uma dimensão "
+     "coletiva e social: seus vínculos se constroem em grupos."),
+    ("casa 11: 'voltado para o coletivo' não é coorte",
+     lambda t: tv._detect_sign_as_generational_agent(t),
+     "o Sol em Virgem na casa 11, voltado para o coletivo, para os grupos"),
+    ("transpessoal + 'coletivamente' segue liberado",
+     lambda t: tv._detect_sign_as_generational_agent(t),
+     "Plutão em Escorpião carrega algo geracional — a sua coorte inteira "
+     "nasceu com ele ali, marcada coletivamente por uma relação com o poder."),
     ("'você é a pessoa que…' é 2ª pessoa e não pode acender",
      lambda t: tv._detect_person_instantiation(t, {"person": "segunda"}),
      "Você é a pessoa que analisa e organiza o que o grupo tenta entender."),

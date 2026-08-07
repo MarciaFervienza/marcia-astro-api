@@ -447,16 +447,28 @@ _PESSOAIS = ("sol", "lua", "mercúrio", "mercurio", "vênus", "venus", "marte")
 # volta de", "faixa etária" servem também para social — Saturno em Escorpião
 # É compartilhado com quem nasceu na mesma época, só não é uma geração.
 _GER_FORTE = r"gera(?:ção|cao|cional|cionais)|toda\s+uma\s+gera|sua\s+gera"
-# "coletivo" NÃO é marcador de coorte (19/07). Todos os outros termos desta
-# lista falam de TEMPO DE NASCIMENTO; "coletivo" fala de grupo — e é
-# vocabulário nativo da casa 11 e de Aquário: "projetos coletivos",
-# "vida coletiva", "círculos coletivos". Solto, ele acusou duas frases
-# corretas da Helena, e o reescritor DEFORMOU uma delas ("Com Vênus na casa
-# 11, seus vínculos afetivos…"). Só o uso NOMINAL — "um coletivo", "todo um
-# coletivo" — carrega a ideia de grupo-de-nascimento.
+# "coletivo" SAIU da lista (19/07, 2ª correção — medida, não estimada).
+#
+# De manhã eu restringi ao uso NOMINAL ("um coletivo", "o coletivo"),
+# achando que ali ele carregaria ideia de grupo-de-nascimento. Errado por
+# duas razões, e as duas apareceram nos relatórios da noite:
+#
+#  1. O padrão não tinha \b antes do determinante, então o "o" final de
+#     "dimensãO coletiva" casava. A instrução saía dizendo que o termo a
+#     substituir era 'o coletiva' — que não é termo nenhum. Foi assim que
+#     o reescritor falhou três vezes seguidas (R8: instrução que não
+#     descreve o texto real).
+#  2. Mesmo com \b, a restrição nominal não bastava. MEDIDO nas 8
+#     ocorrências de "coletiv*" dos dois relatórios: 6 são vocabulário de
+#     CASA 11 (grupos, círculos, causas, redes) e as 2 que são coorte de
+#     verdade nomeiam Netuno e Plutão — transpessoais, que a regra já
+#     permite. ZERO casos em que "coletivo" sozinho denuncia coorte.
+#
+# Toda menção legítima de coorte no corpus usa "geração" ou "coorte"
+# explicitamente, e as duas continuam na lista. "coletivo" fala de GRUPO,
+# não de tempo de nascimento — que é o que os outros marcadores medem.
 _GER_FRACO = (r"coorte|quem\s+nasceu|faixa\s+etária|mesma\s+época|"
-              r"nascid[oa]s?\s+n[ao]|"
-              r"(?:um|o|seu|sua|esse|essa|todo\s+um)\s+coletiv[ao]\b")
+              r"nascid[oa]s?\s+n[ao]")
 
 
 def _detect_sign_as_generational_agent(text):
