@@ -180,6 +180,15 @@ SECTION_PLANET_KEYS = {
 }
 
 
+# Seções DONAS de um corpo: aqui a leitura dele é feita em profundidade, e
+# os aspectos dele têm de estar presentes. abertura/triade/casa_4 ficam de
+# fora — elas apresentam, não são donas.
+OWNER_SECTIONS = {
+    "lua", "mercurio", "venus_marte", "sol_saturno", "jupiter", "saturno",
+    "quiron", "urano", "netuno", "plutao", "lilith", "nodos", "asteroides",
+}
+
+
 def planets_in_house(chart, house_num):
     """Return list of chart planet keys whose house == house_num."""
     return [k for k, v in chart.get("points", {}).items() if v.get("house") == house_num]
@@ -346,10 +355,21 @@ def aspects_for_section_filtered(section_name: str, chart: dict, exclude_describ
             raw.append(a)
     filtered = filter_and_prioritize_aspects(raw, chart)
 
-    # Lua section bypasses the "already-described" filter: all Lua aspects are
-    # Tier 1 and must appear in the Lua section even if upstream sections
-    # (abertura, triade) have already mentioned them.
-    if section_name == "lua":
+    # SEÇÃO DONA SEMPRE VÊ OS ASPECTOS DO SEU CORPO (correção 17/07).
+    #
+    # A dedup existe para abertura/tríade não consumirem tudo. Mas ela também
+    # esvaziava a seção DONA do corpo, que roda por último: quando a seção de
+    # Lilith chegava, vênus-lilith já fora descrito em Vênus/Marte e
+    # quíron-lilith em Quíron — a dona recebia ZERO e o texto concluía que o
+    # corpo "não tem aspectos". Seis afirmações falsas em dois relatórios
+    # (Plutão e Lilith da Helena; Saturno, Lilith e Palas do Lucca).
+    #
+    # Medido: o filtro NÃO descarta nada — Lilith 3/3 e 4/4, Plutão 4/4 e
+    # 5/5, Saturno 2/2 e 3/3 passam por filter_and_prioritize. Some tudo na
+    # dedup. A exceção da Lua já existia pelo mesmo motivo; agora vale para
+    # toda seção dona. A repetição volta a ser controlada pelo PROMPT (regra
+    # do dono da leitura), não por privar a seção do dado.
+    if section_name in OWNER_SECTIONS:
         exclude_described = False
 
     if exclude_described:
