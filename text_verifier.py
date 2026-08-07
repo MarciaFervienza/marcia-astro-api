@@ -1774,6 +1774,15 @@ def _detectar_tudo(text, chart):
         from word_lint import word_lint as _wl
         for v in _wl(scan_text):
             _add(v["kind"], v["match"], v["offset"], v["suggestion"])
+            # R3 (palavra:corrompida) é FLAG-ONLY (19/07). As outras quatro
+            # regras mediram ZERO falso positivo e reescrevem. Esta acusou
+            # "aterrissa" e "internalizado" — pt-BR correto, flexões de
+            # palavras que ESTÃO no léxico de domínio mas cujas formas
+            # flexionadas não estão. Mandar o reescritor "consertar" palavra
+            # certa é o defeito que matou o spell_lint. Sinaliza no log, não
+            # toca no texto.
+            if v["kind"] == "palavra:corrompida":
+                violations_all[-1]["no_rewrite"] = True
     except Exception as e:
         logger.warning("verifier word_lint failed: %s", e)
 
@@ -2281,8 +2290,12 @@ def _par_depois(depois):
     for pat in (
         # "a oposição Sol-Plutão", "o trígono Lua-Saturno"
         rf"^\s+{_ART}({_CORPO_RE})\s*[-–—]\s*({_CORPO_RE})\b",
-        # "a conjunção de Mercúrio com Júpiter", "a quadratura de Juno com seu Mercúrio"
-        rf"^\s+de\s+{_ART}({_CORPO_RE})\s+(?:com|ao?s?|às?)\s+{_ART}({_CORPO_RE})\b",
+        # "a conjunção de Mercúrio com Júpiter", "o trígono DA Lua com Saturno".
+        # A contração ("da/do/das/dos") faltava: a frase real da Helena caía
+        # na regra genérica e emparelhava o Júpiter da cláusula anterior com
+        # a Lua — "Júpiter trígono Lua", que a frase não diz (19/07).
+        rf"^\s+d[eao]s?\s+{_ART}({_CORPO_RE})\s+(?:com|ao?s?|às?)\s+"
+        rf"{_ART}({_CORPO_RE})\b",
         # "o trígono que Saturno forma com/em Quíron"
         rf"^\s+que\s+{_ART}({_CORPO_RE})\s+(?:forma|faz|estabelece|mantém)\s+"
         rf"(?:com|em|ao?s?|às?)\s+{_ART}({_CORPO_RE})\b",

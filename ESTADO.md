@@ -384,6 +384,26 @@ servindo durante a troca).
 | c18dd23 | não | — |
 | d48180a | **não** — 1ª rodada em que o container morto JÁ tinha graceful-timeout | — |
 | b651788 | **SIM** (Helena) | 45s |
+| ecacf8d | **não** — 1ª rodada esperando o SHA no /health | — |
+
+**FECHAMENTO PROVÁVEL (19/07, noite).** O `/health` levou **133s** para
+reportar o commit novo; meu script dormia **100s** fixos. Ou seja: TODAS
+as requisições que tomaram 502 foram enviadas COM O DEPLOY AINDA EM
+CURSO. Trocando a espera fixa pela espera do SHA, os dois relatórios
+passaram de primeira.
+
+Isso reclassifica o item: era **o instrumento**, não o produto. O cliente
+não faz push antes de gerar — ele só veria 502 se a Márcia deployasse no
+minuto exato em que alguém gera. Risco real, muito mais estreito, e
+mitigável não deployando durante o horário de uso.
+
+**Ainda não é prova:** uma rodada. Manter a tabela. O que aumenta a
+confiança é a coerência — a explicação cobre TODAS as observações
+anteriores, inclusive as rodadas limpas (deploys mais rápidos que 100s).
+Duas hipóteses minhas foram descartadas por medição antes desta:
+graceful-timeout (melhorou, não eliminou) e worker lento na partida
+(import 1,3s, primeiro chart 0,2s — não se sustenta).
+
 
 **Atualização 19/07 à noite:** o 502 VOLTOU com o container morto já
 tendo graceful-timeout. Pós-correção: 1 de 3 deploys com 502 (antes: 3
