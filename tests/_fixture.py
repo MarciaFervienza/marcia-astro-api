@@ -63,7 +63,7 @@ def build_chart(caso=HELENA):
     hs = [s.first_house, s.second_house, s.third_house, s.fourth_house,
           s.fifth_house, s.sixth_house, s.seventh_house, s.eighth_house,
           s.ninth_house, s.tenth_house, s.eleventh_house, s.twelfth_house]
-    return {
+    _ch = {
         "points": pts, "aspects": asp, "gender": genero, "name": nome,
         "ascendant": {"sign": _EN[str(s.first_house.sign)],
                       "sign_pt": _SIGN[str(s.first_house.sign)],
@@ -76,3 +76,10 @@ def build_chart(caso=HELENA):
                                "degrees": round(float(h.position), 1)}
                   for i, h in enumerate(hs)},
     }
+    # REGRA DOS 5°: sem isto a fixture entregava um chart onde nenhum corpo
+    # estava na fronteira, e toda varredura local acusava a frase que o
+    # prompt EXIGE ("na fronteira entre a casa 7 e a 8"). Produção reportava
+    # zero e eu reportava dois. Chamamos a rotina DE PRODUÇÃO (R3), que
+    # grava house_geometric e devolve os movimentos.
+    _ch["_house_moves"] = app.apply_five_degree_rule(_ch)
+    return _ch

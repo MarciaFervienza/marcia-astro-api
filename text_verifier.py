@@ -602,6 +602,53 @@ def _detect_bare_ic(text):
     return out
 
 
+# ---- ANDAIME DO PROMPT VAZANDO NO RELATÓRIO (19/07) --------------------
+#
+# O relatório do Lucca saiu com "A passagem 8 do seu mapa, que conecta
+# Saturno em Escorpião a esse Plutão". "Passagem 8" é a NUMERAÇÃO INTERNA
+# dos trechos do RAG: `format_chunks_for_prompt` monta cabeçalhos
+# "--- Passagem 8 (relevância=0.83, tipo=…) ---", e o prompt ainda fala em
+# "cada passagem acima". O modelo citou o andaime como se fosse conteúdo do
+# mapa. O cliente lê e não tem como saber o que é — e isso foi para o PDF.
+#
+# CUIDADO: "passagem" é palavra legítima em astrologia — "a passagem de
+# Saturno por Escorpião" é trânsito, não andaime. O detector pega só a
+# referência ao aparato: passagem NUMERADA, passagem "acima"/"fornecida",
+# e os restos crus do cabeçalho.
+_SCAFFOLD_PATTERNS = [
+    (r"\bpassage(?:m|ns)\s+\d+", "passagem numerada"),
+    (r"\bpassage(?:m|ns)\s+(?:acima|abaixo|anterior(?:es)?|fornecid[ao]s?|"
+     r"citad[ao]s?|listad[ao]s?)\b", "passagem do aparato"),
+    (r"\btrechos?\s+(?:\d+|acima|fornecid[ao]s?)\b", "trecho do aparato"),
+    (r"\brelevância\s*=", "cabeçalho cru do RAG"),
+    (r"\b(?:d[oa]s?|n[oa]s?|conforme\s+[oa]s?)\s+"
+     r"(?:dados|material|contexto|conteúdo)\s+"
+     r"(?:fornecid[ao]s?|acima|listad[ao]s?)\b", "referência ao material do prompt"),
+    (r"\bconforme\s+(?:listado|indicado|descrito)\s+acima\b", "referência ao prompt"),
+    (r"\bDADOS\s+DO\s+MAPA\b", "cabeçalho do prompt"),
+]
+
+
+def _detect_prompt_scaffolding_leak(text):
+    """O texto cita o andaime do prompt em vez do mapa da pessoa."""
+    out = []
+    for pat, rot in _SCAFFOLD_PATTERNS:
+        for m in re.finditer(pat, text, flags=re.IGNORECASE):
+            out.append({
+                "kind": "andaime:vazamento_do_prompt",
+                "match": text[max(0, m.start() - 20):m.end() + 20].strip()[:70],
+                "offset": m.start(),
+                "suggestion": (
+                    f"'{m.group(0)}' é {rot} — vocabulário INTERNO do prompt, "
+                    f"invisível para quem lê. O cliente não sabe o que é uma "
+                    f"'passagem' numerada nem um 'material fornecido'. "
+                    f"Reescrever nomeando o FATO ASTROLÓGICO de que a frase "
+                    f"trata (o aspecto, o planeta, a casa), e apagar a "
+                    f"referência ao aparato."),
+            })
+    return out
+
+
 # ---- item 13: lint de MULETA (contagem, não regex fixo) ----------------
 # "real/realmente" virou a muleta nova (abundante na rodada de 17/07). O
 # limiar é por SEÇÃO para não punir um relatório longo. Reporta no meta —
@@ -1422,6 +1469,12 @@ def _detectar_tudo(text, chart):
             _add(v["kind"], v["match"], v["offset"], v["suggestion"])
     except Exception as e:
         logger.warning("verifier clitico failed: %s", e)
+
+    try:
+        for v in _detect_prompt_scaffolding_leak(scan_text):
+            _add(v["kind"], v["match"], v["offset"], v["suggestion"])
+    except Exception as e:
+        logger.warning("verifier andaime failed: %s", e)
 
     # 4b/4c — afirmações sobre cúspides validadas contra a tabela real
     try:

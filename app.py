@@ -1214,6 +1214,73 @@ def diag_retrieval_endpoint():
 
 
 
+
+# ==================================================================
+# REGRA DOS 5° — FONTE ÚNICA (extraído 19/07).
+#
+# Estava aninhada dentro de generate_report_endpoint, portanto invisível
+# aos testes: a fixture entregava charts SEM `_house_moves`, e toda
+# varredura local acusava a frase de fronteira que o prompt exige. Foi a
+# terceira vez que o instrumento mentiu por reimplementar produção.
+#
+# Muta `points` no lugar (grava house_geometric, reatribui house) e
+# devolve a lista de movimentos. R3: um cálculo, um lugar.
+# ==================================================================
+def apply_five_degree_rule(body, unknown_birth_time=False):
+    """Aplica a regra dos 5° a body["points"]; devolve _house_moves."""
+    _house_moves = []
+    if not unknown_birth_time and body.get("cusps") and body.get("points"):
+        _SIGN_ORDER_5 = ["aries","taurus","gemini","cancer","leo","virgo",
+                         "libra","scorpio","sagittarius","capricorn","aquarius","pisces"]
+        def _abs5(d):
+            try:
+                return _SIGN_ORDER_5.index((d.get("sign") or "").lower())*30.0 + float(d.get("degrees"))
+            except (ValueError, TypeError, AttributeError):
+                return None
+        _cusp_abs = {}
+        for _n in range(1, 13):
+            _c = body["cusps"].get(str(_n))
+            _a = _abs5(_c) if _c else None
+            if _a is not None:
+                _cusp_abs[_n] = _a
+        if len(_cusp_abs) == 12:
+            for _pk, _pd in body["points"].items():
+                _pos = _abs5(_pd)
+                _h = _pd.get("house")
+                # A casa GEOMÉTRICA (a que a mandala desenha) é preservada
+                # ANTES de qualquer re-atribuição: a tabela de posições do PDF
+                # mostra a geométrica, o texto lê a da regra dos 5°. Sem isto
+                # a tabela herdaria a casa de leitura e contradiria o desenho.
+                if _h:
+                    _pd["house_geometric"] = _h
+                if _pos is None or not _h:
+                    continue
+                _nxt = (_h % 12) + 1
+                _gap = (_cusp_abs[_nxt] - _pos) % 360.0
+                # CONDIÇÃO DE SIGNO (refinamento da Márcia, 17/07): a
+                # fronteira de SIGNO barra a regra. O corpo só é lido na casa
+                # seguinte se ele e a cúspide seguinte estiverem no MESMO
+                # signo. Caso do erro: Juno em Gêmeos foi lida na casa 8 cuja
+                # cúspide está em Câncer — regência diferente, leitura errada.
+                # Fica na 7.
+                _same_sign = (int(_pos // 30) == int(_cusp_abs[_nxt] // 30))
+                if 0.0 < _gap < 5.0 and _same_sign:
+                    _pd["house"] = _nxt
+                    _house_moves.append({
+                        "planet": _pk, "from_house": _h, "to_house": _nxt,
+                        "gap_to_cusp": round(_gap, 2),
+                    })
+            # Passa adiante para o report_generator: o TEXTO nomeia a
+            # fronteira ("na fronteira entre 7 e 8, com mais força na 8") em
+            # vez de só afirmar a casa nova. Assim ele para de contradizer a
+            # mandala, que desenha na casa geométrica.
+            body["_house_moves"] = _house_moves
+            if _house_moves:
+                logger.info("regra dos 5°: %d corpo(s) re-atribuído(s): %s",
+                            len(_house_moves),
+                            [f"{m['planet']} {m['from_house']}→{m['to_house']}" for m in _house_moves])
+    return _house_moves
+
 # ==================================================================
 # ASPECTOS DE ASTERÓIDES E NODOS — FONTE ÚNICA (extraído 19/07).
 #
@@ -1723,57 +1790,7 @@ def generate_report_endpoint():
     # a exatamente 5.0° da cúspide pode cair dos dois lados do limiar. A
     # regra usa < 5.0 estrito. Requer cusps; sem hora não há casas nem regra.
     # ==================================================================
-    _house_moves = []
-    if not unknown_birth_time and body.get("cusps") and body.get("points"):
-        _SIGN_ORDER_5 = ["aries","taurus","gemini","cancer","leo","virgo",
-                         "libra","scorpio","sagittarius","capricorn","aquarius","pisces"]
-        def _abs5(d):
-            try:
-                return _SIGN_ORDER_5.index((d.get("sign") or "").lower())*30.0 + float(d.get("degrees"))
-            except (ValueError, TypeError, AttributeError):
-                return None
-        _cusp_abs = {}
-        for _n in range(1, 13):
-            _c = body["cusps"].get(str(_n))
-            _a = _abs5(_c) if _c else None
-            if _a is not None:
-                _cusp_abs[_n] = _a
-        if len(_cusp_abs) == 12:
-            for _pk, _pd in body["points"].items():
-                _pos = _abs5(_pd)
-                _h = _pd.get("house")
-                # A casa GEOMÉTRICA (a que a mandala desenha) é preservada
-                # ANTES de qualquer re-atribuição: a tabela de posições do PDF
-                # mostra a geométrica, o texto lê a da regra dos 5°. Sem isto
-                # a tabela herdaria a casa de leitura e contradiria o desenho.
-                if _h:
-                    _pd["house_geometric"] = _h
-                if _pos is None or not _h:
-                    continue
-                _nxt = (_h % 12) + 1
-                _gap = (_cusp_abs[_nxt] - _pos) % 360.0
-                # CONDIÇÃO DE SIGNO (refinamento da Márcia, 17/07): a
-                # fronteira de SIGNO barra a regra. O corpo só é lido na casa
-                # seguinte se ele e a cúspide seguinte estiverem no MESMO
-                # signo. Caso do erro: Juno em Gêmeos foi lida na casa 8 cuja
-                # cúspide está em Câncer — regência diferente, leitura errada.
-                # Fica na 7.
-                _same_sign = (int(_pos // 30) == int(_cusp_abs[_nxt] // 30))
-                if 0.0 < _gap < 5.0 and _same_sign:
-                    _pd["house"] = _nxt
-                    _house_moves.append({
-                        "planet": _pk, "from_house": _h, "to_house": _nxt,
-                        "gap_to_cusp": round(_gap, 2),
-                    })
-            # Passa adiante para o report_generator: o TEXTO nomeia a
-            # fronteira ("na fronteira entre 7 e 8, com mais força na 8") em
-            # vez de só afirmar a casa nova. Assim ele para de contradizer a
-            # mandala, que desenha na casa geométrica.
-            body["_house_moves"] = _house_moves
-            if _house_moves:
-                logger.info("regra dos 5°: %d corpo(s) re-atribuído(s): %s",
-                            len(_house_moves),
-                            [f"{m['planet']} {m['from_house']}→{m['to_house']}" for m in _house_moves])
+    _house_moves = apply_five_degree_rule(body, unknown_birth_time)
 
     # ==================================================================
     # ASPECTOS AUSENTES — CALCULAR ANTES DO FILTRO

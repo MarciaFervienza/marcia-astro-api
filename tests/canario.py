@@ -99,6 +99,9 @@ CANARIOS = [
     ("vazamento 'ela mesma'",
      lambda t: tv._detect_third_person_leak(t, {"person": "segunda"}),
      "Você floresce quando há espaço para ser ela própria."),
+    ("andaime do prompt vazado",
+     lambda t: tv._detect_prompt_scaffolding_leak(t),
+     "Conforme as passagens acima, o padrão se confirma."),
     ("IC sem tradução",
      lambda t: tv._detect_bare_ic(t),
      "O IC organiza a base da carta."),
@@ -176,6 +179,9 @@ _LEX_CANARIOS = {
 # Frases que NÃO podem acender — falso positivo é tão grave quanto detector
 # morto: gasta reescrita em texto correto e pode corrompê-lo.
 NEGATIVOS = [
+    ("'passagem' astrológica legítima é trânsito, não andaime",
+     lambda t: tv._detect_prompt_scaffolding_leak(t),
+     "A passagem de Saturno por Escorpião marcou esses anos."),
     # --- 19/07: a fronteira que o próprio prompt exige não pode ser acusada.
     ("fronteira: as duas casas nomeadas, como o prompt manda",
      lambda t: tv._detect_house_inconsistency(t, FRONT),

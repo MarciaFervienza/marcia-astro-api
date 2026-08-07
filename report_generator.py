@@ -1962,6 +1962,8 @@ Cada passagem acima é a leitura que você fez para OUTRO mapa. Dentro de cada p
 (b) o que é CIRCUNSTÂNCIA do mapa original — menções a outras casas, outros planetas, outros signos, cúspides, regências ou configurações que não pertencem à posição consultada.
 Use apenas (a). Qualquer afirmação que dependa de (b) é intransferível e deve ser descartada, mesmo que pareça enriquecer a leitura. Se uma passagem mistura (a) e (b) de forma inseparável, descarte a passagem inteira.
 
+A NUMERAÇÃO DAS PASSAGENS É INVISÍVEL PARA QUEM LÊ. "Passagem 3", "as passagens acima", "o material fornecido" são andaime deste prompt, não conteúdo do mapa. NUNCA cite esses rótulos no relatório — quem recebe o PDF não faz ideia do que é uma "passagem 8". Escreva sempre o FATO ASTROLÓGICO de que a frase trata: o aspecto, o planeta, o signo, a casa.
+
 {section_context_block}
 INSTRUÇÕES PARA ESTA SEÇÃO ({section_title}):
 {psychological_frame}
