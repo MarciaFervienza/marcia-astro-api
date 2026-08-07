@@ -358,6 +358,44 @@ _SIGN_NAMES_PT = ("Áries|Aries|Touro|Gêmeos|Gemeos|Câncer|Cancer|Leão|Leao|"
 _TRANSPESSOAIS = ("Urano", "Netuno", "Plutão", "Plutao")
 
 
+# O ASPECTO PRECISA LIGAR OS DOIS (19/07).
+#
+# A primeira versão acendia com qualquer frase que tivesse os dois nomes a
+# até 80 caracteres E uma palavra de aspecto em QUALQUER lugar da frase. Numa
+# frase que enumera vários aspectos isso é uma coincidência, não uma
+# afirmação. No Lucca (19/07) ela acusou:
+#   "…em oposição a Plutão e em trígono a Netuno"
+# onde quem opõe Plutão e trina Netuno é o SOL — os dois não se aspectam
+# entre si. O reescritor tentou duas vezes remover um aspecto inexistente,
+# não conseguiu, e só o failed_kept_original impediu a corrupção.
+#
+# Agora as formas são explícitas: par hifenizado, "entre A e B", "A em
+# <aspecto> com B", "A e B em <aspecto>", "<aspecto> de A com B".
+_NP_ASP = (r"sextil|trígono|trigono|quadratura|oposição|oposicao|"
+           r"conjunção|conjuncao|aspecto")
+_NP_A = r"(?:Netuno|Neptuno)"
+_NP_B = r"(?:Plutão|Plutao)"
+
+
+def _np_formas(a, b):
+    return [
+        rf"{a}\s*[-–—]\s*{b}",
+        rf"\bentre\s+(?:[oa]s?\s+)?{a}\s+e\s+(?:[oa]s?\s+)?{b}",
+        rf"{a}\s+(?:e|com)\s+(?:[oa]s?\s+)?{b}\s+em\s+(?:{_NP_ASP})",
+        # A janela entre o primeiro corpo e o nome do aspecto tolera um
+        # sintagma de signo ("Plutão EM ESCORPIÃO faz sextil a Netuno") mas
+        # NUNCA um "e" ou uma vírgula: essas iniciam nova oração, e foi por
+        # aí que " e em trígono a " ligou dois aspectos do Sol um ao outro.
+        rf"{a}(?:(?!\se\s|,)[^.!?]){{0,30}}?\b(?:{_NP_ASP})\s+"
+        rf"(?:com|ao?s?|às?)\s+(?:[oa]s?\s+)?{b}",
+        rf"(?:{_NP_ASP})\s+(?:de\s+)?(?:[oa]s?\s+)?{a}\s+(?:com|ao?s?|às?)\s+"
+        rf"(?:[oa]s?\s+)?{b}",
+    ]
+
+
+_NP_PAR = "|".join(_np_formas(_NP_A, _NP_B) + _np_formas(_NP_B, _NP_A))
+
+
 def _detect_netuno_plutao_mention(text):
     """Item 7: o sextil geracional Netuno-Plutão NUNCA é mencionado.
 
@@ -366,24 +404,17 @@ def _detect_netuno_plutao_mention(text):
     Márcia, 17/07: menção = violação.
     """
     out = []
-    pat = (r"\b(?:Netuno|Neptuno)\b[^.!?]{0,80}?\b(?:Plutão|Plutao)\b"
-           r"|\b(?:Plutão|Plutao)\b[^.!?]{0,80}?\b(?:Netuno|Neptuno)\b")
-    for m in re.finditer(pat, text):
-        # A palavra do aspecto costuma vir ANTES dos dois nomes ("O sextil
-        # entre Netuno e Plutão") — olhar só o trecho entre eles não a
-        # encontra. Avalia a FRASE inteira que contém o par.
+    for m in re.finditer(_NP_PAR, text, flags=re.IGNORECASE):
         ini = max(text.rfind(".", 0, m.start()), text.rfind("\n", 0, m.start())) + 1
         fim = min([p for p in (text.find(".", m.end()), text.find("\n", m.end()))
                    if p != -1] or [len(text)])
-        seg = text[ini:fim].strip()
-        if re.search(r"sextil|trígono|trigono|quadratura|oposição|oposicao|"
-                     r"conjunção|conjuncao|aspecto", seg, flags=re.IGNORECASE):
-            out.append({"kind": "geracional:netuno_plutao", "match": seg[:70],
-                        "offset": m.start(),
-                        "suggestion": ("REMOVER a menção ao aspecto Netuno-Plutão: é "
-                                       "geracional, comum a toda a geração, e não diz "
-                                       "nada sobre esta pessoa. Reescrever a frase sem "
-                                       "ele, preservando o resto do sentido.")})
+        out.append({"kind": "geracional:netuno_plutao",
+                    "match": text[ini:fim].strip()[:70],
+                    "offset": m.start(),
+                    "suggestion": ("REMOVER a menção ao aspecto Netuno-Plutão: é "
+                                   "geracional, comum a toda a geração, e não diz "
+                                   "nada sobre esta pessoa. Reescrever a frase sem "
+                                   "ele, preservando o resto do sentido.")})
     return out
 
 

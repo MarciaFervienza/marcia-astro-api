@@ -82,6 +82,9 @@ CANARIOS = [
     ("Netuno-Plutão geracional",
      lambda t: tv._detect_netuno_plutao_mention(t),
      "O sextil entre Netuno e Plutão marca a coorte inteira."),
+    ("Netuno-Plutão pela forma 'A em <aspecto> com B'",
+     lambda t: tv._detect_netuno_plutao_mention(t),
+     "Netuno em sextil com Plutão organiza o pano de fundo."),
     ("geracional: social + 'geração' (proibido)",
      lambda t: tv._detect_sign_as_generational_agent(t),
      "Júpiter em Touro marca uma geração inteira voltada ao valor material."),
@@ -179,6 +182,10 @@ _LEX_CANARIOS = {
 # Frases que NÃO podem acender — falso positivo é tão grave quanto detector
 # morto: gasta reescrita em texto correto e pode corrompê-lo.
 NEGATIVOS = [
+    ("Netuno e Plutão na frase sem se aspectarem (Sol é o sujeito)",
+     lambda t: tv._detect_netuno_plutao_mention(t),
+     "O Sol em Câncer em oposição a Plutão e em trígono a Netuno aponta "
+     "para uma autoridade difícil."),
     ("par sem hífen encadeado (Mercúrio e Marte / Quíron e Plutão)",
      lambda t: tv._detect_asserted_aspect(t, L),
      "Mercúrio e Marte em trígono, Quíron e Plutão em sextil: esses são "
