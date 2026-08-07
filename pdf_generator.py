@@ -439,6 +439,19 @@ def _parse_sections(report_text: str):
     return sections
 
 
+_META_CORRETOR = re.compile(
+    r"(?:\b(?:corrijo|reescrevendo|conforme\s+solicitado|"
+    r"vers(?:ão|ao)\s+corrigida|viola(?:ção|cao)\s+de\s+voz|"
+    r"a\s+frase\s+reescrita|segue\s+a\s+frase|"
+    r"aqui\s+est[áa]\s+a\s+frase)\b)"
+    # "Aguarda —" e "Revisando:" terminam em PONTUAÇÃO: o \b final do
+    # grupo caía depois do travessão e a alternativa nunca casava.
+    r"|(?:\baguarda\b\s*[—–-])"
+    r"|(?:\brevisando\b\s*:)"
+    r"|(?:\beliminando\s+a\s+viola)",
+    re.IGNORECASE)
+
+
 def lint_final_text(sections) -> list:
     """Lint no ARTEFATO: roda sobre o produto de _parse_sections — os títulos
     e parágrafos exatos que viram Paragraph() no PDF — não sobre nenhum
@@ -479,6 +492,18 @@ def lint_final_text(sections) -> list:
             if m:
                 viols.append({"kind": "frase_colada", "section": title,
                               "excerpt": para[max(0, m.start()-40):m.start()+42]})
+            # META-COMENTÁRIO DO REESCRITOR (19/07). O Lucca saiu com QUATRO
+            # injeções do raciocínio do próprio corretor — "Aguarda — vou
+            # corrigir corretamente.", "Ainda há 'ela' — corrijo
+            # completamente:" — emendadas no texto, no PDF e no e-mail.
+            # A recusa acontece antes do splice (text_verifier), mas a
+            # trava tem de existir TAMBÉM no artefato: se a recusa falhar,
+            # isto impede que chegue ao cliente em silêncio.
+            m = _META_CORRETOR.search(para)
+            if m:
+                viols.append({"kind": "meta_comentario_do_corretor",
+                              "section": title,
+                              "excerpt": para[max(0, m.start()-60):m.start()+70]})
     return viols
 
 

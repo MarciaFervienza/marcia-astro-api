@@ -188,6 +188,16 @@ CANARIOS = [
      "Há três conjunções centrais: Sol e Júpiter, Lua e Saturno."),
 
     # ---- artefato ----
+    ("meta-comentário do corretor no artefato (Lucca, 19/07)",
+     lambda t: [v for v in pg.lint_final_text([("S", [t])])
+                if v["kind"] == "meta_comentario_do_corretor"],
+     "Aguarda — vou corrigir corretamente."),
+    ("meta-comentário recusado na ORIGEM, antes do splice",
+     lambda t: ([1] if tv._motivo_reescrita_invalida("Frase original.", t) else []),
+     'Ainda há "ela" — corrijo completamente:'),
+    ("saída em blocos recusada (uma frase não tem parágrafos)",
+     lambda t: ([1] if tv._motivo_reescrita_invalida("Frase original.", t) else []),
+     "Primeira versão da frase.\n\n---\n\nSegunda versão da frase."),
     ("markdown vazado no PDF",
      lambda t: pg.lint_final_text([("Seção", [t])]),
      "O fecho chega aqui.## Fio Condutor"),
@@ -259,6 +269,14 @@ NEGATIVOS = [
     ("regência CERTA na forma nova não pode acender",
      lambda t: tv._detect_rulership(t, L),
      "O Nodo Norte em Libra tem Vênus como seu regente."),
+    ("'revisando' astrológico legítimo não é meta-comentário",
+     lambda t: [v for v in pg.lint_final_text([("S", [t])])
+                if v["kind"] == "meta_comentario_do_corretor"],
+     "pode te manter parada revisando o que já estava bom"),
+    ("reescrita legítima de uma frase é ACEITA",
+     lambda t: ([1] if tv._motivo_reescrita_invalida(
+         "O perigo concreto é entrar num acordo enxergando potencial.", t) else []),
+     "O perigo é fechar um acordo olhando o que a outra pessoa pode vir a ser."),
     ("pt-BR fora do dicionário europeu não é corrupção",
      lambda t: __import__("word_lint").word_lint(t),
      "você precisa planejar e registrar as seções do contato harmônico"),

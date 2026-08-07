@@ -214,6 +214,9 @@ confere("19/07", "8 formas de negação-substituição (varredura das 22 reais)"
         len(getattr(tv, "_NEGACAO_FORMAS", [])) == 8
         and "VARREDURA DE FORMAS" in TV,
         f"_NEGACAO_FORMAS tem {len(getattr(tv, '_NEGACAO_FORMAS', []))}")
+confere("19/07", "reescrita validada ANTES do splice (meta-comentário)",
+        "_ReescritaInvalida" in TV and "_motivo_reescrita_invalida" in TV
+        and "_META_CORRETOR" in PDF)
 confere("19/07", "graceful-timeout no start command (502)",
         "--graceful-timeout" in fonte("Procfile")
         and "--graceful-timeout" in fonte("railway.json"))

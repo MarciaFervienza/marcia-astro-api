@@ -383,6 +383,17 @@ servindo durante a troca).
 | 16d50e9 | **primeiro com graceful-timeout no container ANTIGO** | — |
 | c18dd23 | não | — |
 | d48180a | **não** — 1ª rodada em que o container morto JÁ tinha graceful-timeout | — |
+| b651788 | **SIM** (Helena) | 45s |
+
+**Atualização 19/07 à noite:** o 502 VOLTOU com o container morto já
+tendo graceful-timeout. Pós-correção: 1 de 3 deploys com 502 (antes: 3
+de 4). Melhorou, mas **não eliminou** — o diagnóstico está incompleto.
+Próxima hipótese a testar, agora a mais provável: o 502 não vem do
+worker antigo sendo morto, e sim do NOVO ainda não estar pronto quando
+a requisição chega (`--preload` + carga de ephemeris + healthcheck).
+Nesse caso graceful-timeout não teria como ajudar, e o caminho é o
+healthcheck só liberar tráfego depois do primeiro request quente.
+
 
 **Leitura em 19/07 à noite:** 1 rodada limpa desde que a correção passou a
 valer de fato. Insuficiente para fechar — `3224c1f` também foi limpo SEM a
@@ -469,6 +480,40 @@ antes dos testers. Os factuais estão fechados. Negação-substituição é
 estilo e é gerativa — se cair de novo, é bom o suficiente para dez
 testers. O teste existe para saber se as pessoas gostam do relatório e
 pagariam por ele, não para validar métrica de prosa.
+
+### QUARTA falha da camada de reescrita: meta-comentário no produto (19/07)
+
+O relatório do Lucca saiu com **quatro injeções do raciocínio do próprio
+corretor**, emendadas no texto, no PDF e no e-mail:
+
+> `--- Aguarda — vou corrigir corretamente.`
+> `--- Ainda há "ela" — corrijo completamente:`
+> `A violação de voz dizia respeito a … Revisando:`
+
+seguidas de duas ou três versões alternativas da mesma frase.
+
+**É a única das quatro falhas desta camada que injeta texto NOVO no
+produto.** As três anteriores: offset na frase anterior, instrução ambígua,
+descarte mudo.
+
+O prompt JÁ mandava "Retorne APENAS a frase reescrita, sem introdução, sem
+explicação". Não bastou — **instrução não é garantia**. A saída ia direto
+para o splice sem ninguém perguntar se aquilo era uma frase.
+
+A verificação pós-aplicação PEGOU (`INTRODUZIDA_PELA_REESCRITA`) — mas
+depois de o PDF ter sido gerado e enviado. **Detectar não basta: tem de
+recusar ANTES do splice.**
+
+Duas camadas:
+1. `_motivo_reescrita_invalida()` recusa na origem — separador `---`, saída
+   em mais de um bloco (uma frase reescrita não tem parágrafos: este
+   critério sozinho pega as quatro), meta-comentário, inchaço > 2,5×. A
+   recusa conta como tentativa gasta; duas recusas mantêm o original.
+2. `lint_final_text` ganha `meta_comentario_do_corretor` — se a recusa
+   falhar, o artefato trava antes do cliente.
+
+Defeito na construção: o `\b` final do grupo caía DEPOIS do travessão em
+"Aguarda —", e a alternativa nunca casava. Só a prova pegou.
 
 ### Detectores reescritos por FORMA, não por exemplo
 Três no mesmo dia, todos pela mesma causa — o detector cobria a frase que o

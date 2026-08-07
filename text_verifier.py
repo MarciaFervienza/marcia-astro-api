@@ -1503,7 +1503,69 @@ def _rewrite_sentence(sentence, violations_here, call_claude_fn):
         "Retorne APENAS a frase reescrita, sem aspas, sem introdução, sem "
         "explicação. Uma única frase (ou 2 frases curtas se o sentido exigir)."
     )
-    return call_claude_fn(prompt, max_tokens=500).strip()
+    saida = call_claude_fn(prompt, max_tokens=500).strip()
+    _mot = _motivo_reescrita_invalida(sentence, saida)
+    if _mot:
+        raise _ReescritaInvalida(_mot)
+    return saida
+
+
+class _ReescritaInvalida(Exception):
+    """A saída do reescritor não é uma frase — é comentário sobre a frase."""
+
+
+# META-COMENTÁRIO DO REESCRITOR VAZANDO NO RELATÓRIO (19/07)
+#
+# O relatório do Lucca saiu com QUATRO injeções do raciocínio do próprio
+# reescritor, emendadas no texto, no PDF e no e-mail:
+#     "--- Aguarda — vou corrigir corretamente."
+#     "--- Ainda há \"ela\" — corrijo completamente:"
+#     "A violação de voz dizia respeito a … Revisando:"
+# seguidas de duas ou três versões alternativas da mesma frase.
+#
+# O prompt JÁ mandava "Retorne APENAS a frase reescrita, sem introdução,
+# sem explicação". Não bastou — instrução não é garantia. A saída passava
+# direto para o splice sem ninguém perguntar se aquilo era uma frase.
+#
+# Esta é a QUARTA falha da camada de reescrita, e a única que injeta texto
+# NOVO no produto (as três anteriores: offset na frase anterior, instrução
+# ambígua, descarte mudo). A verificação pós-aplicação PEGOU — mas só
+# depois de o PDF ter sido gerado e enviado. Detectar não basta: tem de
+# recusar ANTES do splice.
+_META_REESCRITA = re.compile(
+    r"(?:\b(?:corrijo|reescrevendo|conforme\s+solicitado|"
+    r"vers(?:ão|ao)\s+corrigida|viola(?:ção|cao)\s+de\s+voz|"
+    r"a\s+frase\s+reescrita|segue\s+a\s+frase|"
+    r"aqui\s+est[áa]\s+a\s+frase)\b)"
+    # "Aguarda —" e "Revisando:" terminam em PONTUAÇÃO: o \b final do
+    # grupo caía depois do travessão e a alternativa nunca casava.
+    r"|(?:\baguarda\b\s*[—–-])"
+    r"|(?:\brevisando\b\s*:)"
+    r"|(?:\beliminando\s+a\s+viola)",
+    re.IGNORECASE)
+
+
+def _motivo_reescrita_invalida(original, saida):
+    """Devolve o motivo se a saída NÃO for uma frase reescrita, ou None."""
+    if not saida:
+        return "saída vazia"
+    # 1. Bloco separador solto: o modelo abriu uma seção nova.
+    if re.search(r"(?m)^\s*---\s*$", saida):
+        return "contém separador '---' — saída em blocos, não uma frase"
+    # 2. Uma frase reescrita não tem parágrafos. Este critério sozinho pega
+    #    as quatro injeções reais do Lucca.
+    blocos = [b for b in re.split(r"\n\s*\n", saida) if b.strip()]
+    if len(blocos) > 1:
+        return f"saída em {len(blocos)} blocos — reescrita de frase é um bloco só"
+    # 3. Comentário sobre a tarefa em vez da tarefa.
+    m = _META_REESCRITA.search(saida)
+    if m:
+        return f"meta-comentário do reescritor: {m.group(0)!r}"
+    # 4. Inchaço: 2,5× o original mais folga é reescrita virando ensaio.
+    if len(saida) > 2.5 * len(original) + 80:
+        return (f"saída {len(saida)} chars contra {len(original)} do original "
+                f"— não é reescrita, é acréscimo")
+    return None
 
 
 # ============================================================
@@ -1790,6 +1852,12 @@ def run_verifier(text, chart, call_claude_fn):
                        for v in last_violations]
             try:
                 rewritten = _rewrite_sentence(current, listing, call_claude_fn)
+            except _ReescritaInvalida as exc:
+                # Saída recusada ANTES do splice. Conta como tentativa
+                # gasta: se a segunda também vier assim, fica o original.
+                logger.warning("verifier: reescrita RECUSADA (tentativa %d): %s",
+                               attempt, exc)
+                continue
             except Exception as exc:
                 logger.warning("verifier: rewrite call failed (attempt %d): %s",
                                attempt, exc)
