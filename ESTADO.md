@@ -381,6 +381,13 @@ servindo durante a troca).
 | 3224c1f | não | — |
 | 3420d57 | sim (Helena) | 45s |
 | 16d50e9 | **primeiro com graceful-timeout no container ANTIGO** | — |
+| c18dd23 | não | — |
+| d48180a | **não** — 1ª rodada em que o container morto JÁ tinha graceful-timeout | — |
+
+**Leitura em 19/07 à noite:** 1 rodada limpa desde que a correção passou a
+valer de fato. Insuficiente para fechar — `3224c1f` também foi limpo SEM a
+correção, então uma rodada não distingue as hipóteses. Precisa de 3 a 4
+deploys seguidos sem 502 na primeira tentativa.
 
 
 ## 6. Decisões FECHADAS (não reabrir sem motivo novo)
