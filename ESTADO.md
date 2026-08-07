@@ -621,29 +621,46 @@ escolha correta.
   clampadas) reduziram mas não zeraram — a redistribuição do solver acaba
   dando a algum par fatia menor que o ótimo geométrico.
 
-## Pendência: varredura de expressões distintivas (aberta 18/07)
+## Varredura de expressões distintivas — PARCIALMENTE EXECUTADA (18/07)
 
-**Classe de defeito nova**, descoberta no caso "autoestima barulhosa": a
-imagem É da Márcia, o RAG recuperou CERTO, e o texto colou TORTO. Não é
-alucinação (o dado existe) nem contaminação de chunk (a fonte está correta)
-— é deformação na superfície.
+**Classe de defeito:** a imagem É da Márcia, o RAG recuperou CERTO, e o
+texto colou TORTO. Não é alucinação (o dado existe) nem contaminação de
+chunk (a fonte está correta) — é deformação na superfície.
 
-Origem confirmada por grep: transcript da Valquiria Zampirolli, Mapa Natal —
-*"autoestima e amor próprio costuma ser sentimentos que não fazem muito
-barulho… é uma autoestima que ela é BARULHENTA"*. O relatório escreveu
-"barulhosa" (não é a palavra dela) e "circunda a casa 5" (não se circunda
-uma casa). Corrigida a FORMA, preservada a imagem.
+Caso de origem, confirmado por grep: transcript da Valquiria Zampirolli —
+*"é uma autoestima que ela é BARULHENTA"*. O relatório escreveu
+"barulhosa" e "circunda a casa 5". Corrigida a FORMA, preservada a imagem.
 
-**O que falta:** varredura ampla de expressões distintivas dela nos chunks
-contra como aparecem nos relatórios. O spot check de 18/07 foi FRACO e não
-sustenta conclusão: casou SUBSTRINGS (deu falso par "fio"/*Fionta*,
-"motor"/*promotor*, "tecido"/*acontecido*) e só 4 imagens eram comparáveis
-de verdade — antena, bússola, palco e raiz, todas íntegras. Quatro casos não
-provam que o defeito é isolado.
+### O que FOI coberto: troca de sufixo adjetival
+`tests/varredura_expressoes.py`. Mesmo radical, sufixo adjetival diferente
+do que ela usa (barulh-ENTA → barulh-OSA). Flexão (plural, gênero,
+particípio, advérbio em -mente) NÃO conta: é gramática normal.
 
-**Como fazer direito:** casamento por PALAVRA INTEIRA, expressões de várias
-palavras, e comparação da forma (adjetivo, verbo, regência) — não só da
-presença. Fazer DEPOIS da regeneração.
+**Instrumento VALIDADO no caso conhecido antes de rodar** — ele detecta
+`barulhenta`/`barulhosa` (radical `barulh`, a fonte só usa -ento/-enta, 112
+ocorrências, zero de -oso). É essa validação que dá valor ao zero: sem ela,
+"nenhuma deformação" poderia significar só "instrumento cego". Mesma
+disciplina que reprovou o lint por similaridade no mesmo dia.
+
+**Resultado:** 3.230 radicais adjetivais extraídos de 3.710 transcripts +
+autorais, casamento por PALAVRA INTEIRA. **Nenhuma deformação real nos dois
+relatórios** — o único achado (`intelectuais`) é plural, falso positivo.
+
+> A v1 desta varredura foi descartada: casava SUBSTRING (deu "fio"/*Fionta*,
+> "motor"/*promotor*) e confundia flexão com deformação.
+
+### O que NÃO foi coberto — pendência SEGUE ABERTA
+A varredura cobre UM mecanismo. Ficam sem medição:
+- **verbo trocado** — o próprio caso de origem tinha "circunda a casa",
+  que o detector de sufixo não veria;
+- **regência alterada** (preposição/complemento errados);
+- **imagem invertida** (mesmo elemento, sentido oposto);
+- **metáfora aplicada ao corpo errado**.
+
+**Limitação de amostra:** dois relatórios. Uma imagem só pode ser deformada
+se for RECUPERADA — chunk não trazido pelo RAG não teve chance de aparecer.
+
+**Não fechar esta pendência** com base na varredura de sufixo.
 
 
 ## Repetição por paráfrase — decisão de 18/07: fica com o GPT
