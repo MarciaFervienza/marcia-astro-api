@@ -390,6 +390,71 @@ correção, então uma rodada não distingue as hipóteses. Precisa de 3 a 4
 deploys seguidos sem 502 na primeira tentativa.
 
 
+## Decisões de 19/07 — camadas de língua e de palavra
+
+### spell_lint DESLIGADO (decisão da Márcia)
+O dicionário "pt" do pyspellchecker é EUROPEU e, como autoridade
+ortográfica, está **invertido** na classe que mais importa. Medido numa
+frase com as duas grafias lado a lado: "contacto", "facto" e "harmónico"
+passaram limpos e **"harmônico" ACENDEU**. Para pegar contaminação pt-PT
+ele é pior que ausente.
+
+`spell_lint_out = []` fixo em `report_generator`. O léxico explícito fica e
+cresceu: de 28/48 para **31/31** das grafias pt-PT testadas, com zero falso
+positivo nas 32 formas brasileiras. ("rapaz" ficou de fora de propósito: em
+pt-BR é palavra corrente, não marca de Portugal.)
+
+### word_lint.py — a camada de PALAVRA que faltava
+O GPT achou sete corrupções que todos os lints deixaram passar. **A
+hipótese de splice não se confirmou**: seis das sete estão no MEIO da
+frase, e o splice só emenda em limite de frase; nenhuma aparece na saída
+registrada de cleanup, correction_rewrite ou sign_divergence. São erros do
+modelo, e passavam porque `pdf_lint` vê frase colada e o léxico vê termos
+enumerados — nenhum olha a PALAVRA.
+
+Cinco regras, cada uma medida ANTES de entrar:
+
+| regra | medição | pega |
+|---|---|---|
+| colada | 1 acusação em 2.183 tokens | `voltarcontra` |
+| contração | "de um" fora: 19 falsos sozinho | `de o que` |
+| corrompida | a 1 edição do vocabulário astrológico | `saturninan`, `retrogradiação` |
+| concordância | conjunto FECHADO de adjetivos | `conforto arianas` |
+| acento | 13.337 pares: sem o critério de frequência 34, com ele 1 | `fincar ancoras` |
+
+**Não é o spell_lint de volta.** O dicionário entra como ORÁCULO DE
+EXISTÊNCIA, nunca como autoridade ortográfica, e `_variantes_pt()` absolve
+as grafias brasileiras.
+
+**Cobertura 6/7.** "como você mente pensa" é erro de SINTAXE — nenhuma
+regra lexical alcança. Registrado como NÃO COBERTO; é o caso da passada de
+revisão de língua.
+
+### Detectores reescritos por FORMA, não por exemplo
+Três no mesmo dia, todos pela mesma causa — o detector cobria a frase que o
+motivou e não a classe:
+- **aspecto afirmado**: levantamento das 73 ocorrências reais; 4 formas
+  novas; pares resolvidos 66% → 74% (as 9 restantes: 8 anafóricas, 1
+  abstenção deliberada sobre Nodos);
+- **regência**: 7 formas. A frase real "O Nodo Norte em Libra tem Marte
+  como seu regente" não acendia porque nesta construção **os papéis se
+  invertem** (alvo antes, regente depois) e a palavra é "regente", que o
+  regex do verbo não alcançava. Não era o Nodo — era a forma;
+- **vazamento de pessoa**: `_detect_third_person_leak` procura PRONOME, e
+  num relatório de astrologia quase todo "ela/ele" é planeta ou aspecto —
+  31 ocorrências na Helena, UMA é o vazamento. O que denuncia é a
+  INSTANCIAÇÃO ("há uma pessoa aqui que…"), não o pronome.
+
+### Retry no produto (bloqueante, decisão da Márcia)
+O retry existia no meu script e não no produto — mesma classe de "o
+instrumento não é o produto". `retry_util._com_retry`, backoff 1/2/4s com
+jitter, só erro TRANSITÓRIO. Cobre geolocalização (Nominatim limita a 1
+req/s) e `call_claude`, que **não tinha retry nenhum**: 16+ chamadas de
+seção mais uma reescrita por frase violada (17 no Lucca) — perto de 34
+pontos de falha por relatório, nenhum protegido. As reescritas do verifier
+herdam porque `run_verifier` recebe a mesma `call_claude` (provado por
+comportamento). Ver R10.
+
 ## 6. Decisões FECHADAS (não reabrir sem motivo novo)
 
 ### 6.1 Cores
@@ -454,7 +519,7 @@ e o arquivo onde vive. Ao mudar o código, atualizar aqui no mesmo commit.
 ### 9.1 Mandala
 | decisão | valor no código | onde |
 |---|---|---|
-| tamanho na página | `WHEEL_SIZE_CM = 14.5` | `pdf_generator.py` |
+| tamanho na página | `WHEEL_SIZE_CM = 18.0` | `pdf_generator.py` |
 | conteúdo do viewBox | 92 de 100 unidades | `wheel_renderer` |
 | mandala sozinha na página | sim, `PageBreak` ao fim | `_wheel_page_flowables` |
 | bloco de dados | canto superior esquerdo, antes da mandala | idem |
@@ -511,9 +576,17 @@ cinza (`ASPECT_COLORS` em `app.py`).
 **Tabela de posições** (`positions_table.py`): glifo + nome do corpo · glifo +
 nome do signo · casa. Sem grau nem minuto (a mandala e a tabela de aspectos
 já dão). Duas colunas, EB Garamond 8.5pt, sem separadores.
-- A CASA é a **geométrica** — a que a mandala desenha. `points[*]["house"]`
-  já vem mutado pela regra dos 5°, então `app.py` preserva a original em
-  `house_geometric` ANTES da mutação. Sem isso a tabela contradiria o desenho.
+- A CASA é a de **LEITURA** — `points[*]["house"]`, já re-atribuída pela
+  regra dos 5° (decisão da Márcia, pedida três vezes, implementada em
+  19/07). Índice, tabela e texto dão a MESMA casa; `prove_casa_unica.py` é
+  property test sobre todos os corpos de todos os mapas de QA.
+  `house_geometric` continua preservado em `app.py` antes da mutação —
+  serve à mandala e ao diagnóstico, não à tabela.
+  · Consequência aceita: num corpo de fronteira o glifo é desenhado 1º a 2º
+    antes da cúspide enquanto a tabela nomeia a casa seguinte. Diferença de
+    milímetros, e o texto nomeia a fronteira explicitamente.
+  · ANTES de 19/07 a tabela usava a geométrica, e o relatório se
+    contradizia: índice "Júpiter · Casa 11", tabela "10".
 - A lista de corpos vem de `app.ACTIVE_POINTS` (R3). A primeira versão tinha
   lista própria e trouxe o Nodo Sul quando produção não o desenhava.
 - Os glifos são os `<symbol>` do MESMO SVG da mandala, já pós-processado
