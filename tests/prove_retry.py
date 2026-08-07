@@ -172,3 +172,61 @@ if falhas:
     print(f">>> {falhas} FALHOU — o retry não segura")
     raise SystemExit(1)
 print("RETRY call_claude 19/07: TUDO PROVADO")
+
+
+# ============================================================
+# O retry cobre as REESCRITAS do verifier, não só as seções? (19/07)
+#
+# run_verifier recebe call_claude por parâmetro (para não fechar ciclo de
+# import), então a cobertura não é óbvia por leitura. E cada relatório faz
+# uma reescrita por frase violada — nesta rodada foram 18 no Lucca.
+# ============================================================
+print()
+print("=" * 62)
+print("REESCRITAS DO VERIFIER TAMBÉM REPETEM")
+print("=" * 62)
+import text_verifier as _tv
+import retry_util as _ru2
+
+_n = {"c": 0}
+
+
+class _M2:
+    def create(self, **kw):
+        _n["c"] += 1
+        if _n["c"] <= 2:
+            raise Exception("Error code: 429 - rate_limit_error")
+
+        class _R:
+            content = [type("B", (), {"text": "frase reescrita"})()]
+        return _R()
+
+
+_a, _i, _s = rg._anth, rg.init_clients, _ru2._time.sleep
+rg._anth = type("A", (), {"messages": _M2()})()
+rg.init_clients = lambda: None
+_ru2._time.sleep = lambda s: None
+try:
+    _out = _tv._rewrite_sentence("Frase original.", ["kind — 'x' — conserta"],
+                                 rg.call_claude)
+    chk(f"reescrita sobrevive a 429 duas vezes (chamou {_n['c']})",
+        _out == "frase reescrita" and _n["c"] == 3)
+finally:
+    rg._anth, rg.init_clients, _ru2._time.sleep = _a, _i, _s
+
+# Guarda de CLASSE: um segundo ponto de saída para a API escaparia do retry
+# sem que nada acusasse. Se alguém adicionar outro messages.create, isto cai.
+_n_create = sum(
+    1
+    for f in ("report_generator.py", "app.py", "text_verifier.py", "pdf_generator.py")
+    for l in open(os.path.join(os.path.dirname(__file__), "..", f), encoding="utf-8")
+    if "messages.create" in l
+)
+chk(f"há UM único ponto de saída para a API Anthropic (achei {_n_create})",
+    _n_create == 1)
+
+print()
+if falhas:
+    print(f">>> {falhas} FALHOU — o retry não segura")
+    raise SystemExit(1)
+print("RETRY verifier 19/07: TUDO PROVADO")

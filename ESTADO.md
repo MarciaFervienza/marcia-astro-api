@@ -201,6 +201,51 @@ se sabe se falta um item ou sobra no anúncio — o detector **sinaliza sem
 reescrever** (`no_rewrite: True`).
 
 
+### R9. Falso NEGATIVO não acende alarme nenhum (19/07)
+
+O verifier tem duas direções de erro, e elas custam coisas diferentes:
+
+| direção | o que acontece | como aparece |
+|---|---|---|
+| **falso positivo** | o detector acusa frase certa → o reescritor mexe em texto bom | aparece em `PERSISTIU`, `INTRODUZIDA`, `failed_kept_original`. **Barulhento.** |
+| **falso negativo** | o detector se abstém de frase errada → o defeito vai para o PDF | **não aparece em lugar nenhum.** Meta zerado, log limpo, gate verde. |
+
+Em 19/07 quatro rodadas seguidas terminaram com alarme, e nas quatro a
+causa era falso positivo meu. Isso cria uma ilusão perigosa: parece que o
+sistema só erra para mais. Ele erra para menos também, e essa metade é
+invisível por construção.
+
+**Só varredura deliberada encontra falso negativo.** Levantamento de 19/07:
+as 73 ocorrências de nome de aspecto nos dois relatórios, classificadas por
+qual ramo do detector as trata. Resultado: **nenhuma** caía mais na regra
+genérica (a perigosa para falso positivo) — mas **7 das 15 abstenções eram
+par afirmado que o detector ignorava em silêncio**. Quatro formas novas
+saíram daí: `a oposição Sol-Plutão`, `a conjunção de Mercúrio com Júpiter`,
+`o trígono que Saturno forma em Quíron`, `O Sol com Plutão em sextil`.
+Pares resolvidos: **66% → 74%**. Das 9 restantes, 8 são anafóricas
+("esse sextil", "o trígono") e 1 é a abstenção deliberada sobre Nodos.
+
+**Regra (Márcia, 19/07): repetir a varredura a cada mudança grande no
+detector — não só quando ela pedir.** O script mede o corpus real e
+classifica por ramo; um ramo que engorda ou uma abstenção que cresce são o
+sinal. O canário protege o que já se sabe; a varredura é o que descobre o
+que ainda não se sabe.
+
+### R10. Um único ponto de saída para cada serviço externo (19/07)
+
+`messages.create` aparece UMA vez no código inteiro, dentro de
+`call_claude`, que tem retry. Um segundo ponto de saída escaparia do retry
+sem que nada acusasse — por isso `prove_retry.py` conta as ocorrências e
+reprova se aparecer outra.
+
+Vale para o que já mordeu: `call_claude` **não tinha retry nenhum** até
+19/07. Um relatório faz 16+ chamadas de seção mais uma reescrita por frase
+violada (18 no Lucca naquela rodada); um único 429 derrubava a geração
+inteira e o cliente recebia erro. As reescritas do verifier herdam o retry
+porque `run_verifier` recebe a mesma `call_claude` por parâmetro — provado
+por comportamento, não por leitura.
+
+
 ## 3. As 7 propriedades — `wheel_renderer/props.py`
 
 Leem **só** o modelo do Kerykeion e o SVG emitido. Se discordam, o desenho mente.
@@ -294,6 +339,49 @@ colisão. Defeito de fábrica. **0/300 mapas Brasil/Portugal afetados**; 37/300 
 latitude. Nenhum cliente afetado.
 
 ---
+
+## 502 do Railway — DIAGNOSTICADO, NÃO MEDIDO (19/07, item de verificação)
+
+**Não é item fechado.** A Márcia foi explícita: acompanhar os próximos
+deploys e só fechar com evidência.
+
+**Observado:** 502 "Application failed to respond" em três de quatro
+rodadas de 19/07, sempre na PRIMEIRA requisição após um deploy, aos 15s a
+80s da requisição. Nunca em regime estável.
+
+**Diagnóstico:** o `--timeout 900` estava no start command e o
+`--graceful-timeout` **não** — valia o padrão de 30s do gunicorn. As
+gerações levam ~90s. No deploy o gunicorn manda SIGTERM, espera 30s e mata
+a requisição em voo. O intervalo observado (15–80s) é compatível.
+
+**Correção:** `--graceful-timeout 900` no `Procfile` e no `railway.json`.
+
+**Por que ainda não está confirmado:** o valor só passa a valer no deploy
+SEGUINTE ao que o introduziu — quem é morto no deploy N é o container da
+versão N-1, que ainda roda o comando antigo. O 502 observado logo após
+`16d50e9` (o commit que introduziu a correção) era portanto esperado e não
+desmente nada. E o padrão de 30s do gunicorn é o **documentado**: não pôde
+ser medido nesta máquina, onde gunicorn não está instalado.
+
+**Como fechar:** se os 502 logo-após-deploy sumirem nas próximas rodadas,
+o diagnóstico estava certo. Se persistirem, a causa é outra — próximas
+hipóteses a testar: healthcheck do Railway roteando antes de o worker estar
+pronto (`healthcheckTimeout: 60` com `--preload` e carga de ephemeris), ou
+ausência de deploy sobreposto (`--workers 1`, sem instância antiga
+servindo durante a troca).
+
+**Registro das rodadas** (atualizar a cada deploy):
+
+| commit | 502 na 1ª tentativa? | tempo até o 502 |
+|---|---|---|
+| 3e337ff | não (429 de geoloc) | — |
+| a443f9c | não | — |
+| 32b8c66 | sim (Helena ×2, Lucca ×2) | 54s, 80s, 16s, 15s |
+| 86eaece | sim (Helena) | 54s |
+| 3224c1f | não | — |
+| 3420d57 | sim (Helena) | 45s |
+| 16d50e9 | **primeiro com graceful-timeout no container ANTIGO** | — |
+
 
 ## 6. Decisões FECHADAS (não reabrir sem motivo novo)
 
