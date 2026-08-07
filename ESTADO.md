@@ -646,6 +646,44 @@ palavras, e comparação da forma (adjetivo, verbo, regência) — não só da
 presença. Fazer DEPOIS da regeneração.
 
 
+## Repetição por paráfrase — decisão de 18/07: fica com o GPT
+
+**O lint por similaridade NÃO foi ligado.** A medição reprovou o
+instrumento antes de qualquer implementação.
+
+**Por que:** Jaccard sobre palavras de conteúdo não distingue CONTEÚDO de
+MOLDURA. Medido nos dois relatórios:
+
+| par | similaridade |
+|---|---|
+| conteúdo repetido de verdade (o par que o GPT achou: "quando você age por competência genuína e quando age para silenciar aquela voz interna" × "…uma cobrança interna") | **0,56** |
+| falso positivo ("A casa 9 é o território onde isso se encontra" × "A casa 12 é o território do que não se vê facilmente") | **0,50** |
+
+**0,06 de separação não é critério** — qualquer limiar entre os dois é
+sorte. O par verdadeiro compartilha `age, competência, genuína, interna,
+silenciar` (conteúdo); o falso compartilha `casa, território` (moldura).
+Contar palavras não vê a diferença.
+
+Varredura completa nos dois relatórios (241 e 234 frases, 17 seções cada):
+a 0,60 → 0 pares; a 0,50 → 1; a 0,40 → 1; a 0,30 → 5 e 4. Os dois acima de
+0,40 são falsos positivos pelos critérios da Márcia.
+
+**Decisão:** a repetição por paráfrase fica com o GPT, que já é gate e já
+achou os cinco pares LENDO — leitura entende conteúdo.
+
+### PENDÊNCIA PÓS-LANÇAMENTO: gate por embeddings
+Hoje o GPT lê os dois relatórios de teste. **Com clientes reais ninguém vai
+ler cada um**, e aí um gate automático passa a valer. O caminho medido como
+viável é similaridade SEMÂNTICA por embeddings (a infraestrutura já existe —
+o Pinecone usa embeddings): separa "mesma ideia com palavras diferentes" de
+"mesma fôrma com ideias diferentes", que é exatamente o que o Jaccard não
+faz. Custo estimado: ~240 embeddings por relatório, centavos e poucos
+segundos.
+
+**Não reabrir a investigação do zero:** os números de hoje (0,56 vs 0,50)
+já provam que a abordagem lexical não serve.
+
+
 ## Mandala — investigação FECHADA (17/07, decisão: fica no atual)
 
 Três tentativas de aproximar da cúspide um corpo colado nela. Todas medidas
