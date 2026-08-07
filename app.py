@@ -1661,6 +1661,11 @@ def generate_report_endpoint():
                         "planet": _pk, "from_house": _h, "to_house": _nxt,
                         "gap_to_cusp": round(_gap, 2),
                     })
+            # Passa adiante para o report_generator: o TEXTO nomeia a
+            # fronteira ("na fronteira entre 7 e 8, com mais força na 8") em
+            # vez de só afirmar a casa nova. Assim ele para de contradizer a
+            # mandala, que desenha na casa geométrica.
+            body["_house_moves"] = _house_moves
             if _house_moves:
                 logger.info("regra dos 5°: %d corpo(s) re-atribuído(s): %s",
                             len(_house_moves),

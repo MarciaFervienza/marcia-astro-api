@@ -621,6 +621,31 @@ escolha correta.
   clampadas) reduziram mas não zeraram — a redistribuição do solver acaba
   dando a algum par fatia menor que o ótimo geométrico.
 
+## Pendência: varredura de expressões distintivas (aberta 18/07)
+
+**Classe de defeito nova**, descoberta no caso "autoestima barulhosa": a
+imagem É da Márcia, o RAG recuperou CERTO, e o texto colou TORTO. Não é
+alucinação (o dado existe) nem contaminação de chunk (a fonte está correta)
+— é deformação na superfície.
+
+Origem confirmada por grep: transcript da Valquiria Zampirolli, Mapa Natal —
+*"autoestima e amor próprio costuma ser sentimentos que não fazem muito
+barulho… é uma autoestima que ela é BARULHENTA"*. O relatório escreveu
+"barulhosa" (não é a palavra dela) e "circunda a casa 5" (não se circunda
+uma casa). Corrigida a FORMA, preservada a imagem.
+
+**O que falta:** varredura ampla de expressões distintivas dela nos chunks
+contra como aparecem nos relatórios. O spot check de 18/07 foi FRACO e não
+sustenta conclusão: casou SUBSTRINGS (deu falso par "fio"/*Fionta*,
+"motor"/*promotor*, "tecido"/*acontecido*) e só 4 imagens eram comparáveis
+de verdade — antena, bússola, palco e raiz, todas íntegras. Quatro casos não
+provam que o defeito é isolado.
+
+**Como fazer direito:** casamento por PALAVRA INTEIRA, expressões de várias
+palavras, e comparação da forma (adjetivo, verbo, regência) — não só da
+presença. Fazer DEPOIS da regeneração.
+
+
 ## Mandala — investigação FECHADA (17/07, decisão: fica no atual)
 
 Três tentativas de aproximar da cúspide um corpo colado nela. Todas medidas

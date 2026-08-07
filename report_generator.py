@@ -872,10 +872,32 @@ def fmt_aspects(aspects):
     return "; ".join(parts)
 
 
-def fmt_position(p):
+def fmt_position(p, key=None, chart=None):
+    """Posição para o prompt. Corpo movido pela REGRA DOS 5° recebe a
+    instrução de nomear a FRONTEIRA (decisão da Márcia, 18/07).
+
+    Sem isso o texto afirmava só a casa de leitura e contradizia a mandala,
+    que desenha na casa geométrica. Nomear a fronteira faz as duas coisas
+    conviverem: o leitor vê o corpo desenhado no fim de uma casa e lê que
+    ele opera na seguinte.
+    """
     s = f"{p['sign_pt']} ({p['degrees']:.1f}°)"
     if p.get("retrograde"):
         s += " ℞"
+    mv = None
+    for m in ((chart or {}).get("_house_moves") or []):
+        if key and m.get("planet") == key:
+            mv = m
+            break
+    if mv:
+        s += (f" — CORPO NA FRONTEIRA: está a {mv['gap_to_cusp']}° da cúspide "
+              f"da casa {mv['to_house']}, dentro da casa {mv['from_house']} por "
+              f"geometria (é assim que a mandala o desenha) mas LIDO na casa "
+              f"{mv['to_house']}. ESCREVA A FRONTEIRA, não só a casa nova: "
+              f"'na fronteira entre a casa {mv['from_house']} e a "
+              f"{mv['to_house']}, com mais força na {mv['to_house']}'. "
+              f"NUNCA afirme apenas 'na casa {mv['to_house']}' — o leitor tem "
+              f"a mandala na mão e veria a contradição.")
     return s
 
 
@@ -922,7 +944,11 @@ def section_chart_context(section_name, chart):
 
     # fmt_pos_local: hora conhecida → "signo grau° na casa N"; desconhecida → só "signo grau°"
     def _pl(planet):
-        base = fmt_position(planet)
+        # A CHAVE é descoberta pelo próprio dict, não por uma lista paralela
+        # de nomes (R3). Assim a instrução de fronteira alcança todos os
+        # corpos sem eu ter de manter um segundo mapa em sincronia.
+        _key = next((k for k, v in p.items() if v is planet), None)
+        base = fmt_position(planet, _key, chart)
         if time_unknown:
             return base
         return f"{base} na casa {planet['house']}"
@@ -994,7 +1020,7 @@ def section_chart_context(section_name, chart):
             # apresentar tensão Sol×Lua (dependeria de saber o signo da Lua)
             # nem coerência entre eles. Foco só no Sol.
             return _tunk_prefix + (
-                f"Sol: {fmt_position(p['sun'])}\n"
+                f"Sol: {fmt_position(p['sun'], 'sun', chart)}\n"
                 f"[Lua: signo INDETERMINADO — pode estar em "
                 f"{moon_meta.get('moon_sign_before')} ou em "
                 f"{moon_meta.get('moon_sign_after')}. A nota no topo do "
@@ -1011,8 +1037,8 @@ def section_chart_context(section_name, chart):
         if time_unknown:
             # Lua estável no dia — signo é confiável, só casas/Asc ausentes.
             return _tunk_prefix + (
-                f"Sol: {fmt_position(p['sun'])}\n"
-                f"Lua: {fmt_position(p['moon'])}\n"
+                f"Sol: {fmt_position(p['sun'], 'sun', chart)}\n"
+                f"Lua: {fmt_position(p['moon'], 'moon', chart)}\n"
                 f"[NOTA: Este mapa foi calculado sem horário de nascimento. "
                 f"Ascendente e casas não estão disponíveis. Não os mencione — "
                 f"trabalhe apenas com signos e aspectos planetários.]"
@@ -1029,7 +1055,7 @@ def section_chart_context(section_name, chart):
             # Vira uma seção SOMENTE do Sol — a Lua está indeterminada e não
             # dá pra sintetizar dupla Sol×Lua sem escolher um signo.
             return _tunk_prefix + (
-                f"Sol: {fmt_position(p['sun'])}\n\n"
+                f"Sol: {fmt_position(p['sun'], 'sun', chart)}\n\n"
                 f"Aspectos relevantes do Sol (filtrados): {aspects_line}\n\n"
                 f"[REGRA CRÍTICA: escreva SOMENTE sobre o Sol nesta seção — "
                 f"sua vitalidade, direção de vida, identidade consciente, "
@@ -1041,8 +1067,8 @@ def section_chart_context(section_name, chart):
         if time_unknown:
             # Lua estável — dá para fazer Sol+Lua sem Ascendente.
             return _tunk_prefix + (
-                f"Sol: {fmt_position(p['sun'])}\n"
-                f"Lua: {fmt_position(p['moon'])}\n\n"
+                f"Sol: {fmt_position(p['sun'], 'sun', chart)}\n"
+                f"Lua: {fmt_position(p['moon'], 'moon', chart)}\n\n"
                 f"Aspectos relevantes de Sol e Lua (filtrados, priorizados, sem duplicatas): {aspects_line}\n\n"
                 f"[NOTA: Este mapa foi calculado sem horário de nascimento. Não interprete "
                 f"como uma tríade — não há Ascendente. Sintetize a dupla Sol/Lua e como "
