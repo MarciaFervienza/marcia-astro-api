@@ -1213,17 +1213,20 @@ def _rewrite_sentence(sentence, violations_here, call_claude_fn):
 # ============================================================
 # ORQUESTRADOR
 # ============================================================
-def run_verifier(text, chart, call_claude_fn):
-    """Roda todas as detecções, agrupa por frase, reescreve as frases
-    afetadas (até 2 tentativas), retorna (texto_corrigido, log_de_violações).
-    Nunca levanta — falha em qualquer detector é logada e o resto segue."""
-    if not text:
-        return text, []
 
-    # Texto fixo de template aprovado não entra em nenhum scan (offsets
-    # preservados — a máscara troca por espaços do mesmo comprimento).
+
+def _detectar_tudo(text, chart):
+    """TODAS as detecções, numa rotina só.
+
+    Extraída de run_verifier em 18/07 para que o scan inicial E a
+    verificação pós-aplicação usem exatamente o mesmo código. Duas rotinas
+    de detecção seriam a segunda lista que já nos mordeu — e aqui o risco é
+    pior: a checagem final poderia dizer "limpo" por não procurar o que o
+    scan procura.
+
+    Retorna a lista de violações (sem status; quem aplica é run_verifier).
+    """
     scan_text = _mask_fixed_templates(text)
-
     violations_all = []  # cada item: {"kind","match","offset","suggestion","sentence_idx"}
 
     def _add(kind, match_text, offset, suggestion=""):
@@ -1374,6 +1377,22 @@ def run_verifier(text, chart, call_claude_fn):
     except Exception as e:
         logger.warning("verifier 4b/4c failed: %s", e)
 
+    return violations_all
+
+
+def run_verifier(text, chart, call_claude_fn):
+    """Roda todas as detecções, agrupa por frase, reescreve as frases
+    afetadas (até 2 tentativas), retorna (texto_corrigido, log_de_violações).
+    Nunca levanta — falha em qualquer detector é logada e o resto segue."""
+    if not text:
+        return text, []
+
+    # Texto fixo de template aprovado não entra em nenhum scan (offsets
+    # preservados — a máscara troca por espaços do mesmo comprimento).
+    scan_text = _mask_fixed_templates(text)
+
+    violations_all = _detectar_tudo(text, chart)
+
     if not violations_all:
         return text, []
 
@@ -1460,6 +1479,38 @@ def run_verifier(text, chart, call_claude_fn):
             )
             for v in vs:
                 log_out.append({**v, "status": "failed_kept_original", "attempts": 2})
+
+
+    # ================================================================
+    # VERIFICAÇÃO PÓS-APLICAÇÃO (18/07) — o verifier verificando a si mesmo.
+    #
+    # Ele nunca teve isto. O log dizia "corrected" e o texto final podia
+    # continuar errado — ou ficar PIOR: no Lucca, a instrução de
+    # inconsistência de casa não dizia qual era a certa, o reescritor
+    # uniformizou para a errada, e o log registrou sucesso. Corrupção
+    # silenciosa é pior que defeito não detectado.
+    #
+    # Aqui as MESMAS detecções rodam sobre o texto CORRIGIDO. Toda violação
+    # marcada como "corrected" que reaparecer vira `persistiu`; qualquer
+    # violação NOVA que a reescrita tenha introduzido vira `introduzida`.
+    # As duas sobem no log com status próprio — alto, não em silêncio.
+    try:
+        _post = _detectar_tudo(corrected, chart)
+        _antes_keys = {(v["kind"], v["match"]) for v in violations_all}
+        _corrigidas = {(v["kind"], v["match"]) for v in log_out
+                       if v.get("status") == "corrected"}
+        for _v in _post:
+            _k = (_v["kind"], _v["match"])
+            if _k in _corrigidas:
+                log_out.append({**_v, "status": "PERSISTIU_APOS_CORRECAO"})
+                logger.warning("verifier: violação persistiu após correção: %s %r",
+                               _v["kind"], _v["match"][:60])
+            elif _k not in _antes_keys:
+                log_out.append({**_v, "status": "INTRODUZIDA_PELA_REESCRITA"})
+                logger.warning("verifier: reescrita INTRODUZIU violação: %s %r",
+                               _v["kind"], _v["match"][:60])
+    except Exception as _e:
+        logger.warning("verificação pós-aplicação falhou: %s", _e)
 
     return corrected, log_out
 
@@ -1563,17 +1614,34 @@ def _detect_house_inconsistency(text, chart):
     if not pontos:
         return out
     vistos = {}
-    pat = rf"\b({_CORPO_RE})\b[^.!?]{{0,40}}?\bcasa\s+(\d{{1,2}})\b"
+    # LIGAÇÃO PELO CORPO MAIS PRÓXIMO (corrigido 18/07).
+    # A primeira versão casava `(corpo) … casa N` e pegava o PRIMEIRO nome do
+    # trecho: em "Saturno acompanha Plutão em Capricórnio na casa 4" ela
+    # atribuía a casa a SATURNO. Agora ancora em "casa N" e procura o corpo
+    # imediatamente ANTES — que é a quem a casa pertence em português.
+    pat = rf"\bcasa\s+(\d{{1,2}})\b"
     for m in re.finditer(pat, text, flags=re.IGNORECASE):
-        nome = re.sub(r"\s+", " ", m.group(1).strip().lower())
-        casa = int(m.group(2))
+        janela = text[max(0, m.start() - 60):m.start()]
+        if re.search(r"[.!?]", janela[::-1][:0] or ""):
+            pass
+        corpos = list(re.finditer(rf"\b({_CORPO_RE})\b", janela, flags=re.IGNORECASE))
+        if not corpos:
+            continue
+        # o mais próximo = o último da janela; e não pode haver ponto final
+        # entre ele e "casa N" (aí são frases diferentes)
+        ult = corpos[-1]
+        if re.search(r"[.!?]", janela[ult.end():]):
+            continue
+        nome = re.sub(r"\s+", " ", ult.group(1).strip().lower())
+        casa = int(m.group(1))
         key = _PT2KEY.get(nome)
         if not key or key not in pontos:
             continue
         real = pontos[key].get("house_geometric") or pontos[key].get("house")
-        vistos.setdefault(key, []).append((casa, m.start(), m.group(0)))
+        _trecho = janela[ult.start():] + m.group(0)
+        vistos.setdefault(key, []).append((casa, m.start(), _trecho))
         if real and casa != real:
-            out.append({"kind": "fato:casa_errada", "match": m.group(0)[:60],
+            out.append({"kind": "fato:casa_errada", "match": _trecho[:60],
                         "offset": m.start(),
                         "suggestion": (f"o texto diz casa {casa} para {m.group(1)}, "
                                        f"mas a tabela deste mapa diz casa {real}. "
@@ -1581,10 +1649,21 @@ def _detect_house_inconsistency(text, chart):
     for key, itens in vistos.items():
         casas = {c for c, _, _ in itens}
         if len(casas) > 1:
+            real = pontos[key].get("house_geometric") or pontos[key].get("house")
+            nome_pt = itens[0][2]
+            # A SUGESTÃO PRECISA DIZER QUAL É A CERTA (18/07).
+            # A primeira versão dizia só "atribui mais de uma casa ([4, 5]) —
+            # contradição interna", sem a resposta. O reescritor uniformizou
+            # para a ERRADA: o texto dizia casa 5 (correta) e saiu casa 4.
+            # Detector correto + instrução ambígua = corruptor. Pior que não
+            # detectar, porque estraga texto que estava certo.
             out.append({"kind": "fato:casa_inconsistente",
-                        "match": itens[0][2][:60], "offset": itens[0][1],
+                        "match": nome_pt[:60], "offset": itens[0][1],
                         "suggestion": (f"o relatório atribui MAIS DE UMA casa ao mesmo "
-                                       f"corpo ({sorted(casas)}) — contradição interna.")})
+                                       f"corpo ({sorted(casas)}) — contradição interna. "
+                                       f"A CORRETA, pela tabela deste mapa, é a casa "
+                                       f"{real}. Uniformizar para {real}; NUNCA para "
+                                       f"outra das listadas.")})
     return out
 
 
