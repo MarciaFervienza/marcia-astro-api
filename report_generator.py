@@ -938,7 +938,7 @@ def section_chart_context(section_name, chart):
 
     # Compute filtered aspects for this section once (also records into _section_aspect_audit)
     filtered_aspects = aspects_for_section_filtered(section_name, chart)
-    aspects_line = fmt_filtered_aspects(filtered_aspects, section['name'])
+    aspects_line = fmt_filtered_aspects(filtered_aspects, section_name)
 
     if section_name == "abertura":
         if moon_uncertain:
