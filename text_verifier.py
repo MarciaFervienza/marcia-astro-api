@@ -387,33 +387,75 @@ def _detect_netuno_plutao_mention(text):
     return out
 
 
-def _detect_sign_as_generational_agent(text):
-    """Item 8: SIGNO não carrega nada para uma geração — planeta transpessoal
-    em signo, sim.
+# Faixas de velocidade — quanto tempo o corpo fica num signo decide QUE
+# linguagem coletiva a frase pode usar (refinamento da Márcia, 18/07):
+_TRANSPESSOAIS = ("urano", "netuno", "plutão", "plutao")   # 7 a 20 anos
+_SOCIAIS = ("júpiter", "jupiter", "saturno")               # 1 e 2,5 anos
+_PESSOAIS = ("sol", "lua", "mercúrio", "mercurio", "vênus", "venus", "marte")
 
-    "O signo de Escorpião carrega, para toda a sua geração, …" está errado:
-    todo mundo tem Escorpião em algum lugar do mapa. O que marca geração é
-    Plutão/Netuno/Urano EM Escorpião. Flagra 'signo + linguagem geracional'
-    quando não há planeta transpessoal na mesma frase.
+# "geração" é forte: só transpessoal sustenta. "coorte", "quem nasceu por
+# volta de", "faixa etária" servem também para social — Saturno em Escorpião
+# É compartilhado com quem nasceu na mesma época, só não é uma geração.
+_GER_FORTE = r"gera(?:ção|cao|cional|cionais)|toda\s+uma\s+gera|sua\s+gera"
+_GER_FRACO = (r"coorte|quem\s+nasceu|faixa\s+etária|mesma\s+época|"
+              r"nascid[oa]s?\s+n[ao]|coletiv[ao]")
+
+
+def _detect_sign_as_generational_agent(text):
+    """Linguagem coletiva sustentada pelo corpo certo?
+
+    Regra da Márcia, por faixa de velocidade:
+      · transpessoal (Urano/Netuno/Plutão) em signo → "geração", "coletivo",
+        "coorte": tudo permitido;
+      · social (Júpiter/Saturno) em signo → "coorte", "quem nasceu por volta
+        de", "faixa etária"; NUNCA "geração" (Júpiter fica 1 ano num signo,
+        Saturno 2,5);
+      · pessoal (Sol a Marte) → nenhuma linguagem coletiva.
+
+    JANELA = PARÁGRAFO, não frase (18/07). Uma frase pode continuar o
+    parágrafo anterior sem renomear o planeta: "O que essa geração carrega
+    coletivamente…" seguia um parágrafo sobre Plutão em Capricórnio — a
+    janela de frase não via o planeta e acusava.
     """
     out = []
-    ger = (r"gera(?:ção|cao|cional|cionais)|coorte|toda\s+uma\s+gera|"
-           r"sua\s+gera|pessoas\s+nascidas")
-    for m in re.finditer(rf"[^.!?]*\b(?:{_SIGN_NAMES_PT})\b[^.!?]*", text):
-        seg = m.group(0)
-        if not re.search(ger, seg, flags=re.IGNORECASE):
+    pos = 0
+    for par in re.split(r"\n\s*\n", text):
+        base = text.index(par, pos) if par.strip() else pos
+        pos = base + len(par)
+        if not par.strip() or par.strip().startswith("##"):
             continue
-        if any(p.lower() in seg.lower() for p in _TRANSPESSOAIS):
-            continue                      # tem o planeta: construção correta
-        if not re.search(r"\bo\s+signo\b|\bsigno\s+de\b|\b(?:carrega|marca|"
-                         r"define|descreve|traz)\b", seg, flags=re.IGNORECASE):
+        low = par.lower()
+        forte = re.search(_GER_FORTE, low)
+        fraco = re.search(_GER_FRACO, low)
+        if not (forte or fraco):
             continue
-        out.append({"kind": "geracional:signo_como_agente", "match": seg.strip()[:70],
-                    "offset": m.start(),
-                    "suggestion": ("signo não carrega nada para uma geração — quem "
-                                   "marca geração é o PLANETA TRANSPESSOAL no signo. "
-                                   "Reescrever como 'o que Plutão/Netuno/Urano em "
-                                   "<signo> carrega' ou remover a moldura geracional.")})
+        # que corpos aparecem NESTE parágrafo?
+        tem_trans = any(re.search(rf"\b{p}\b", low) for p in _TRANSPESSOAIS)
+        tem_social = any(re.search(rf"\b{p}\b", low) for p in _SOCIAIS)
+        tem_pessoal = any(re.search(rf"\b{p}\b", low) for p in _PESSOAIS)
+        if tem_trans:
+            continue                     # transpessoal sustenta qualquer termo
+        alvo, motivo = None, None
+        if forte and tem_social:
+            alvo, motivo = forte, (
+                "planeta SOCIAL (Júpiter fica ~1 ano num signo, Saturno ~2,5) "
+                "não define geração. Trocar 'geração' por 'coorte', 'quem "
+                "nasceu por volta dessa época' ou 'faixa etária' — ou nomear "
+                "o transpessoal (Urano/Netuno/Plutão) se for dele que se fala")
+        elif (forte or fraco) and tem_pessoal and not tem_social:
+            alvo, motivo = (forte or fraco), (
+                "corpo PESSOAL não fala de coletivo: ele muda de signo em dias "
+                "ou semanas. Remover a moldura coletiva desta frase")
+        elif forte and not (tem_social or tem_pessoal):
+            alvo, motivo = forte, (
+                "nenhum corpo nomeado sustenta 'geração'. Nomear o planeta "
+                "transpessoal em signo, ou remover a moldura coletiva")
+        if alvo is None:
+            continue
+        out.append({"kind": "geracional:signo_como_agente",
+                    "match": par.strip()[:70],
+                    "offset": base + alvo.start(),
+                    "suggestion": motivo + "."})
     return out
 
 
@@ -1788,10 +1830,15 @@ def _corpo_da_secao(texto, pos):
     if not cab:
         return None
     prefixo = cab.split(":")[0]
-    achado = re.search(rf"\b({_CORPO_RE})\b", prefixo, flags=re.IGNORECASE)
-    if not achado:
+    # TODOS os corpos do título, não só o primeiro. Seções como
+    # "Sol e Saturno" têm dois sujeitos possíveis, e a frase pode ser sobre
+    # qualquer um deles: "Quando Saturno está em oposição a Quíron" numa
+    # seção "Sol e Saturno" foi emparelhada com SOL e virou falso positivo
+    # (18/07). Com sujeito ambíguo, só se acusa se NENHUM candidato servir.
+    achados = re.findall(rf"\b({_CORPO_RE})\b", prefixo, flags=re.IGNORECASE)
+    if not achados:
         return None
-    return re.sub(r"\s+", " ", achado.group(1).strip().lower())
+    return [re.sub(r"\s+", " ", a.strip().lower()) for a in achados]
 
 
 def _detect_asserted_aspect(text, chart):
@@ -1824,7 +1871,13 @@ def _detect_asserted_aspect(text, chart):
         #   "<aspecto> ENTRE A E B"  → par explícito.
         #   "A <aspecto> B"          → par explícito.
         cand = []
-        m_com = re.match(r"\s+com\s+(?:a|o|as|os|sua|seu)?\s*"
+        # Preposições da forma elíptica. Só "com" estava previsto; o texto
+        # real usa também "a/ao/aos/à/às" ("a quadratura AOS Nodos"). Sem
+        # reconhecer, caía na regra genérica e emparelhava dois corpos que a
+        # frase não relaciona — falso positivo na Helena, 18/07:
+        # "a conjunção com Júpiter e Mercúrio, a quadratura aos Nodos, o
+        #  sextil com Plutão" virou "Mercúrio quadratura Plutão".
+        m_com = re.match(r"\s+(?:com|ao?s?|às?)\s+(?:a|o|as|os|sua|seu)?\s*"
                          rf"({_CORPO_RE})\b", depois, flags=re.IGNORECASE)
         m_entre = re.match(r"\s+entre\s+(?:a|o|as|os|sua|seu)?\s*"
                            rf"({_CORPO_RE})\b[^.]{{0,20}}?\se\s+(?:a|o|sua|seu)?\s*"
@@ -1832,9 +1885,33 @@ def _detect_asserted_aspect(text, chart):
         if m_entre:
             cand = [m_entre.group(1), m_entre.group(2)]
         elif m_com:
-            _suj = _corpo_da_secao(text, m.start())
-            if _suj:
-                cand = [_suj, m_com.group(1)]
+            _sujs = _corpo_da_secao(text, m.start()) or []
+            _alvo = m_com.group(1)
+            _ka = _PT2KEY.get(re.sub(r"\s+", " ", _alvo.strip().lower()))
+            # sujeito AMBÍGUO (seção com dois corpos): se QUALQUER um deles
+            # tiver esse aspecto com o alvo, a frase é plausível — não acusa.
+            _plausivel = False
+            for _s in _sujs:
+                _ks = _PT2KEY.get(_s)
+                if not _ks or not _ka:
+                    continue
+                if any(o == _ka and t == tipo for o, t in _aspectos_reais_de(chart, _ks)):
+                    _plausivel = True
+                    break
+            if _plausivel:
+                continue
+            if len(_sujs) == 1:
+                cand = [_sujs[0], _alvo]
+            else:
+                continue        # ambíguo e nenhum serve: sinaliza pelo par explícito
+        elif re.match(r"\s+(?:com|ao?s?|às?|entre)\s", depois):
+            # A frase TEM preposição de aspecto, mas o que vem depois não é
+            # um corpo reconhecido ("a quadratura aos Nodos"). Cair na regra
+            # genérica aqui INVENTA um par: foi assim que "a conjunção com
+            # Júpiter e Mercúrio, a quadratura aos Nodos, o sextil com
+            # Plutão" virou "Mercúrio quadratura Plutão" (Helena, 18/07).
+            # Sem par confiável, não acusa.
+            continue
         elif c_antes and c_depois:
             cand = [c_antes[-1].group(1), c_depois[0].group(1)]
         if len(cand) != 2:

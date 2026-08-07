@@ -68,7 +68,13 @@ CANARIOS = [
     ("Netuno-Plutão geracional",
      lambda t: tv._detect_netuno_plutao_mention(t),
      "O sextil entre Netuno e Plutão marca a coorte inteira."),
-    ("signo como agente geracional",
+    ("geracional: social + 'geração' (proibido)",
+     lambda t: tv._detect_sign_as_generational_agent(t),
+     "Júpiter em Touro marca uma geração inteira voltada ao valor material."),
+    ("geracional: pessoal + coletivo (proibido)",
+     lambda t: tv._detect_sign_as_generational_agent(t),
+     "Vênus em Libra descreve o gosto coletivo de toda uma geração."),
+    ("geracional: sem planeta (proibido)",
      lambda t: tv._detect_sign_as_generational_agent(t),
      "O signo de Peixes carrega, para toda a sua geração, uma névoa."),
 
@@ -153,6 +159,33 @@ _LEX_CANARIOS = {
 }
 
 
+# Frases que NÃO podem acender — falso positivo é tão grave quanto detector
+# morto: gasta reescrita em texto correto e pode corrompê-lo.
+NEGATIVOS = [
+    ("transpessoal pode dizer geração",
+     lambda t: tv._detect_sign_as_generational_agent(t),
+     "Netuno em Peixes dá a essa geração uma permeabilidade ao invisível."),
+    ("social pode dizer coorte",
+     lambda t: tv._detect_sign_as_generational_agent(t),
+     "Júpiter em Touro marca a coorte que nasceu por volta dessa época."),
+    ("parágrafo anterior nomeia o transpessoal",
+     lambda t: tv._detect_sign_as_generational_agent(t),
+     "Plutão em Capricórnio desmonta o que foi construído sobre bases "
+     "frágeis. O que essa geração carrega coletivamente é uma relação com "
+     "estrutura e colapso."),
+    ("enumeração de aspectos com 'aos'",
+     lambda t: tv._detect_asserted_aspect(t, H),
+     "# M\n\n## Sol\n\nA quadratura aos Nodos já foi lida antes."),
+    ("seção com dois sujeitos",
+     lambda t: tv._detect_asserted_aspect(t, H),
+     "# M\n\n## Sol e Saturno: seu ideal\n\n"
+     "Quando Saturno está em oposição a Quíron, há uma ferida."),
+    ("corpo realmente no signo do ângulo",
+     lambda t: tv._detect_angle_claims(t, L),
+     "Lilith aparece junto ao Ascendente."),
+]
+
+
 def _lex_hits(texto):
     achados = []
     for entry in tv._FORBIDDEN_LEXICON:
@@ -183,6 +216,19 @@ def main():
         else:
             mortos.append(nome)
             print(f"  MORTO   {nome}   → {r}")
+
+    print("\nA2) NEGATIVOS — não podem acender")
+    for nome, fn, frase in NEGATIVOS:
+        try:
+            r = fn(frase)
+        except Exception as e:
+            r = [f"ERRO {e}"]
+        if r:
+            mortos.append(f"FALSO POSITIVO: {nome}")
+            print(f"  FALSO+  {nome}   → {r[:1]}")
+        else:
+            vivos += 1
+            print(f"  limpo   {nome}")
 
     print("\nB) CATEGORIAS DE LÉXICO")
     for cat, frase in sorted(_LEX_CANARIOS.items()):
