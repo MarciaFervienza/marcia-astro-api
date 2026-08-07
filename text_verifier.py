@@ -1400,6 +1400,12 @@ def run_verifier(text, chart, call_claude_fn):
     sentences = _split_sentences(text)
     per_sent = {}
     for v in violations_all:
+        # Violação SINALIZADA: entra no log, não vai para reescrita. É a
+        # saída honesta quando não se sabe qual lado é o certo — melhor que
+        # deixar o reescritor adivinhar (foi assim que o casa_inconsistente
+        # corrompeu texto correto, 18/07).
+        if v.get("no_rewrite"):
+            continue
         info = _sentence_for_offset(sentences, v["offset"])
         if info is None:
             continue
@@ -1542,14 +1548,20 @@ def _reverify_sentence(sentence, prior_violations, chart):
                         "offset": offset,
                         "suggestion": "usar um único nome de aspecto"})
         for match_text, offset in _detect_broken_aspect_pair(sentence):
+            _c = re.search(rf"\b({_CORPO_RE})\b", match_text, flags=re.IGNORECASE)
             out.append({"kind": "aspecto:par_incompleto", "match": match_text,
                         "offset": offset,
-                        "suggestion": "aspecto precisa de dois corpos nomeados"})
+                        "suggestion": _sugestao_par_aspecto(
+                            chart, _c.group(1) if _c else None)})
     if "contagem" in kinds:
         for match_text, offset, exp, act in _detect_count_mismatch(sentence):
             out.append({"kind": "contagem:desbatida", "match": match_text,
                         "offset": offset,
-                        "suggestion": f"anuncia {exp} mas enumera {act}"})
+                        "suggestion": (f"o texto anuncia {exp} e enumera {act}. NÃO É POSSÍVEL "
+                            f"saber qual lado é o correto a partir do texto — pode "
+                            f"faltar um item ou sobrar no anúncio. SINALIZADO, sem "
+                            f"reescrita automática."),
+             "no_rewrite": True})
     # spellcheck desligado na re-verificação também (ver 2e acima)
     if "voz" in kinds:
         for kind, match_text, offset, sugg in _detect_voice_violations(sentence, chart):
@@ -1602,6 +1614,57 @@ _PT2KEY = {
 }
 
 
+
+def _corpo_mais_proximo_antes(texto, pos, limite=70):
+    """O corpo nomeado imediatamente ANTES de `pos`, sem cruzar ponto final.
+
+    Ancorar no ATRIBUTO e buscar o corpo para trás é o oposto do que os
+    detectores faziam: eles casavam `(corpo) … atributo` e pegavam o
+    PRIMEIRO nome do trecho. Em "Saturno acompanha Plutão em Capricórnio na
+    casa 4" isso atribuía a casa a Saturno — e como Saturno está mesmo na 4,
+    nada era acusado (18/07). Em português o atributo pertence ao corpo mais
+    próximo à esquerda.
+    """
+    janela = texto[max(0, pos - limite):pos]
+    corpos = list(re.finditer(rf"\b({_CORPO_RE})\b", janela, flags=re.IGNORECASE))
+    if not corpos:
+        return None, None
+    ult = corpos[-1]
+    if re.search(r"[.!?]", janela[ult.end():]):
+        return None, None          # ponto final entre eles: outra frase
+    return re.sub(r"\s+", " ", ult.group(1).strip().lower()), janela[ult.start():]
+
+
+
+def _sugestao_par_aspecto(chart, corpo_pt):
+    """Instrução para template de aspecto quebrado — COM a resposta.
+
+    A versão anterior dizia só "aspecto precisa de dois corpos nomeados",
+    sem dizer QUAL é o segundo. Isso é a mesma forma que fez o
+    casa_inconsistente corromper: o reescritor resolve como pode, e aqui
+    "como pode" significa INVENTAR um corpo. Agora a sugestão lista os
+    aspectos reais daquele corpo neste mapa.
+    """
+    if not corpo_pt:
+        return ("o nome de um aspecto precisa de DOIS corpos. Reescrever "
+                "nomeando os dois, ou remover a menção ao aspecto.")
+    key = _PT2KEY.get(re.sub(r"\s+", " ", corpo_pt.strip().lower()))
+    reais = []
+    for a in ((chart or {}).get("aspects") or []):
+        pa, pb = a.get("planet_a"), a.get("planet_b")
+        if key in (pa, pb):
+            outro = pb if pa == key else pa
+            nome_outro = next((k for k, v in _PT2KEY.items() if v == outro), outro)
+            reais.append(f"{a.get('type_pt', a.get('type'))} com {nome_outro}")
+    if not reais:
+        return (f"o nome de um aspecto precisa de DOIS corpos, e {corpo_pt} NÃO tem "
+                f"aspectos neste mapa. REMOVER a menção ao aspecto — não inventar "
+                f"o segundo corpo.")
+    return (f"o nome de um aspecto precisa de DOIS corpos. Os aspectos REAIS de "
+            f"{corpo_pt} neste mapa são: {'; '.join(reais)}. Nomear o par correto "
+            f"a partir desta lista, ou remover a menção. NUNCA inventar o segundo corpo.")
+
+
 def _detect_house_inconsistency(text, chart):
     """Um corpo com DUAS casas diferentes ao longo do relatório.
 
@@ -1643,7 +1706,7 @@ def _detect_house_inconsistency(text, chart):
         if real and casa != real:
             out.append({"kind": "fato:casa_errada", "match": _trecho[:60],
                         "offset": m.start(),
-                        "suggestion": (f"o texto diz casa {casa} para {m.group(1)}, "
+                        "suggestion": (f"o texto diz casa {casa} para {nome}, "
                                        f"mas a tabela deste mapa diz casa {real}. "
                                        f"Corrigir para {real} ou remover a menção.")})
     for key, itens in vistos.items():
@@ -1681,12 +1744,13 @@ def _detect_angle_claims(text, chart):
     """
     out = []
     ch = chart or {}
-    pat = (rf"\b({_CORPO_RE})\b[^.!?]{{0,45}}?"
-           r"\b(?:na|no|sobre\s+a|junto\s+à|conjunto\s+ao)\s+"
+    pat = (r"\b(?:na|no|sobre\s+a|junto\s+à|conjunto\s+ao)\s+"
            r"(?:cúspide\s+d[oa]\s+)?(meio[\s-]do[\s-]céu|ascendente|MC|Asc)\b")
     for m in re.finditer(pat, text, flags=re.IGNORECASE):
-        nome = re.sub(r"\s+", " ", m.group(1).strip().lower())
-        ang = _ANGULOS.get(re.sub(r"[\s-]+", " ", m.group(2).strip().lower()))
+        nome, trecho = _corpo_mais_proximo_antes(text, m.start())
+        if not nome:
+            continue
+        ang = _ANGULOS.get(re.sub(r"[\s-]+", " ", m.group(1).strip().lower()))
         key = _PT2KEY.get(nome)
         if not key or not ang:
             continue
@@ -1695,16 +1759,21 @@ def _detect_angle_claims(text, chart):
         if not p or not a:
             continue
         if str(p.get("sign", "")).lower() != str(a.get("sign", "")).lower():
-            out.append({"kind": "fato:angulo_errado", "match": m.group(0)[:70],
+            out.append({"kind": "fato:angulo_errado",
+                        "match": ((trecho or "") + m.group(0))[:70],
                         "offset": m.start(),
-                        "suggestion": (f"{m.group(1)} está em {p.get('sign_pt')} e o "
-                                       f"{m.group(2)} em {a.get('sign_pt')} — não estão "
-                                       f"juntos. Remover a afirmação de conjunção ao ângulo.")})
+                        "suggestion": (f"{nome} está em {p.get('sign_pt')} e o "
+                                       f"{m.group(1)} em {a.get('sign_pt')} — não estão "
+                                       f"juntos. REMOVER a afirmação de conjunção ao "
+                                       f"ângulo; não trocar por outro ângulo.")})
     return out
 
 
-# REGÊNCIA: aceita tradicional E moderna. Só acusa quando a afirmação está
-# errada nos DOIS sistemas — a escolha entre eles é da Márcia, não minha.
+
+# REGÊNCIA: moderna como principal, tradicional como corregente — é como a
+# Márcia lê (confirmado 17/07). Plutão rege Escorpião com Marte corregente;
+# Urano rege Aquário com Saturno; Netuno rege Peixes com Júpiter. Só acusa
+# quando a afirmação está errada nos DOIS sistemas.
 _REGENCIA = {
     "aries": {"mars"}, "áries": {"mars"},
     "taurus": {"venus"}, "touro": {"venus"},
@@ -1713,11 +1782,11 @@ _REGENCIA = {
     "leo": {"sun"}, "leão": {"sun"},
     "virgo": {"mercury"}, "virgem": {"mercury"},
     "libra": {"venus"},
-    "scorpio": {"mars", "pluto"}, "escorpião": {"mars", "pluto"},
+    "scorpio": {"pluto", "mars"}, "escorpião": {"pluto", "mars"},
     "sagittarius": {"jupiter"}, "sagitário": {"jupiter"},
     "capricorn": {"saturn"}, "capricórnio": {"saturn"},
-    "aquarius": {"saturn", "uranus"}, "aquário": {"saturn", "uranus"},
-    "pisces": {"jupiter", "neptune"}, "peixes": {"jupiter", "neptune"},
+    "aquarius": {"uranus", "saturn"}, "aquário": {"uranus", "saturn"},
+    "pisces": {"neptune", "jupiter"}, "peixes": {"neptune", "jupiter"},
 }
 
 
@@ -1729,21 +1798,30 @@ def _detect_rulership(text, chart):
     """
     out = []
     pontos = (chart or {}).get("points") or {}
-    pat = (rf"\b({_CORPO_RE})\b[^.!?]{{0,25}}?\breg[e|em|ência\s+d]"
-           rf"[^.!?]{{0,25}}?\b({_CORPO_RE})\b")
-    for m in re.finditer(pat, text, flags=re.IGNORECASE):
-        reg = _PT2KEY.get(re.sub(r"\s+", " ", m.group(1).strip().lower()))
-        alvo = _PT2KEY.get(re.sub(r"\s+", " ", m.group(2).strip().lower()))
+    for m in re.finditer(r"\breg(?:e|em|ida?\s+por|ência\s+d[eao])\b",
+                         text, flags=re.IGNORECASE):
+        reg_nome, _ = _corpo_mais_proximo_antes(text, m.start())
+        depois = text[m.end():m.end() + 40]
+        alvo_m = re.search(rf"\b({_CORPO_RE})\b", depois, flags=re.IGNORECASE)
+        if not reg_nome or not alvo_m:
+            continue
+        if re.search(r"[.!?]", depois[:alvo_m.start()]):
+            continue
+        reg = _PT2KEY.get(reg_nome)
+        alvo = _PT2KEY.get(re.sub(r"\s+", " ", alvo_m.group(1).strip().lower()))
         if not reg or not alvo or alvo not in pontos:
             continue
         signo = str(pontos[alvo].get("sign", "")).lower()
         validos = _REGENCIA.get(signo)
         if validos and reg not in validos:
             certo = ", ".join(sorted(validos))
-            out.append({"kind": "fato:regencia_errada", "match": m.group(0)[:70],
+            out.append({"kind": "fato:regencia_errada",
+                        "match": f"{reg_nome} rege {alvo_m.group(1)}"[:70],
                         "offset": m.start(),
-                        "suggestion": (f"{m.group(2)} está em {pontos[alvo].get('sign_pt')}, "
-                                       f"regido por {certo} — não por {m.group(1)}.")})
+                        "suggestion": (f"{alvo_m.group(1)} está em "
+                                       f"{pontos[alvo].get('sign_pt')}, regido por "
+                                       f"{certo} — não por {reg_nome}. Corrigir para "
+                                       f"{certo}.")})
     return out
 
 
