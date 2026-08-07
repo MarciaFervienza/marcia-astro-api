@@ -87,6 +87,25 @@ _FORBIDDEN_LEXICON = [
     # --- PORTUGUÊS EUROPEU (17/07, 2ª rodada) -------------------------
     # São palavras portuguesas CORRETAS — em PT-PT. Nenhum corretor as
     # acusa; só uma lista explícita as pega. O relatório é pt-BR.
+    # Ampliação de 19/07, ao desligar o spell_lint: ele era a única camada
+    # que tocava (mal) nestas formas. Medido antes de escrever — o léxico
+    # cobria 28 de 48 grafias pt-PT testadas. Estas são as que faltavam e
+    # que NÃO são também palavra válida em pt-BR (por isso "rapaz" fica de
+    # fora: em pt-BR é palavra corrente, não marca de Portugal).
+    (r"\bactiv[oa](s)?\b",  "pt_europeu", "ativo(a)(s)"),
+    (r"\bafect(?:ar|a|ou|am|ando|ado|ada)\b", "pt_europeu", "afetar/afeta/afetou"),
+    (r"\bafecto(s)?\b",     "pt_europeu", "afeto(s)"),
+    (r"\breacção|\breacções\b", "pt_europeu", "reação/reações"),
+    (r"\bgénero(s)?\b",     "pt_europeu", "gênero(s)"),
+    (r"\bautónom[ao](s)?\b", "pt_europeu", "autônomo(a)(s)"),
+    (r"\bsinónimo(s)?\b",   "pt_europeu", "sinônimo(s)"),
+    (r"\btelefónic[ao](s)?\b", "pt_europeu", "telefônico(a)"),
+    (r"\bcónjuge(s)?\b",    "pt_europeu", "cônjuge(s)"),
+    (r"\bsubti(?:l|s)\b",   "pt_europeu", "sutil/sutis"),
+    (r"\bregisto(s)?\b",    "pt_europeu", "registro(s)"),
+    (r"\bpercepcionar\b",   "pt_europeu", "perceber"),
+    (r"\butente(s)?\b",     "pt_europeu", "usuário(s)"),
+    (r"\becrã(s)?\b",       "pt_europeu", "tela(s)"),
     (r"\bcontacto(s)?\b",   "pt_europeu", "contato(s)"),
     (r"\bactiv(?:ar|a|ou|ando|ado|ada)\b", "pt_europeu", "ativar/ativa/ativou/ativando"),
     (r"\bcontact(ar|a|ou|ando)\b", "pt_europeu", "contatar/contata/contatou/contatando"),
@@ -1977,10 +1996,44 @@ def _corpo_da_secao(texto, pos):
 
 def _par_antes(antes):
     """Par de corpos IMEDIATAMENTE antes do nome do aspecto: "Vênus-Quíron
-    em sextil", "Mercúrio e Marte em trígono". Uma função só — as duas
-    cópias que isto substitui saíram de sincronia na primeira edição."""
-    return re.search(rf"\b({_CORPO_RE})\s*(?:[-–—]|\se\s)\s*({_CORPO_RE})\b"
-                     r"\s+em\s+$", antes, flags=re.IGNORECASE)
+    em sextil", "Mercúrio e Marte em trígono", "O Sol com Plutão em sextil".
+    Uma função só — as duas cópias que isto substitui saíram de sincronia na
+    primeira edição e o detector quebrou com AttributeError."""
+    return re.search(rf"\b({_CORPO_RE})\s*(?:[-–—]|\se\s|\scom\s)\s*"
+                     rf"({_CORPO_RE})\b\s+em\s+$", antes, flags=re.IGNORECASE)
+
+
+# LEVANTAMENTO DE FORMAS (19/07, aprovado pela Márcia: cobrir a CLASSE em
+# vez do exemplo). Varri as 73 ocorrências de nome de aspecto nos dois
+# relatórios e classifiquei por qual ramo do detector as trata. Nenhuma caía
+# mais na regra genérica — mas 7 de 15 abstenções eram par AFIRMADO que o
+# detector ignorava em silêncio. Falso negativo não custa reescrita, e por
+# isso não aparece em nenhum alarme: passa direto para o PDF.
+#
+# As quatro formas que faltavam, todas colhidas do texto real:
+#   · "a oposição Sol-Plutão"                      → par hifenizado DEPOIS
+#   · "a conjunção de Mercúrio com Júpiter"        → "de A com B"
+#   · "o trígono que Saturno forma em Quíron"      → oração relativa
+#   · "O Sol com Plutão em sextil"                 → par antes ligado por "com"
+_ART = r"(?:[oa]s?\s+|seus?\s+|suas?\s+)?"
+
+
+def _par_depois(depois):
+    """Par de corpos DEPOIS do nome do aspecto, nas formas que não usam
+    'entre' nem a elíptica 'com B'."""
+    for pat in (
+        # "a oposição Sol-Plutão", "o trígono Lua-Saturno"
+        rf"^\s+{_ART}({_CORPO_RE})\s*[-–—]\s*({_CORPO_RE})\b",
+        # "a conjunção de Mercúrio com Júpiter", "a quadratura de Juno com seu Mercúrio"
+        rf"^\s+de\s+{_ART}({_CORPO_RE})\s+(?:com|ao?s?|às?)\s+{_ART}({_CORPO_RE})\b",
+        # "o trígono que Saturno forma com/em Quíron"
+        rf"^\s+que\s+{_ART}({_CORPO_RE})\s+(?:forma|faz|estabelece|mantém)\s+"
+        rf"(?:com|em|ao?s?|às?)\s+{_ART}({_CORPO_RE})\b",
+    ):
+        m = re.match(pat, depois, flags=re.IGNORECASE)
+        if m:
+            return m
+    return None
 
 
 def _detect_asserted_aspect(text, chart):
@@ -2035,8 +2088,11 @@ def _detect_asserted_aspect(text, chart):
         m_entre = re.match(rf"{_QUAL}\s+entre\s+(?:a|o|as|os|sua|seu)?\s*"
                            rf"({_CORPO_RE})\b[^.]{{0,20}}?\se\s+(?:a|o|sua|seu)?\s*"
                            rf"({_CORPO_RE})\b", depois, flags=re.IGNORECASE)
+        _pd = _par_depois(depois)
         if m_entre:
             cand = [m_entre.group(1), m_entre.group(2)]
+        elif _pd:
+            cand = [_pd.group(1), _pd.group(2)]
         elif m_com:
             _sujs = _corpo_da_secao(text, m.start()) or []
             _alvo = m_com.group(1)

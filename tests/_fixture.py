@@ -82,4 +82,9 @@ def build_chart(caso=HELENA):
     # zero e eu reportava dois. Chamamos a rotina DE PRODUÇÃO (R3), que
     # grava house_geometric e devolve os movimentos.
     _ch["_house_moves"] = app.apply_five_degree_rule(_ch)
+    # CASCATA DE FILTRO: sem ela a fixture entregava 31 aspectos onde
+    # produção entrega 27 — aceitando 4 que produção descarta por
+    # out_of_sign_dissociated e por applying. Essa mentira é a perigosa:
+    # "Mercúrio quadratura Marte" passaria limpo aqui e seria acusado lá.
+    _ch["aspects"], _ch["_dropped_aspects"] = app.filter_aspects(asp, pts)
     return _ch

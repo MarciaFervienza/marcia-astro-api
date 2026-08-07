@@ -589,6 +589,9 @@ def _parse_birth_inputs(birth_date_raw, birth_time_raw, unknown):
 # =============================================================
 # Geocoding — resolve birth_city → (lat, lng, IANA tz name)
 # =============================================================
+from retry_util import _com_retry, _erro_transitorio  # noqa: F401
+
+
 def _geocode_birth_city(city):
     """Resolve a free-form city string into (latitude, longitude, IANA
     timezone name) via Nominatim (geopy) + timezonefinder.
@@ -615,10 +618,12 @@ def _geocode_birth_city(city):
 
     # Nominatim usage policy requires a distinctive User-Agent.
     geolocator = Nominatim(user_agent="marcia-astro-api/1.0", timeout=15)
-    try:
-        location = geolocator.geocode(city, language="pt", addressdetails=False)
-    except Exception as e:
-        return None, None, None, f"Erro ao consultar geolocalização: {e}"
+    location, geo_exc = _com_retry(
+        lambda: geolocator.geocode(city, language="pt", addressdetails=False),
+        rotulo="geolocalização (Nominatim)",
+    )
+    if geo_exc is not None:
+        return None, None, None, f"Erro ao consultar geolocalização: {geo_exc}"
 
     if location is None:
         return None, None, None, (
@@ -1214,6 +1219,213 @@ def diag_retrieval_endpoint():
 
 
 
+
+
+# ==================================================================
+# CASCATA DE FILTRO DE ASPECTOS — FONTE ÚNICA (extraído 19/07).
+#
+# Quarta rotina de produção presa dentro de generate_report_endpoint.
+# Consequência MEDIDA: a fixture aceitava 4 aspectos da Helena que produção
+# DESCARTA (mercury-mars, mars-lilith, juno-mars por out_of_sign_dissociated;
+# chiron-lilith por applying). Mente na direção perigosa: "Mercúrio quadratura
+# Marte" passaria limpo na varredura local e seria acusado em produção. As
+# outras três mentiras da fixture faziam ver defeito onde não havia; esta
+# esconderia defeito real.
+#
+# unknown_birth_time era lido do closure por _normalize_applying — agora é
+# parâmetro explícito.
+# ==================================================================
+def filter_aspects(raw_aspects, points, unknown_birth_time=False):
+    """Aplica a cascata de orbes/regras. Devolve (kept, dropped)."""
+    _raw_aspects = raw_aspects
+    body = {"points": points}
+    from report_generator import is_in_sign_aspect as _is_in_sign
+
+    # _raw_aspects já montado acima combinando cliente + computados manualmente
+    _points = body.get("points") or {}
+
+    # ----- Constantes do filtro -----
+    _PLANETS = {"sun","moon","mercury","venus","mars","jupiter","saturn","uranus","neptune","pluto"}
+    _TRANSPERSONAL = {"uranus","neptune","pluto"}
+    _ASTEROIDS = {"ceres","vesta","juno","pallas"}
+    _CHIRON_LILITH = {"chiron","lilith"}
+    _NODES = {"north_node","south_node"}
+    # Corpos "menor" nos quais a conjunção com planeta é limitada a 5°.
+    # (Nodos e asteróides tinham regra específica no bloco antigo, mas agora
+    # são interceptados no bloco novo com orbes 6°/6°/4°.)
+    _MINOR_SPECIAL = {"chiron","lilith"}
+
+    # Regras específicas de asteróides/Nodos:
+    #   · SÓ conjunção (max 6°), oposição (max 6°), quadratura (max 4°)
+    #   · Trígono e sextil NÃO são interpretados na prática da Marcia
+    #   · applying=None NÃO descarta esses aspectos (orbes já apertadas
+    #     tornam o critério aplicativo irrelevante)
+    _ASTEROID_NODE_ALL = _ASTEROIDS | _NODES
+    _ASTEROID_NODE_ORB_MAX = {"conjunction": 6.0, "opposition": 6.0, "square": 4.0}
+
+    # Orbe padrão máximo por tipo de aspecto (planetas entre si)
+    _ORB_MAX = {
+        "conjunction": 12.0,
+        "opposition":  10.0,
+        "square":      10.0,
+        "trine":        8.0,
+        "sextile":      6.0,
+    }
+    # Acima deste orbe, o aspecto SÓ passa se applying==True
+    _APPLYING_REQUIRED_ABOVE = {
+        "conjunction": 8.0,
+        "opposition":  8.0,
+        "square":      8.0,
+    }
+
+    def _weight_and_strength(orb):
+        """Peso categórico (dominant → conjunction_only) + strength geométrica linear.
+        strength = 1 - orb/12, clampado em [0, 1] — vai a 1 no aspecto exato."""
+        s = max(0.0, min(1.0, 1.0 - orb / 12.0))
+        s = round(s, 3)
+        if orb < 2.0:  return "dominant",         s
+        if orb < 4.0:  return "very_strong",      s
+        if orb < 6.0:  return "strong",           s
+        if orb < 8.0:  return "moderate",         s
+        if orb < 10.0: return "weak",             s
+        return           "conjunction_only",      s
+
+    def _normalize_applying(a):
+        """Aceita: bool, None, 'Applying'/'Separating' string, ausente.
+        Retorna True/False/None. Trata Lua como incerta em mapas sem hora."""
+        # Regra especial: aspectos envolvendo Lua em unknown_birth_time são
+        # intrinsecamente incertos — Lua move ~13°/dia, o valor de applying
+        # calculado para meio-dia default não é confiável.
+        if unknown_birth_time and ("moon" in (a.get("planet_a"), a.get("planet_b"))):
+            return None
+        v = a.get("applying")
+        if v is True or v is False:
+            return v
+        if isinstance(v, str):
+            vl = v.lower()
+            if vl in ("applying", "aplicativo", "aplicando"): return True
+            if vl in ("separating", "separativo", "separando"): return False
+        return None  # ausente ou irreconhecível
+
+    kept = []
+    dropped = []
+
+    def _drop(a, reason, **extras):
+        dropped.append({
+            **{k: a.get(k) for k in ("planet_a","planet_b","type","orb")},
+            "reason": reason, **extras,
+        })
+
+    for a in _raw_aspects:
+        pa = a.get("planet_a")
+        pb = a.get("planet_b")
+        atype = a.get("type")
+        orb = float(a.get("orb", 0.0) or 0.0)
+        applying = _normalize_applying(a)
+
+        # Etapa 1: aspecto in-sign obrigatório (regra pré-existente)
+        sa = (_points.get(pa) or {}).get("sign")
+        sb = (_points.get(pb) or {}).get("sign")
+        if not (sa and sb) or not _is_in_sign(sa, sb, atype):
+            _drop(a, "out_of_sign_dissociated")
+            continue
+
+        # Etapa 2: pares proibidos (asteróide × Quíron/Lilith — ignorar totalmente)
+        if (pa in _ASTEROIDS and pb in _CHIRON_LILITH) or \
+           (pb in _ASTEROIDS and pa in _CHIRON_LILITH):
+            _drop(a, "forbidden_pair_asteroid_x_chiron_or_lilith")
+            continue
+
+        # Etapa 3: INTERCEPTAR aspectos envolvendo asteróide ou Nodo — regras
+        # específicas se aplicam ANTES da cascata geral:
+        #   · SÓ conjunção (max 6°) / oposição (max 6°) / quadratura (max 4°)
+        #   · Trígono e sextil descartados por não serem interpretados
+        #   · applying=None NÃO descarta (orbes apertadas já garantem
+        #     relevância — critério aplicativo fica irrelevante aqui)
+        #   · Salta a etapa 5 (applying threshold) — não se aplica
+        if pa in _ASTEROID_NODE_ALL or pb in _ASTEROID_NODE_ALL:
+            allowed = _ASTEROID_NODE_ORB_MAX.get(atype)
+            if allowed is None:
+                # Trígono ou sextil (ou tipo desconhecido) — não interpretar
+                _drop(a, "asteroid_or_node_aspect_type_not_used",
+                      aspect_type=atype,
+                      allowed=list(_ASTEROID_NODE_ORB_MAX.keys()))
+                continue
+            if orb > allowed:
+                _drop(a, "asteroid_or_node_orb_exceeded",
+                      limit=allowed, aspect_type=atype)
+                continue
+            # Passou. Peso e força; applying é preservado como veio (geralmente
+            # None nos calculados manualmente, ou o valor do payload se veio).
+            weight, strength = _weight_and_strength(orb)
+            kept.append({
+                **a,
+                "applying": applying,
+                "weight": weight,
+                "strength": strength,
+            })
+            continue
+
+        # Etapa 4: orbe máximo por tipo de aspecto (padrão entre planetas /
+        # Quíron / Lilith — asteróides e Nodos já foram tratados acima)
+        max_orb_std = _ORB_MAX.get(atype)
+        if max_orb_std is None:
+            _drop(a, "unknown_aspect_type")
+            continue
+
+        # Etapa 4: restrições específicas de PARES DE CORPOS
+        # (Asteróides e Nodos já foram tratados na etapa 3 acima — aqui
+        # tratamos apenas Quíron/Lilith e pares planeta-planeta.)
+        #
+        # 4a — conjunção entre asteróides: regra INATIVA na prática atual
+        # porque não computamos asteróide × asteróide. Documentada para
+        # o caso de aparecer via payload; se aparecer, aplica máx 4°.
+        if atype == "conjunction" and pa in _ASTEROIDS and pb in _ASTEROIDS:
+            if orb > 4.0:
+                _drop(a, "asteroid_conj_orb_over_4", limit=4.0)
+                continue
+
+        # 4b — conjunção de PLANETA com Quíron ou Lilith: máx 5°
+        elif atype == "conjunction" and (
+            (pa in _PLANETS and pb in _MINOR_SPECIAL) or
+            (pb in _PLANETS and pa in _MINOR_SPECIAL)
+        ):
+            if orb > 5.0:
+                _drop(a, "planet_x_chiron_or_lilith_conj_orb_over_5", limit=5.0)
+                continue
+
+        # 4c — QUALQUER aspecto entre dois transpessoais: máx 5°
+        elif pa in _TRANSPERSONAL and pb in _TRANSPERSONAL:
+            if orb > 5.0:
+                _drop(a, "transpersonal_x_transpersonal_orb_over_5", limit=5.0)
+                continue
+
+        # 4d — caso geral: aplicar orbe padrão do tipo
+        else:
+            if orb > max_orb_std:
+                _drop(a, "standard_orb_exceeded", limit=max_orb_std)
+                continue
+
+        # Etapa 5: regra do "só se aplicativo" nas faixas altas
+        # (conjunções/oposições/quadraturas 8°-limite exigem applying=True;
+        #  se applying==None → conservador → descarta)
+        appl_threshold = _APPLYING_REQUIRED_ABOVE.get(atype)
+        if appl_threshold is not None and orb > appl_threshold:
+            if applying is not True:
+                _drop(a, "above_applying_threshold_not_applying",
+                      threshold=appl_threshold, applying=applying)
+                continue
+
+        # Sobreviveu — anotar peso e força e manter
+        weight, strength = _weight_and_strength(orb)
+        kept.append({
+            **a,
+            "applying": applying,
+            "weight": weight,
+            "strength": strength,
+        })
+
+    return kept, dropped
 
 # ==================================================================
 # REGRA DOS 5° — FONTE ÚNICA (extraído 19/07).
@@ -1865,192 +2077,8 @@ def generate_report_endpoint():
     # nem importância do par de corpos — essa camada de "pesos por par"
     # é planejada para uma rodada futura.
     # ==================================================================
-    from report_generator import is_in_sign_aspect as _is_in_sign
-
-    # _raw_aspects já montado acima combinando cliente + computados manualmente
-    _points = body.get("points") or {}
-
-    # ----- Constantes do filtro -----
-    _PLANETS = {"sun","moon","mercury","venus","mars","jupiter","saturn","uranus","neptune","pluto"}
-    _TRANSPERSONAL = {"uranus","neptune","pluto"}
-    _ASTEROIDS = {"ceres","vesta","juno","pallas"}
-    _CHIRON_LILITH = {"chiron","lilith"}
-    _NODES = {"north_node","south_node"}
-    # Corpos "menor" nos quais a conjunção com planeta é limitada a 5°.
-    # (Nodos e asteróides tinham regra específica no bloco antigo, mas agora
-    # são interceptados no bloco novo com orbes 6°/6°/4°.)
-    _MINOR_SPECIAL = {"chiron","lilith"}
-
-    # Regras específicas de asteróides/Nodos:
-    #   · SÓ conjunção (max 6°), oposição (max 6°), quadratura (max 4°)
-    #   · Trígono e sextil NÃO são interpretados na prática da Marcia
-    #   · applying=None NÃO descarta esses aspectos (orbes já apertadas
-    #     tornam o critério aplicativo irrelevante)
-    _ASTEROID_NODE_ALL = _ASTEROIDS | _NODES
-    _ASTEROID_NODE_ORB_MAX = {"conjunction": 6.0, "opposition": 6.0, "square": 4.0}
-
-    # Orbe padrão máximo por tipo de aspecto (planetas entre si)
-    _ORB_MAX = {
-        "conjunction": 12.0,
-        "opposition":  10.0,
-        "square":      10.0,
-        "trine":        8.0,
-        "sextile":      6.0,
-    }
-    # Acima deste orbe, o aspecto SÓ passa se applying==True
-    _APPLYING_REQUIRED_ABOVE = {
-        "conjunction": 8.0,
-        "opposition":  8.0,
-        "square":      8.0,
-    }
-
-    def _weight_and_strength(orb):
-        """Peso categórico (dominant → conjunction_only) + strength geométrica linear.
-        strength = 1 - orb/12, clampado em [0, 1] — vai a 1 no aspecto exato."""
-        s = max(0.0, min(1.0, 1.0 - orb / 12.0))
-        s = round(s, 3)
-        if orb < 2.0:  return "dominant",         s
-        if orb < 4.0:  return "very_strong",      s
-        if orb < 6.0:  return "strong",           s
-        if orb < 8.0:  return "moderate",         s
-        if orb < 10.0: return "weak",             s
-        return           "conjunction_only",      s
-
-    def _normalize_applying(a):
-        """Aceita: bool, None, 'Applying'/'Separating' string, ausente.
-        Retorna True/False/None. Trata Lua como incerta em mapas sem hora."""
-        # Regra especial: aspectos envolvendo Lua em unknown_birth_time são
-        # intrinsecamente incertos — Lua move ~13°/dia, o valor de applying
-        # calculado para meio-dia default não é confiável.
-        if unknown_birth_time and ("moon" in (a.get("planet_a"), a.get("planet_b"))):
-            return None
-        v = a.get("applying")
-        if v is True or v is False:
-            return v
-        if isinstance(v, str):
-            vl = v.lower()
-            if vl in ("applying", "aplicativo", "aplicando"): return True
-            if vl in ("separating", "separativo", "separando"): return False
-        return None  # ausente ou irreconhecível
-
-    kept = []
-    dropped = []
-
-    def _drop(a, reason, **extras):
-        dropped.append({
-            **{k: a.get(k) for k in ("planet_a","planet_b","type","orb")},
-            "reason": reason, **extras,
-        })
-
-    for a in _raw_aspects:
-        pa = a.get("planet_a")
-        pb = a.get("planet_b")
-        atype = a.get("type")
-        orb = float(a.get("orb", 0.0) or 0.0)
-        applying = _normalize_applying(a)
-
-        # Etapa 1: aspecto in-sign obrigatório (regra pré-existente)
-        sa = (_points.get(pa) or {}).get("sign")
-        sb = (_points.get(pb) or {}).get("sign")
-        if not (sa and sb) or not _is_in_sign(sa, sb, atype):
-            _drop(a, "out_of_sign_dissociated")
-            continue
-
-        # Etapa 2: pares proibidos (asteróide × Quíron/Lilith — ignorar totalmente)
-        if (pa in _ASTEROIDS and pb in _CHIRON_LILITH) or \
-           (pb in _ASTEROIDS and pa in _CHIRON_LILITH):
-            _drop(a, "forbidden_pair_asteroid_x_chiron_or_lilith")
-            continue
-
-        # Etapa 3: INTERCEPTAR aspectos envolvendo asteróide ou Nodo — regras
-        # específicas se aplicam ANTES da cascata geral:
-        #   · SÓ conjunção (max 6°) / oposição (max 6°) / quadratura (max 4°)
-        #   · Trígono e sextil descartados por não serem interpretados
-        #   · applying=None NÃO descarta (orbes apertadas já garantem
-        #     relevância — critério aplicativo fica irrelevante aqui)
-        #   · Salta a etapa 5 (applying threshold) — não se aplica
-        if pa in _ASTEROID_NODE_ALL or pb in _ASTEROID_NODE_ALL:
-            allowed = _ASTEROID_NODE_ORB_MAX.get(atype)
-            if allowed is None:
-                # Trígono ou sextil (ou tipo desconhecido) — não interpretar
-                _drop(a, "asteroid_or_node_aspect_type_not_used",
-                      aspect_type=atype,
-                      allowed=list(_ASTEROID_NODE_ORB_MAX.keys()))
-                continue
-            if orb > allowed:
-                _drop(a, "asteroid_or_node_orb_exceeded",
-                      limit=allowed, aspect_type=atype)
-                continue
-            # Passou. Peso e força; applying é preservado como veio (geralmente
-            # None nos calculados manualmente, ou o valor do payload se veio).
-            weight, strength = _weight_and_strength(orb)
-            kept.append({
-                **a,
-                "applying": applying,
-                "weight": weight,
-                "strength": strength,
-            })
-            continue
-
-        # Etapa 4: orbe máximo por tipo de aspecto (padrão entre planetas /
-        # Quíron / Lilith — asteróides e Nodos já foram tratados acima)
-        max_orb_std = _ORB_MAX.get(atype)
-        if max_orb_std is None:
-            _drop(a, "unknown_aspect_type")
-            continue
-
-        # Etapa 4: restrições específicas de PARES DE CORPOS
-        # (Asteróides e Nodos já foram tratados na etapa 3 acima — aqui
-        # tratamos apenas Quíron/Lilith e pares planeta-planeta.)
-        #
-        # 4a — conjunção entre asteróides: regra INATIVA na prática atual
-        # porque não computamos asteróide × asteróide. Documentada para
-        # o caso de aparecer via payload; se aparecer, aplica máx 4°.
-        if atype == "conjunction" and pa in _ASTEROIDS and pb in _ASTEROIDS:
-            if orb > 4.0:
-                _drop(a, "asteroid_conj_orb_over_4", limit=4.0)
-                continue
-
-        # 4b — conjunção de PLANETA com Quíron ou Lilith: máx 5°
-        elif atype == "conjunction" and (
-            (pa in _PLANETS and pb in _MINOR_SPECIAL) or
-            (pb in _PLANETS and pa in _MINOR_SPECIAL)
-        ):
-            if orb > 5.0:
-                _drop(a, "planet_x_chiron_or_lilith_conj_orb_over_5", limit=5.0)
-                continue
-
-        # 4c — QUALQUER aspecto entre dois transpessoais: máx 5°
-        elif pa in _TRANSPERSONAL and pb in _TRANSPERSONAL:
-            if orb > 5.0:
-                _drop(a, "transpersonal_x_transpersonal_orb_over_5", limit=5.0)
-                continue
-
-        # 4d — caso geral: aplicar orbe padrão do tipo
-        else:
-            if orb > max_orb_std:
-                _drop(a, "standard_orb_exceeded", limit=max_orb_std)
-                continue
-
-        # Etapa 5: regra do "só se aplicativo" nas faixas altas
-        # (conjunções/oposições/quadraturas 8°-limite exigem applying=True;
-        #  se applying==None → conservador → descarta)
-        appl_threshold = _APPLYING_REQUIRED_ABOVE.get(atype)
-        if appl_threshold is not None and orb > appl_threshold:
-            if applying is not True:
-                _drop(a, "above_applying_threshold_not_applying",
-                      threshold=appl_threshold, applying=applying)
-                continue
-
-        # Sobreviveu — anotar peso e força e manter
-        weight, strength = _weight_and_strength(orb)
-        kept.append({
-            **a,
-            "applying": applying,
-            "weight": weight,
-            "strength": strength,
-        })
-
+    kept, dropped = filter_aspects(
+        _raw_aspects, body.get('points') or {}, unknown_birth_time)
     body["aspects"] = kept
     body["_dropped_aspects"] = dropped
     logger.info(

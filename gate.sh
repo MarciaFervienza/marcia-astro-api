@@ -45,11 +45,14 @@ fi
 # ---- 3. SUÍTES DE MORDIDA ----------------------------------------------
 echo
 echo "3. Provas de mordida (detectores reprovam o passado?)"
-for t in prove_text prove_doutrina prove_positions prove_ausencia_aspecto prove_fatos prove_indice; do
-  OUT=$(python3 "tests/$t.py" 2>&1)
-  if echo "$OUT" | grep -qE "FALHOU|Traceback|Error"; then
+for t in prove_text prove_doutrina prove_positions prove_ausencia_aspecto prove_fatos prove_indice prove_fonte_unica prove_retry; do
+  # Código de saída PRIMEIRO — as provas fazem raise SystemExit(1). O grep
+  # por /Error/ sozinho reprovava prove_retry, que IMPRIME "HTTPError 502"
+  # como rótulo da tabela de classificação: texto do teste passando, não erro.
+  OUT=$(python3 "tests/$t.py" 2>&1); RC=$?
+  if [ $RC -ne 0 ] || echo "$OUT" | grep -qE "FALHOU|Traceback \(most recent"; then
     bad "$t"
-    echo "$OUT" | grep -E "FALHOU|Error" | head -4
+    echo "$OUT" | grep -E "FALHOU|ERRADO|Traceback" | head -4
   else
     ok "$t — $(echo "$OUT" | tail -1)"
   fi

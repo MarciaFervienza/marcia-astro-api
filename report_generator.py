@@ -2081,13 +2081,28 @@ Escreva apenas o texto. Sem título.
 
 
 def call_claude(prompt, max_tokens=SECTION_MAX_TOKENS):
+    """Uma seção do relatório. COM RETRY (19/07).
+
+    Um relatório faz 16+ chamadas aqui, mais as reescritas do verificador.
+    Sem retry, um único 429 ou 529 (overloaded) da API derrubava a geração
+    inteira e o cliente recebia erro. Mesma classe do 429 da geolocalização:
+    o retry existia no meu script de teste, não no produto.
+    """
     init_clients()
-    resp = _anth.messages.create(
-        model=CHAT_MODEL,
-        max_tokens=max_tokens,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return resp.content[0].text.strip()
+    from retry_util import _com_retry
+
+    def _uma():
+        resp = _anth.messages.create(
+            model=CHAT_MODEL,
+            max_tokens=max_tokens,
+            messages=[{"role": "user", "content": prompt}],
+        )
+        return resp.content[0].text.strip()
+
+    texto, exc = _com_retry(_uma, tentativas=4, rotulo="Claude (seção)")
+    if exc is not None:
+        raise exc
+    return texto
 
 
 
@@ -3367,20 +3382,29 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
     # com palavras novas — 12 palavras coladas é cola, não recap.
     repetition_lint = detect_cross_section_repetition(full_report)
 
-    # spell_lint (17/07): corretor pt-BR + dicionário de domínio. MODO
-    # FLAG-ONLY — reporta, não reescreve. A whitelist (domain_lexicon.txt)
-    # cresce rodando sobre relatórios já limpos; só depois disso
-    # `spell_lint: []` entra como gate ao lado de pdf_lint/repetition_lint.
+    # spell_lint DESLIGADO (decisão da Márcia, 19/07).
+    #
+    # O dicionário "pt" do pyspellchecker é PORTUGUÊS EUROPEU. Isso não é só
+    # ruído: ele está INVERTIDO justamente na classe que mais importa. Medido
+    # numa frase com as duas grafias lado a lado — "contacto harmónico com o
+    # facto" passou limpo e "harmônico" ACENDEU. Para pegar contaminação
+    # pt-PT ele é pior que ausente: sinaliza o certo e absolve o errado.
+    # (E foi ele que reescreveu 49 trechos da Helena para pt-PT em 18/07 —
+    # a contaminação que a Márcia reportou fui eu que causei ao ativá-lo.)
+    #
+    # O léxico explícito de _FORBIDDEN_LEXICON continua: lá cada entrada
+    # pt-PT ("contacto", "facto", "acção"…) é uma decisão registrada, não o
+    # palpite de um dicionário do país errado.
+    spell_lint_out = []
     try:
         _t_lint = time.time()
-        from text_verifier import (spell_lint as _spell_lint, detect_crutch_words,
+        from text_verifier import (detect_crutch_words,
                                    rare_word_lint as _rare_word_lint)
-        spell_lint_out = _spell_lint(full_report, chart)
         crutch_lint = detect_crutch_words(full_report)
         rare_lint = _rare_word_lint(full_report, chart)
     except Exception as e:
-        log(f"spell/crutch lint failed: {e}")
-        spell_lint_out, crutch_lint, rare_lint = [{"error": str(e)}], [], []
+        log(f"crutch/rare lint failed: {e}")
+        crutch_lint, rare_lint = [], []
     _stage['lints'] = round(time.time() - _t_lint, 1)
 
     # Build a compact aspect audit (for return + verbose print)
