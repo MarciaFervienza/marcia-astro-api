@@ -385,6 +385,7 @@ servindo durante a troca).
 | d48180a | **não** — 1ª rodada em que o container morto JÁ tinha graceful-timeout | — |
 | b651788 | **SIM** (Helena) | 45s |
 | ecacf8d | **não** — 1ª rodada esperando o SHA no /health | — |
+| 16bbc44 | **não** — 2ª rodada com espera pelo SHA (deploy: 57s) | — |
 
 **FECHAMENTO PROVÁVEL (19/07, noite).** O `/health` levou **133s** para
 reportar o commit novo; meu script dormia **100s** fixos. Ou seja: TODAS
@@ -496,6 +497,33 @@ as duas pontas como dois aspectos é decisão da Márcia.)
 | "o que me faz eu" | agramatical | "faz eu" — a 1ª pessoa da Márcia é por design, então o detector ancora na construção, não no pronome |
 | "poucos graus de Ceres" | preposição | "a poucos graus de" |
 | "uma ópera de proteção" | **NÃO COBERTO** | metáfora sem referente — não é mecanizável por regra lexical |
+
+### PENDENTE DE DOUTRINA: as faixas de velocidade não cobrem todos os corpos
+
+Único defeito real que sobrou no par entregue aos testers (Helena):
+
+> "Lilith mora na sua casa 4, e ela está em Aquário. **Aquário carrega uma
+> qualidade que atravessa toda uma coorte — a geração que cresceu entre
+> dois séculos**…"
+
+É violação de doutrina genuína — signo como agente geracional — e o
+reescritor falhou duas vezes; `failed_kept_original` preservou o texto.
+
+**Mecanismo:** `_detect_sign_as_generational_agent` classifica por faixa de
+velocidade, e **Lilith, Quíron, Ceres, Palas, Juno, Vesta e os Nodos não
+estão em faixa nenhuma**. Com nenhum corpo reconhecido no parágrafo, a
+regra cai em "nenhum corpo sustenta 'geração'" e acusa — corretamente,
+neste caso, mas por ausência de dado, não por análise.
+
+**A decisão é da Márcia, não minha**, porque é doutrina:
+- Lilith (média) percorre o zodíaco em ~8,85 anos → ~9 meses por signo:
+  perto de um planeta SOCIAL;
+- Quíron leva ~50 anos → ~4 anos por signo: entre social e transpessoal;
+- Nodos: ~18,6 anos → ~1,5 ano por signo: social;
+- asteroides: rápidos, perto dos PESSOAIS.
+
+Enquanto a decisão não vem, o comportamento atual é conservador — acusa
+quando não reconhece o corpo — e isso é o lado seguro.
 
 ### Negação-substituição — varredura de formas sobre as 22 reais
 A Márcia mediu: dos ~22 casos genuínos do inventário do GPT, os padrões
