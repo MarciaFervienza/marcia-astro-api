@@ -92,6 +92,11 @@ _FORBIDDEN_LEXICON = [
     # cobria 28 de 48 grafias pt-PT testadas. Estas são as que faltavam e
     # que NÃO são também palavra válida em pt-BR (por isso "rapaz" fica de
     # fora: em pt-BR é palavra corrente, não marca de Portugal).
+    # Achados do GPT em 19/07 (última auditoria antes dos testers).
+    (r"\btrav[ãa]o\b",       "pt_europeu", "freio"),
+    (r"\bentre\s+safra\b",  "erro_grafia", "entressafra (palavra única)"),
+    (r"\blilit[hi]?[ia]n[ao]s?\b", "termo_inventado",
+     "não existe adjetivo de Lilith — escrever 'de Lilith'"),
     (r"\bactiv[oa](s)?\b",  "pt_europeu", "ativo(a)(s)"),
     (r"\bafect(?:ar|a|ou|am|ando|ado|ada)\b", "pt_europeu", "afetar/afeta/afetou"),
     (r"\bafecto(s)?\b",     "pt_europeu", "afeto(s)"),
@@ -723,6 +728,115 @@ def _detect_person_instantiation(text, voice):
                     f"foram arrastados para a 3ª ('uma régua que ela aplica' "
                     f"→ 'que você aplica')."),
             })
+    return out
+
+
+# ============================================================
+# ACHADOS DE LÍNGUA — auditoria do GPT, 19/07
+# ============================================================
+# Cada um saiu de uma frase REAL dos dois relatórios, e cada regra foi
+# medida no corpus inteiro antes de entrar.
+
+# 1. GERUNDIAL PORTUGUESA. "um Sol canceriano A ALIMENTAR e proteger, uma
+#    Lua leonina A BRILHAR" (Lucca). Em pt-PT "estar a fazer"; em pt-BR é
+#    gerúndio. Verbos que LICENCIAM "a + infinitivo" em pt-BR (começar a,
+#    aprender a, voltar a…) ficam de fora — sem essa lista a regra acusaria
+#    português correto.
+_LICENCIAM_A_INF = (
+    r"come[çc]|aprend|passa|passo|volt|ajud|ensin|continu|vai|vou|foi|ir|"
+    r"chega|dispo|hesit|obrig|lev|for[çc]|convid|fic|pass|habitu|acostum|"
+    r"decid|resolv|comec|tend|dispu|atrev|arrisc|prepar|"
+    # "tem a dizer", "apta a encontrar", "capaz a…": adjetivo/verbo que
+    # também licencia. Sem eles, português correto acusava (medido).
+    r"tem|t[êe]m|tinha|ter|tenho|apt[ao]|pront[ao]|dispost[ao]|capaz|"
+    r"livre|dificil|difícil|f[áa]cil|imposs[íi]vel|poss[íi]vel|pouco|muito"
+)
+# Locuções fixas e nomes de corpo que terminam em -er/-ir e casavam como
+# infinitivo ("seu Sol a JÚPITER", "a ferida A PARTIR de"). Medido: 5 falsos
+# positivos nos dois relatórios sem esta lista.
+_NAO_INFINITIVO = {"partir", "júpiter", "jupiter", "mulher", "prazer", "poder",
+                   "dever", "saber", "ser", "ter", "ver", "vir", "par", "ar",
+                   "lugar", "olhar", "pesar", "lar", "sentir"}
+
+
+def _detect_gerundial_portuguesa(text):
+    out = []
+    pat = (r"\b(?:um|uma|o|a|os|as|seu|sua|esse|essa)\s+"
+           r"([a-zà-ÿ]{3,})(?:\s+([a-zà-ÿ]{3,}))?\s+a\s+([a-zà-ÿ]{3,}(?:ar|er|ir))\b")
+    for m in re.finditer(pat, text, flags=re.IGNORECASE):
+        antes = (m.group(2) or m.group(1) or "").lower()
+        if re.match(_LICENCIAM_A_INF, antes):
+            continue
+        if m.group(3).lower() in _NAO_INFINITIVO:
+            continue
+        if _PT2KEY.get(m.group(3).lower()):
+            continue                      # nome de corpo, não verbo
+        out.append({
+            "kind": "lingua:gerundial_portuguesa",
+            "match": m.group(0)[:70], "offset": m.start(),
+            "suggestion": (
+                f"'a {m.group(3)}' é construção portuguesa de Portugal. Em "
+                f"pt-BR usa-se gerúndio: '{m.group(3)[:-2]}ando/endo/indo'. "
+                f"Reescrever a frase com o gerúndio."),
+        })
+    return out
+
+
+# 2. "ainda" + PRETÉRITO sem negação. "alguém que ainda aprendeu a ocupar
+#    lugar" (Helena) — falta o "não", e o sentido INVERTE. "ainda" com
+#    pretérito perfeito pede negação em pt-BR.
+def _detect_ainda_sem_negacao(text):
+    out = []
+    for m in re.finditer(r"\bainda\s+([a-zà-ÿ]{3,}(?:ou|eu|iu|ara|era|ira))\b",
+                         text, flags=re.IGNORECASE):
+        janela = text[max(0, m.start() - 40):m.start()]
+        if re.search(r"\bn[ãa]o\b|\bnem\b|\bsequer\b", janela, re.IGNORECASE):
+            continue
+        out.append({
+            "kind": "lingua:ainda_sem_negacao",
+            "match": m.group(0)[:70], "offset": m.start(),
+            "suggestion": (
+                f"'{m.group(0)}': com 'ainda' e verbo no pretérito, o "
+                f"português pede negação — 'ainda NÃO {m.group(1)}'. Sem "
+                f"ela o sentido fica invertido. Conferir qual era a "
+                f"intenção e reescrever."),
+        })
+    return out
+
+
+# 3. PRIMEIRA PESSOA onde cabia o sujeito. "onde o que me faz eu, e ninguém
+#    mais, precisa ser visto" (Helena). A Márcia fala em 1ª pessoa no
+#    relatório por design ("o que me interessa neste mapa"), então um
+#    detector de "eu/me" seria ruído. O que denuncia aqui é a construção
+#    agramatical: "faz eu" (o certo seria "faz de mim" ou "me faz ser").
+def _detect_primeira_pessoa_predicativa(text):
+    out = []
+    for m in re.finditer(r"\b(?:faz|fez|torna|tornou|fazia)\s+eu\b",
+                         text, flags=re.IGNORECASE):
+        out.append({
+            "kind": "lingua:primeira_pessoa_predicativa",
+            "match": text[max(0, m.start() - 20):m.start() + 40].strip()[:70],
+            "offset": m.start(),
+            "suggestion": (
+                "'faz eu' é agramatical, e num relatório dirigido em segunda "
+                "pessoa o sujeito é VOCÊ, não 'eu'. Reescrever como 'o que "
+                "faz você ser você'."),
+        })
+    return out
+
+
+# 4. "poucos graus de X" sem a preposição. "Vesta também está em Libra,
+#    poucos graus de Ceres" (Lucca) — falta o 'a': "a poucos graus de".
+def _detect_graus_sem_preposicao(text):
+    out = []
+    for m in re.finditer(r"(?<!a\s)\b(poucos|alguns|dois|três|quatro|cinco)\s+"
+                         r"graus\s+d[eoa]", text, flags=re.IGNORECASE):
+        out.append({
+            "kind": "lingua:graus_sem_preposicao",
+            "match": m.group(0)[:70], "offset": m.start(),
+            "suggestion": (f"'{m.group(0)}' → 'a {m.group(0)}'. A distância "
+                           f"angular pede a preposição."),
+        })
     return out
 
 
@@ -1757,6 +1871,15 @@ def _detectar_tudo(text, chart):
         logger.warning("verifier clitico failed: %s", e)
 
     try:
+        for v in (_detect_gerundial_portuguesa(scan_text)
+                  + _detect_ainda_sem_negacao(scan_text)
+                  + _detect_primeira_pessoa_predicativa(scan_text)
+                  + _detect_graus_sem_preposicao(scan_text)):
+            _add(v["kind"], v["match"], v["offset"], v["suggestion"])
+        for v in _detect_angle_rulership(scan_text, chart):
+            _add(v["kind"], v["match"], v["offset"], v["suggestion"])
+        for v in _detect_shared_element(scan_text, chart):
+            _add(v["kind"], v["match"], v["offset"], v["suggestion"])
         for v in _detect_person_instantiation(scan_text, (chart or {}).get("_voice")):
             _add(v["kind"], v["match"], v["offset"], v["suggestion"])
         for v in _detect_prompt_scaffolding_leak(scan_text):
@@ -2549,6 +2672,158 @@ _REGENCIA = {
     "aquarius": {"uranus", "saturn"}, "aquário": {"uranus", "saturn"},
     "pisces": {"neptune", "jupiter"}, "peixes": {"neptune", "jupiter"},
 }
+
+
+# ============================================================
+# REGÊNCIA DE ÂNGULO (19/07) — classe nova
+# ============================================================
+# "o seu Meio-do-Céu em Leão, com o Sol em Virgem como seu REGENTE DE
+# ASCENDENTE" (Helena). O Ascendente dela é Sagitário, regido por Júpiter.
+# O Sol rege Leão — que é o signo do MC. O texto trocou regente do MC por
+# regente do Ascendente.
+#
+# `_detect_rulership` confere corpo↔SIGNO. Não conferia corpo↔ÂNGULO: o
+# ângulo tem um signo, e o regente afirmado tem de ser o regente DAQUELE
+# signo. Duas perguntas diferentes, e só uma tinha detector.
+_ANGULOS_PT = {
+    "ascendente": "ascendant", "asc": "ascendant",
+    "meio-do-céu": "midheaven", "meio do céu": "midheaven",
+    "meio-do-ceu": "midheaven", "meio do ceu": "midheaven", "mc": "midheaven",
+    "fundo do céu": "ic", "fundo do ceu": "ic", "ic": "ic",
+    "descendente": "descendant", "dc": "descendant",
+}
+_ANG_RE = "|".join(sorted((re.escape(k) for k in _ANGULOS_PT), key=len, reverse=True))
+
+_SIGNO_OPOSTO = {
+    "aries": "libra", "taurus": "scorpio", "gemini": "sagittarius",
+    "cancer": "capricorn", "leo": "aquarius", "virgo": "pisces",
+    "libra": "aries", "scorpio": "taurus", "sagittarius": "gemini",
+    "capricorn": "cancer", "aquarius": "leo", "pisces": "virgo",
+}
+
+
+def _signo_do_angulo(chart, chave):
+    """Signo em que o ângulo cai. IC e Descendente são os OPOSTOS de MC e
+    Ascendente — o chart guarda só os dois primeiros."""
+    if chave == "ascendant":
+        return str(((chart or {}).get("ascendant") or {}).get("sign", "")).lower()
+    if chave == "midheaven":
+        return str(((chart or {}).get("midheaven") or {}).get("sign", "")).lower()
+    base = "ascendant" if chave == "descendant" else "midheaven"
+    s = str(((chart or {}).get(base) or {}).get("sign", "")).lower()
+    return _SIGNO_OPOSTO.get(s, "")
+
+
+def _detect_angle_rulership(text, chart):
+    """Regência de ÂNGULO afirmada, conferida contra o signo do ângulo."""
+    out = []
+    if not (chart or {}).get("ascendant"):
+        return out
+    formas = [
+        # "…o Sol em Virgem como seu regente de ascendente"  (corpo ANTES)
+        (rf"\bregente\s+d[eoa]s?\s+(?:[oa]s?\s+|seu\s+|sua\s+)?({_ANG_RE})\b", "antes"),
+        # "o regente do Ascendente é o Sol"                   (corpo DEPOIS)
+        (rf"\bregente\s+d[eoa]s?\s+(?:[oa]s?\s+)?({_ANG_RE})\b\s*"
+         rf"(?:é|:)\s*(?:[oa]s?\s+)?({_CORPO_RE})\b", "depois"),
+    ]
+    vistos = set()
+    for pat, onde in formas:
+        for m in re.finditer(pat, text, flags=re.IGNORECASE):
+            if any(abs(m.start() - v) < 30 for v in vistos):
+                continue
+            ang = _ANGULOS_PT.get(re.sub(r"\s+", " ", m.group(1).strip().lower()))
+            if not ang:
+                continue
+            if onde == "depois" and m.lastindex and m.lastindex >= 2:
+                corpo_nome = m.group(2)
+            else:
+                corpo_nome, _ = _corpo_mais_proximo_antes(text, m.start())
+            if not corpo_nome:
+                continue
+            k = _PT2KEY.get(re.sub(r"\s+", " ", corpo_nome.strip().lower()))
+            signo = _signo_do_angulo(chart, ang)
+            validos = _REGENCIA.get(signo)
+            if not k or not validos or k in validos:
+                continue
+            vistos.add(m.start())
+            certo = ", ".join(sorted(validos))
+            out.append({
+                "kind": "fato:regencia_de_angulo",
+                "match": text[m.start():m.start() + 70].strip(),
+                "offset": m.start(),
+                "suggestion": (
+                    f"O {m.group(1)} deste mapa está em "
+                    f"{_SIGN_PT_DE.get(signo, signo)}, cujo regente é {certo} — "
+                    f"não {corpo_nome}. Corrigir para {certo}, ou remover a "
+                    f"afirmação de regência desta frase."),
+            })
+    return out
+
+
+# ============================================================
+# ELEMENTO / MODALIDADE COMPARTILHADOS (19/07) — classe nova
+# ============================================================
+# "quando o Sol e a Lua estão no mesmo elemento, como acontece aqui"
+# (Lucca). Sol em Câncer é ÁGUA, Lua em Leão é FOGO. E o painel de
+# elementos, na página anterior do mesmo PDF, mostra isso.
+#
+# Nenhum detector olhava elemento nem modalidade. `positions_table` já
+# deriva os dois da POSIÇÃO do signo no zodíaco — aqui a mesma função é
+# reusada, para não haver segunda tabela (R3).
+_SIGN_PT_DE = {
+    "aries": "Áries", "taurus": "Touro", "gemini": "Gêmeos", "cancer": "Câncer",
+    "leo": "Leão", "virgo": "Virgem", "libra": "Libra", "scorpio": "Escorpião",
+    "sagittarius": "Sagitário", "capricorn": "Capricórnio",
+    "aquarius": "Aquário", "pisces": "Peixes",
+}
+_EN2ABBR = {"aries": "Ari", "taurus": "Tau", "gemini": "Gem", "cancer": "Can",
+            "leo": "Leo", "virgo": "Vir", "libra": "Lib", "scorpio": "Sco",
+            "sagittarius": "Sag", "capricorn": "Cap", "aquarius": "Aqu",
+            "pisces": "Pis"}
+
+
+def _elemento_modalidade(chart, key):
+    try:
+        from positions_table import element_of, modality_of
+    except Exception:
+        return None, None
+    p = ((chart or {}).get("points") or {}).get(key) or {}
+    ab = _EN2ABBR.get(str(p.get("sign", "")).lower())
+    if not ab:
+        return None, None
+    return element_of(ab), modality_of(ab)
+
+
+def _detect_shared_element(text, chart):
+    """"A e B no mesmo elemento/modalidade" conferido contra os dados."""
+    out = []
+    if not (chart or {}).get("points"):
+        return out
+    pat = (rf"\b({_CORPO_RE})\b\s+e\s+(?:[oa]s?\s+|seu\s+|sua\s+)?"
+           rf"({_CORPO_RE})\b[^.;:!?]{{0,60}}?\b(?:no|na|em)\s+"
+           rf"mesm[oa]\s+(elemento|modalidade)\b")
+    for m in re.finditer(pat, text, flags=re.IGNORECASE):
+        k1 = _PT2KEY.get(re.sub(r"\s+", " ", m.group(1).strip().lower()))
+        k2 = _PT2KEY.get(re.sub(r"\s+", " ", m.group(2).strip().lower()))
+        if not k1 or not k2 or k1 == k2:
+            continue
+        qual = m.group(3).lower()
+        e1, mo1 = _elemento_modalidade(chart, k1)
+        e2, mo2 = _elemento_modalidade(chart, k2)
+        a, b = (e1, e2) if qual == "elemento" else (mo1, mo2)
+        if not a or not b or a == b:
+            continue
+        out.append({
+            "kind": "fato:elemento_compartilhado",
+            "match": m.group(0)[:70],
+            "offset": m.start(),
+            "suggestion": (
+                f"{m.group(1)} é {a} e {m.group(2)} é {b} — {qual}s "
+                f"DIFERENTES. O painel de elementos do próprio PDF mostra "
+                f"isso. Remover a afirmação de {qual} compartilhado ou "
+                f"reescrever com os valores reais."),
+        })
+    return out
 
 
 def _pares_regencia(text):

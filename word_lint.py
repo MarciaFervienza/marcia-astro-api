@@ -259,6 +259,35 @@ def _acento_faltando(ant, w):
     return mel[0] if mel else None
 
 
+# ---------------------------------------------------------------
+# R6 — GÊNERO DO DETERMINANTE (19/07)
+# "acende um inquietação que é quase física" (Lucca). A R4 só cobria
+# adjetivos de signo/planeta; concordância de ARTIGO com substantivo comum
+# não tinha regra — por isso passou.
+#
+# O gênero de um substantivo não está em lugar nenhum que eu possa
+# consultar, mas as TERMINAÇÕES decidem com segurança: -ção, -são, -dade,
+# -tude, -agem, -ice, -eza, -ência, -ância são femininas; -mento e -ismo
+# masculinas. Medido no corpus: 1 acusação, a verdadeira, zero falso
+# positivo nas duas direções.
+_DET_M = r"(?:um|o|este|esse|aquele|seu|nosso|meu|algum|nenhum|todo)"
+_DET_F = r"(?:uma|a|esta|essa|aquela|sua|nossa|minha|alguma|nenhuma|toda)"
+_FIM_F = r"[a-zà-ÿ]+(?:ção|são|dade|tude|agem|ice|eza|ência|ância)"
+_FIM_M = r"[a-zà-ÿ]+(?:mento|ismo)"
+# Masculinos apesar da terminação feminina. Lista curta e explícita.
+_EXCECOES_GENERO = {"coração", "quinhão", "verão"}
+
+
+def _genero_errado(text):
+    out = []
+    for det, fim, g in ((_DET_M, _FIM_F, "feminino"), (_DET_F, _FIM_M, "masculino")):
+        for m in re.finditer(rf"\b{det}\s+({fim})\b", text, flags=re.IGNORECASE):
+            if m.group(1).lower() in _EXCECOES_GENERO:
+                continue
+            out.append((m, g))
+    return out
+
+
 def word_lint(text):
     """Todas as regras de palavra. Devolve lista de achados (flag-only)."""
     out = []
@@ -309,6 +338,12 @@ def word_lint(text):
             add("palavra:concordancia_adjetivo", m.group(0), m.start(),
                 f"'{m.group(2)}' está no plural e '{ant}' no singular. "
                 f"Concordar: '{ant} {m.group(2)[:-1]}'.")
+
+    # R6
+    for m, g in _genero_errado(text):
+        add("palavra:genero_determinante", m.group(0), m.start(),
+            f"'{m.group(1)}' é {g} e o determinante não concorda. "
+            f"Corrigir o determinante em '{m.group(0)}'.")
 
     # R5 — varre PARES CONSECUTIVOS. re.finditer de dois tokens não serve:
     # ele não sobrepõe, então testar "fincar ancoras" dependia da paridade

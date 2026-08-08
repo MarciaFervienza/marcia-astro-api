@@ -461,6 +461,42 @@ as grafias brasileiras.
 regra lexical alcança. Registrado como NÃO COBERTO; é o caso da passada de
 revisão de língua.
 
+### Última auditoria antes dos testers (19/07) — duas classes factuais novas
+
+**Regência de ÂNGULO.** "o seu Meio-do-Céu em Leão, com o Sol em Virgem
+como seu REGENTE DE ASCENDENTE" (Helena). O Ascendente dela é Sagitário,
+regido por Júpiter; o Sol rege Leão, que é o signo do MC. O texto trocou
+regente do MC por regente do Ascendente.
+
+`_detect_rulership` confere corpo↔SIGNO. Não conferia corpo↔ÂNGULO — o
+ângulo tem um signo, e o regente afirmado tem de ser o regente daquele
+signo. IC e Descendente saem do oposto de MC e Ascendente (o chart guarda
+só os dois).
+
+**Elemento / modalidade compartilhados.** "quando o Sol e a Lua estão no
+mesmo elemento, como acontece aqui" (Lucca). Sol em Câncer é ÁGUA, Lua em
+Leão é FOGO — e o painel de elementos, na página anterior do mesmo PDF,
+mostra isso. Nenhum detector olhava elemento nem modalidade. Reusa
+`positions_table.element_of/modality_of` para não haver segunda tabela (R3).
+
+**Terceira do GPT — over-capture, ignorada.** As quadraturas de Mercúrio
+aos Nodos: Mercúrio quadratura Nodo Norte E Nodo Sul são as duas aspectos
+reais na tabela computada, então o texto está consistente com os dados.
+(Questão de doutrina em aberto, não de fato: os Nodos são um EIXO, e contar
+as duas pontas como dois aspectos é decisão da Márcia.)
+
+### Achados de língua da mesma auditoria
+| achado | classe | regra |
+|---|---|---|
+| "travão" | pt-PT | léxico |
+| "entre safra" | grafia | léxico (entressafra) |
+| "acende um inquietação" | concordância | `word_lint` R6 — gênero do determinante por TERMINAÇÃO (-ção/-dade/-agem femininas; -mento/-ismo masculinas). A R4 só cobria adjetivos de signo/planeta: por isso passou |
+| "um Sol canceriano a alimentar" | pt-PT | gerundial portuguesa, com lista de verbos que LICENCIAM "a + infinitivo" em pt-BR |
+| "alguém que ainda aprendeu" | sentido invertido | "ainda" + pretérito exige negação |
+| "o que me faz eu" | agramatical | "faz eu" — a 1ª pessoa da Márcia é por design, então o detector ancora na construção, não no pronome |
+| "poucos graus de Ceres" | preposição | "a poucos graus de" |
+| "uma ópera de proteção" | **NÃO COBERTO** | metáfora sem referente — não é mecanizável por regra lexical |
+
 ### Negação-substituição — varredura de formas sobre as 22 reais
 A Márcia mediu: dos ~22 casos genuínos do inventário do GPT, os padrões
 antigos pegavam **~35%**. E o meu instrumento de MEDIÇÃO tinha o MESMO viés
