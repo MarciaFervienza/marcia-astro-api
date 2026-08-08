@@ -2077,6 +2077,10 @@ def generate_report_endpoint():
     # nem importância do par de corpos — essa camada de "pesos por par"
     # é planejada para uma rodada futura.
     # ==================================================================
+    # Flag de MEDIÇÃO da passada de revisão (19/07). Desligado por padrão;
+    # nenhuma geração de cliente muda enquanto ninguém mandar true.
+    body["_revisao_lingua"] = bool(body.get("revisao_lingua"))
+
     kept, dropped = filter_aspects(
         _raw_aspects, body.get('points') or {}, unknown_birth_time)
     body["aspects"] = kept

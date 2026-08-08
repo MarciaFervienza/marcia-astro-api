@@ -3395,6 +3395,30 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
     # O léxico explícito de _FORBIDDEN_LEXICON continua: lá cada entrada
     # pt-PT ("contacto", "facto", "acção"…) é uma decisão registrada, não o
     # palpite de um dicionário do país errado.
+    # PASSADA DE REVISÃO DE LÍNGUA (19/07) — DESLIGADA POR PADRÃO.
+    #
+    # Só roda com `revisao_lingua: true` no corpo da requisição. A Márcia
+    # pediu a MEDIÇÃO antes da instalação, e as chaves de API vivem só no
+    # Railway — este flag é a única forma de medir no ambiente real sem
+    # mudar o comportamento de ninguém.
+    #
+    # Roda DEPOIS do verifier: o verifier conserta o que é enumerável
+    # (fato, doutrina, voz), e a revisão pega o que é gerativo (sintaxe).
+    revisao_log = []
+    if (chart or {}).get("_revisao_lingua"):
+        try:
+            _t_rev = time.time()
+            import revisao_lingua as _rl
+            _gen = ((chart or {}).get("gender") or "feminino")
+            full_report, revisao_log = _rl.revisar_texto(
+                full_report, genero=_gen, call_claude_fn=call_claude)
+            _stage['revisao_lingua'] = round(time.time() - _t_rev, 1)
+            log(f"revisão de língua: {sum(1 for x in revisao_log if x['status']=='revisado')} "
+                f"parágrafos alterados")
+        except Exception as e:
+            log(f"revisão de língua falhou: {e}")
+            revisao_log = [{"status": "erro", "detalhe": str(e)[:200]}]
+
     spell_lint_out = []
     try:
         _t_lint = time.time()
@@ -3445,6 +3469,7 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
         "stage_timings": _stage,
         "repetition_lint": repetition_lint,
         "spell_lint": spell_lint_out,
+        "revisao_lingua": revisao_log,
         "crutch_lint": crutch_lint,
         "rare_word_lint": rare_lint,
         "sign_divergences": sign_divergences,

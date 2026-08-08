@@ -313,6 +313,28 @@ NEGATIVOS = [
      lambda t: tv._detect_sign_as_generational_agent(t),
      "Plutão em Escorpião carrega algo geracional — a sua coorte inteira "
      "nasceu com ele ali, marcada coletivamente por uma relação com o poder."),
+    # --- 19/07: a passada de revisão de língua NÃO pode tocar nestes.
+    # Os fragmentos retóricos dela são orações incompletas DE PROPÓSITO, e
+    # uma revisão vai querer completá-los. (Decisão da Márcia de 19/07:
+    # "independente de" e "as coisas saem errado" SAÍRAM dos protegidos —
+    # agora que existe ferramenta de língua, o padrão é português correto.)
+    ("fragmento retórico isolado é estilo, não frase quebrada",
+     lambda t: ([1] if __import__("revisao_lingua").divergencia_de_invariante(t, t)
+                else []),
+     "Porque o Sol, que deveria ser o motor de tudo isso, está em Câncer."),
+    ("revisão que troca o SIGNO é rejeitada",
+     lambda t: ([] if __import__("revisao_lingua").divergencia_de_invariante(
+         "Saturno em Aquário na casa 3", t) else [1]),
+     "Saturno em Peixes na casa 3"),
+    ("revisão que troca a CASA é rejeitada",
+     lambda t: ([] if __import__("revisao_lingua").divergencia_de_invariante(
+         "Saturno em Aquário na casa 3", t) else [1]),
+     "Saturno em Aquário na casa 4"),
+    ("meta-comentário do revisor é recusado antes do splice",
+     lambda t: ([] if __import__("revisao_lingua").motivo_recusa(
+         "A hesitação já é uma forma de se calar, e isso pesa no cotidiano.", t)
+         else [1]),
+     "Aqui está o parágrafo revisado: a hesitação já é uma forma."),
     ("'você é a pessoa que…' é 2ª pessoa e não pode acender",
      lambda t: tv._detect_person_instantiation(t, {"person": "segunda"}),
      "Você é a pessoa que analisa e organiza o que o grupo tenta entender."),
