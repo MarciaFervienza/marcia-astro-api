@@ -19,6 +19,15 @@ echo "=============================================="
 echo "GATE DE DEPLOY"
 echo "=============================================="
 
+# ---- 0. DEPENDÊNCIAS: o gate roda contra o que SOBE? --------------------
+echo
+echo "0. requirements fixo, e o instalado é o que sobe?"
+if python3 tests/checa_deps.py > /tmp/gate_deps.txt 2>&1; then
+  ok "$(tail -1 /tmp/gate_deps.txt)"
+else
+  bad "dependências divergem do que sobe"; cat /tmp/gate_deps.txt
+fi
+
 # ---- 1. IMPORT REAL de cada módulo (pega NameError de topo) -------------
 echo
 echo "1. Módulos importam?"
@@ -86,6 +95,17 @@ if python3 tests/smoke_pdf.py >/tmp/gate_pdf.txt 2>&1; then
   ok "$(tail -1 /tmp/gate_pdf.txt)"
 else
   bad "PDF falhou"; tail -6 /tmp/gate_pdf.txt
+fi
+
+# ---- 5b. BUILD LIMPO (só com --build; caro) ----------------------------
+if [ "${1:-}" = "--build" ]; then
+  echo
+  echo "5b. Build limpo — venv novo, resolução do zero"
+  if OUT=$(./tests/build_limpo.sh 2>&1); then
+    ok "$OUT"
+  else
+    bad "build limpo FALHOU"; echo "$OUT" | sed 's/^/      /'
+  fi
 fi
 
 # ---- 6. RELATÓRIO DE FUMAÇA contra produção (opcional) -----------------

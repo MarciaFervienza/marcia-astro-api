@@ -1,0 +1,3 @@
+# Só para o gate — NÃO vai para produção. smoke_pdf.py precisa disto e
+# a dependência não estava declarada em lugar nenhum (achado de 19/07).
+pypdf>=4.0,<7.0

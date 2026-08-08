@@ -1,12 +1,26 @@
-flask>=3.0,<4.0
-gunicorn>=21.0,<24.0
-anthropic>=0.40,<2.0
-openai>=1.40,<3.0
-pinecone>=5.0,<8.0
-requests>=2.31,<3.0
-reportlab>=4.0,<5.0
-kerykeion>=5.12,<6.0
-svglib>=1.5,<1.6
-geopy>=2.4,<3.0
-timezonefinder>=6.5,<8.0
-pyspellchecker>=0.8,<1.0
+# VERSÕES FIXAS (19/07). Antes eram FAIXAS — nenhuma das 12 fixada.
+#
+# Consequência: cada build resolvia do zero no PyPI, então um release novo
+# dentro da faixa quebrava o deploy SEM nenhuma mudança de código. Foi o que
+# aconteceu com 6db7c80, um commit que toca APENAS ESTADO.md.
+#
+# Pior: o gate rodava contra o que estava instalado na minha máquina
+# (anthropic 0.99.0) enquanto produção resolvia outra coisa (0.121.0). O
+# gate nunca validou o conjunto que sobe — mesma família do NameError de
+# 17/07: passou por tudo e só apareceu no deploy.
+#
+# Estas versões são as que a resolução limpa produziu E contra as quais o
+# gate inteiro foi rodado (32 seções, canário 135, 5 provas, auditoria).
+# Para subir uma: mudar aqui, rodar `./gate.sh --build`, e só então empurrar.
+flask==3.1.3
+gunicorn==23.0.0
+anthropic==0.121.0
+openai==2.48.0
+pinecone==7.3.0
+requests==2.32.5
+reportlab==4.5.1
+kerykeion==5.12.8
+svglib==1.5.1
+geopy==2.5.0
+timezonefinder==7.0.2
+pyspellchecker==0.8.4
