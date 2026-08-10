@@ -54,12 +54,17 @@ fi
 # ---- 3. SUÍTES DE MORDIDA ----------------------------------------------
 echo
 echo "3. Provas de mordida (detectores reprovam o passado?)"
-for t in prove_text prove_doutrina prove_positions prove_ausencia_aspecto prove_fatos prove_indice prove_fonte_unica prove_retry prove_casa_unica prove_palavra prove_cidade audita_estado; do
+for t in prove_text prove_doutrina prove_positions prove_ausencia_aspecto prove_fatos prove_indice prove_fonte_unica prove_retry prove_casa_unica prove_palavra prove_cidade prove_fila audita_estado; do
   # Código de saída PRIMEIRO — as provas fazem raise SystemExit(1). O grep
   # por /Error/ sozinho reprovava prove_retry, que IMPRIME "HTTPError 502"
   # como rótulo da tabela de classificação: texto do teste passando, não erro.
   OUT=$(python3 "tests/$t.py" 2>&1); RC=$?
-  if [ $RC -ne 0 ] || echo "$OUT" | grep -qE "FALHOU|Traceback \(most recent"; then
+  # O grep casa a LINHA DE FALHA (">>> N FALHOU"), não a palavra solta.
+  # Ele já disparou falso duas vezes por texto legítimo do próprio teste:
+  # "HTTPError 502" numa tabela de classificação, e "vira FALHOU" num
+  # rótulo — FALHOU é nome de estado da fila. O código de saída é o
+  # critério primário; este grep é só rede para teste que erre e saia 0.
+  if [ $RC -ne 0 ] || echo "$OUT" | grep -qE "^>>>.*FALHOU|Traceback \(most recent"; then
     bad "$t"
     echo "$OUT" | grep -E "FALHOU|ERRADO|Traceback" | head -4
   else

@@ -24,3 +24,6 @@ svglib==1.5.1
 geopy==2.5.0
 timezonefinder==7.0.2
 pyspellchecker==0.8.4
+# Fila persistida (assíncrono). O extra [binary] evita compilar libpq
+# no builder do Railway — mesma lição do timezonefinder 7.0.2.
+psycopg[binary]==3.2.13

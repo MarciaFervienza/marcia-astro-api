@@ -1247,6 +1247,121 @@ def ultimas_geracoes_endpoint():
                         "geracoes": list(_ULTIMAS_GERACOES)}), 200
 
 
+def _fila_ou_erro():
+    """A fila, ou (None, resposta de erro). Falha ALTA, nunca silenciosa."""
+    try:
+        import fila as _f
+        f = _f.Fila()
+        f.criar_tabelas()
+        return f, None
+    except Exception as exc:
+        logger.error("fila indisponível: %s", exc)
+        return None, (jsonify({
+            "status": "error", "code": "fila_indisponivel",
+            "message": f"A fila persistida não está disponível: {exc}"}), 503)
+
+
+@app.route("/remontar-pdf", methods=["POST"])
+def remontar_pdf_endpoint():
+    """DEGRAU 3 da recuperação: markdown editado à mão → PDF → cliente.
+
+    NÃO regera texto. Reusa o chart guardado, então mandala, tabela de
+    posições, painel de elementos e índice saem IDÊNTICOS — só o texto
+    muda. É o único degrau sem substituto humano: quando o relatório
+    resiste à regeneração, alguém tem de editar e mandar.
+
+    Corpo: {id, markdown, forcar?}
+    """
+    import hmac
+    body = request.get_json(silent=True) or {}
+    presented = request.headers.get("X-API-Key") or body.pop("api_key", "")
+    if not API_SECRET_KEY or not presented \
+            or not hmac.compare_digest(presented, API_SECRET_KEY):
+        return jsonify({"status": "error", "message": "unauthorized"}), 401
+
+    tid = (body.get("id") or "").strip()
+    markdown = body.get("markdown") or ""
+    if not tid or not markdown.strip():
+        return jsonify({"status": "error",
+                        "message": "Informe 'id' e 'markdown'."}), 400
+
+    f, err = _fila_ou_erro()
+    if err:
+        return err
+    t = f.buscar(tid)
+    if not t:
+        return jsonify({"status": "error",
+                        "message": f"Trabalho {tid!r} não encontrado."}), 404
+    chart = t.get("chart") or {}
+    if not chart.get("points"):
+        return jsonify({"status": "error",
+                        "message": "O trabalho não tem chart guardado — não "
+                                   "dá para remontar sem ele."}), 409
+
+    # GUARDA CONTRA COLAGEM ERRADA. A Márcia é a autoridade sobre o texto,
+    # então isto NÃO bloqueia por padrão — mas colar o markdown do
+    # relatório errado é um acidente barato de detectar e caro de descobrir
+    # depois. Com `forcar: true` ela passa por cima.
+    divergencia = None
+    try:
+        import revisao_lingua as _rl
+        divergencia = _rl.divergencia_de_invariante(t.get("markdown") or "",
+                                                    markdown)
+    except Exception:
+        pass
+    if divergencia and not body.get("forcar"):
+        return jsonify({
+            "status": "error", "code": "invariante_divergente",
+            "message": ("O markdown enviado tem conteúdo astrológico "
+                        "diferente do original. Se a edição foi intencional, "
+                        "reenvie com \"forcar\": true."),
+            "divergencia": divergencia}), 409
+
+    payload = t.get("payload") or {}
+    corpo = dict(chart)
+    corpo.setdefault("name", t.get("nome") or chart.get("name"))
+    _pdf_lint = []
+    try:
+        _svg, _svg_err = _generate_chart_svg(corpo)
+    except Exception as exc:
+        _svg, _svg_err = None, str(exc)
+    try:
+        pdf_bytes = pg.generate_pdf(
+            report_text=markdown,
+            client_name=corpo.get("name") or "",
+            birth_date=payload.get("birth_date", ""),
+            birth_place=payload.get("birth_city", ""),
+            birth_time=payload.get("birth_time", ""),
+            latitude=chart.get("latitude"), longitude=chart.get("longitude"),
+            chart_image_url=_svg or "",
+            aspects=chart.get("aspects", []), points=chart.get("points", {}),
+            lint_out=_pdf_lint)
+    except Exception as exc:
+        logger.exception("remontar-pdf: generate_pdf falhou")
+        return jsonify({"status": "error",
+                        "message": f"Falha ao montar o PDF: {exc}"}), 500
+
+    destinatario = body.get("email") or t.get("email")
+    enviado, erro_email = False, None
+    if destinatario:
+        try:
+            r = send_report_email(destinatario, corpo.get("name") or "",
+                                  pdf_bytes, payload.get("birth_date", ""))
+            enviado = (r is True)
+            if not enviado:
+                erro_email = str(r)
+        except Exception as exc:
+            erro_email = str(exc)
+    _registra_geracao(nome=corpo.get("name"), desfecho="remontado_a_mao",
+                      email_enviado=enviado)
+    return jsonify({
+        "status": "success", "id": tid, "email_enviado": enviado,
+        "email_erro": erro_email, "pdf_bytes": len(pdf_bytes),
+        "pdf_lint": _pdf_lint, "svg_erro": _svg_err,
+        "invariante_divergente": divergencia,
+    }), 200
+
+
 @app.route("/buscar-cidade", methods=["GET", "POST"])
 def buscar_cidade_endpoint():
     """Opções de cidade para o formulário. Consome: ?q=santa+rosa

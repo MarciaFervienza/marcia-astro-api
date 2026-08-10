@@ -23,7 +23,11 @@ for linha in open(os.path.join(RAIZ, "requirements.txt"), encoding="utf-8"):
     if "==" not in linha:
         faixas.append(linha)
     else:
-        pins.append(linha.split("=="))
+        # EXTRAS não fazem parte do nome do pacote: "psycopg[binary]" é o
+        # pacote "psycopg" com um extra. Sem tirar, o verificador procurava
+        # um pacote inexistente e acusava divergência que não existe.
+        _p, _v = linha.split("==")
+        pins.append((_p.split("[", 1)[0].strip(), _v.strip()))
 
 if faixas:
     falhas += 1
