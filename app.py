@@ -592,6 +592,102 @@ def _parse_birth_inputs(birth_date_raw, birth_time_raw, unknown):
 from retry_util import _com_retry, _erro_transitorio  # noqa: F401
 
 
+# =============================================================
+# BUSCA DE CIDADE — opções para o formulário escolher (19/07)
+#
+# O problema medido: `geocode(exactly_one=True)` devolve o PRIMEIRO
+# resultado, em silêncio. "Santa Rosa" resolve para a CALIFÓRNIA; Santa
+# Rosa (RS) é a terceira opção. Muda o fuso, muda a hora sideral, muda o
+# Ascendente e as doze casas — e o relatório sai limpo por todos os
+# detectores, porque não há nada errado com o TEXTO. Erro silencioso da
+# pior espécie: o produto parece perfeito e descreve outra pessoa.
+#
+# O `id` é AUTOCONTIDO e assinado, não uma chave de cache: sobrevive a
+# restart, não precisa de TTL, e não dá para forjar coordenada.
+# =============================================================
+def _assina_cidade(payload: str) -> str:
+    import hashlib
+    import hmac as _hmac
+    return _hmac.new((API_SECRET_KEY or "sem-chave").encode(),
+                     payload.encode(), hashlib.sha256).hexdigest()[:16]
+
+
+def _empacota_cidade(lat, lng, tz, rotulo):
+    import base64
+    payload = f"{lat:.6f}|{lng:.6f}|{tz}|{rotulo}"
+    b = base64.urlsafe_b64encode(payload.encode()).decode().rstrip("=")
+    return f"{b}.{_assina_cidade(payload)}"
+
+
+def _desempacota_cidade(city_id):
+    """(lat, lng, tz, rotulo) ou None se a assinatura não confere."""
+    import base64
+    try:
+        b, sig = city_id.rsplit(".", 1)
+        payload = base64.urlsafe_b64decode(b + "=" * (-len(b) % 4)).decode()
+        import hmac as _hmac
+        if not _hmac.compare_digest(sig, _assina_cidade(payload)):
+            return None
+        lat, lng, tz, rotulo = payload.split("|", 3)
+        return float(lat), float(lng), tz, rotulo
+    except Exception:
+        return None
+
+
+def buscar_cidades(q, limit=6):
+    """[{id, rotulo, lat, lng, tz}] — ordem do Nominatim PRESERVADA.
+
+    Decisão da Márcia (19/07): NÃO ordenar por país. Muitas clientes moram
+    fora; priorizar Brasil economizaria um clique para a maioria e criaria
+    risco de clique errado justamente para quem tem homônima no exterior.
+    O rótulo completo (cidade, estado, país) é que desambigua.
+    """
+    q = (q or "").strip()
+    if len(q) < 3:
+        return [], None
+    try:
+        from geopy.geocoders import Nominatim
+    except ImportError as e:
+        return [], f"geopy não instalado ({e})"
+    geo = Nominatim(user_agent="marcia-astro-api/1.0", timeout=15)
+    res, exc = _com_retry(
+        lambda: geo.geocode(q, language="pt", exactly_one=False,
+                            limit=limit, addressdetails=True),
+        rotulo="busca de cidade (Nominatim)")
+    if exc is not None:
+        return [], f"Erro ao consultar geolocalização: {exc}"
+    if not res:
+        return [], None
+    try:
+        from timezonefinder import TimezoneFinder
+    except ImportError as e:
+        return [], f"timezonefinder não instalado ({e})"
+    tf = TimezoneFinder()
+    out = []
+    for loc in res:
+        lat, lng = float(loc.latitude), float(loc.longitude)
+        tz = tf.timezone_at(lat=lat, lng=lng)
+        if not tz:
+            continue
+        rotulo = loc.address
+        out.append({"id": _empacota_cidade(lat, lng, tz, rotulo),
+                    "rotulo": rotulo, "lat": lat, "lng": lng, "tz": tz})
+    return out, None
+
+
+def _ambiguidade_real(opcoes):
+    """Mais de um ESTADO ou PAÍS entre as opções? Devolve o resumo ou None.
+
+    Homônimas dentro do mesmo estado (Nominatim devolve o mesmo município
+    duas vezes) NÃO são ambiguidade — mudam metros, não o mapa.
+    """
+    lugares = set()
+    for o in opcoes[:6]:
+        partes = [p.strip() for p in o["rotulo"].split(",")]
+        lugares.add((partes[-1] if partes else "", o["tz"]))
+    return sorted(lugares) if len(lugares) > 1 else None
+
+
 def _geocode_birth_city(city):
     """Resolve a free-form city string into (latitude, longitude, IANA
     timezone name) via Nominatim (geopy) + timezonefinder.
@@ -1111,6 +1207,34 @@ def send_report_email(to_email: str, client_name: str, pdf_bytes: bytes,
         return f"SendGrid HTTP {resp.status_code}: {err_body}"
     except Exception:
         return f"SendGrid HTTP {resp.status_code}: {(resp.text or '')[:300]}"
+
+
+@app.route("/buscar-cidade", methods=["GET", "POST"])
+def buscar_cidade_endpoint():
+    """Opções de cidade para o formulário. Consome: ?q=santa+rosa
+
+    Devolve até 6 opções com `id` autocontido e assinado. O formulário
+    manda o `id` escolhido em `city_id` na geração — o servidor não
+    geocodifica de novo.
+    """
+    import hmac
+    _q = request.args.get("q")
+    if _q is None and request.method == "POST":
+        _b = request.get_json(silent=True) or {}
+        _q = _b.get("q")
+        _k = _b.get("api_key")
+    else:
+        _k = None
+    presented = request.headers.get("X-API-Key") or _k or request.args.get("api_key") or ""
+    if not API_SECRET_KEY or not presented \
+            or not hmac.compare_digest(presented, API_SECRET_KEY):
+        return jsonify({"status": "error", "message": "unauthorized"}), 401
+    if not _q or len(_q.strip()) < 3:
+        return jsonify({"status": "ok", "opcoes": []}), 200
+    ops, err = buscar_cidades(_q)
+    if err:
+        return jsonify({"status": "error", "message": err}), 502
+    return jsonify({"status": "ok", "q": _q, "opcoes": ops}), 200
 
 
 @app.route("/health", methods=["GET"])
@@ -1807,9 +1931,60 @@ def generate_report_endpoint():
     # truth. Historical-DST correctness is guaranteed by passing the zone
     # NAME to Kerykeion, which resolves the offset at the birth date.
     birth_city = body.get("birth_city")
-    lat, lng, tz_str, geo_error = _geocode_birth_city(birth_city)
+
+    # CAMINHO PREFERIDO: o formulário mandou o city_id que a pessoa
+    # ESCOLHEU em /buscar-cidade. O servidor NÃO geocodifica de novo —
+    # assim não há chance de o que ela escolheu divergir do que o servidor
+    # resolve. O id é autocontido e assinado.
+    _city_id = body.get("city_id")
+    _escolhida = _desempacota_cidade(_city_id) if _city_id else None
+    if _city_id and not _escolhida:
+        logger.warning("city_id inválido ou adulterado")
+        return jsonify({"status": "error",
+                        "message": "Identificador de cidade inválido. "
+                                   "Selecione a cidade novamente."}), 400
+    if _escolhida:
+        lat, lng, tz_str, birth_city = _escolhida
+        body["birth_city"] = birth_city
+        geo_error = None
+    else:
+        lat, lng, tz_str, geo_error = _geocode_birth_city(birth_city)
+
     if geo_error:
+        # BURACO CORRIGIDO (19/07): isto era um `return` limpo, então o
+        # alerta nunca disparava. O cliente pagava, via o erro, e a Márcia
+        # não ficava sabendo.
+        _send_failure_alert("geocode_nao_encontrado",
+                            RuntimeError(geo_error[:300]),
+                            {"name": body.get("name"), "email": body.get("email"),
+                             "birth_date": birth_date_raw,
+                             "birth_city": birth_city,
+                             "ip": _client_ip, "ua": _ua})
         return jsonify({"status": "error", "message": geo_error}), 400
+
+    # AMBIGUIDADE REAL — recusa em vez de escolher em silêncio.
+    # "Santa Rosa" resolve para a Califórnia; Santa Rosa (RS) é a terceira
+    # opção. Mapa errado com aparência perfeita é pior que recusa visível —
+    # mesma lógica da falha fechada de língua (decisão da Márcia, 19/07).
+    if not _escolhida:
+        _ops, _err_busca = buscar_cidades(birth_city)
+        _amb = _ambiguidade_real(_ops) if _ops else None
+        if _amb:
+            logger.warning("cidade AMBÍGUA recusada: %r → %s", birth_city, _amb)
+            _send_failure_alert(
+                "cidade_ambigua", RuntimeError(f"{birth_city!r}: {_amb}"),
+                {"name": body.get("name"), "email": body.get("email"),
+                 "birth_date": birth_date_raw, "birth_city": birth_city,
+                 "ip": _client_ip, "ua": _ua,
+                 "opcoes": [o["rotulo"] for o in _ops[:6]]})
+            return jsonify({
+                "status": "error", "code": "cidade_ambigua",
+                "message": ("Encontramos mais de uma cidade com esse nome. "
+                            "Responda este e-mail informando o estado e o "
+                            "país de nascimento e eu gero o seu relatório."),
+                "opcoes": [{"rotulo": o["rotulo"], "id": o["id"]}
+                           for o in _ops[:6]],
+            }), 422
 
     body["latitude"] = lat
     body["longitude"] = lng
