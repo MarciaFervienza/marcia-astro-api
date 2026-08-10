@@ -78,6 +78,21 @@ else
   echo "$OUT" | grep -E "MORTO" | head -6
 fi
 
+# ---- 3c. CANÁRIO DE SALVAGUARDAS ----------------------------------------
+# Detector acende no caminho normal; SALVAGUARDA só roda quando algo dá
+# errado — então nunca é exercitada em operação saudável. Duas morreram em
+# duas semanas (_detect_rulership e a falha fechada de língua) e as duas
+# foram achadas por acaso.
+echo
+echo "3c. Salvaguardas — cada uma disparou no seu caso?"
+OUT=$(python3 tests/canario_salvaguardas.py 2>&1)
+if echo "$OUT" | grep -q "MORTAS: 0"; then
+  ok "$(echo "$OUT" | grep 'VIVAS:')"
+else
+  bad "salvaguarda(s) MORTA(S)"
+  echo "$OUT" | grep "MORTA:" | head -6
+fi
+
 # ---- 4. PROPRIEDADES DA MANDALA ----------------------------------------
 echo
 echo "4. Mandala: 8 propriedades num censo curto"

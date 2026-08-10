@@ -1,0 +1,194 @@
+"""CANÁRIO DE SALVAGUARDAS — cada proteção tem um caso que a força a disparar.
+
+POR QUE EXISTE (19/07, pedido da Márcia). Duas salvaguardas morreram em
+duas semanas e as DUAS foram achadas por acaso:
+
+  · `_detect_rulership` (18/07) — uma edição minha apagou a tabela
+    `_REGENCIA`; o detector rodava e devolvia sempre vazio;
+  · a FALHA FECHADA de língua (19/07) — o endpoint lia
+    `result["meta"]["falha_lingua"]` e `generate_report` devolve a chave no
+    TOPO. Lia None sempre. Nunca teria disparado.
+
+O canário de detectores existe porque detector acende no caminho NORMAL.
+Salvaguarda só roda quando algo dá errado — então, em operação saudável,
+ela NUNCA é exercitada. Silêncio ali é indistinguível de proteção.
+
+Aqui cada salvaguarda tem um caso que a obriga a disparar. Se qualquer uma
+parar, o gate falha na hora em vez de a gente descobrir num relatório.
+
+Inclui também a checagem de FIAÇÃO — as chaves que uma função devolve batem
+com as que o consumidor lê. Foi exatamente essa lacuna que matou a falha
+fechada.
+"""
+import warnings; warnings.filterwarnings("ignore")
+import inspect
+import os
+import re
+import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+import app
+import report_generator as rg
+import revisao_lingua as rl
+import text_verifier as tv
+
+mortas = []
+vivas = 0
+
+
+def salvaguarda(nome, disparou, detalhe=""):
+    global vivas
+    if disparou:
+        vivas += 1
+        print(f"  DISPARA  {nome}")
+    else:
+        mortas.append((nome, detalhe))
+        print(f"  MORTA    {nome}")
+        if detalhe:
+            print(f"             → {detalhe}")
+
+
+print("=" * 70)
+print("CANÁRIO DE SALVAGUARDAS — cada uma forçada a disparar")
+print("=" * 70)
+
+# ------------------------------------------------------------------ 1
+# FALHA FECHADA: defeito que não limpa dentro do teto → relatório não sai.
+_T = ("# Mapa Natal — X\n\n## Abertura\n\nTexto bom.\n\n"
+      "## Lua: raízes\n\nA frase quebrada mora aqui.\n\n## Saturno\n\nOutro bom.\n")
+_orig_det = rl.detectar_sem_sentido
+try:
+    def _sempre_quebrado(t, call_claude_fn=None, max_workers=6,
+                         granularidade="paragrafo"):
+        m = re.search(r"## Lua[^\n]*\n\n([^\n]+)", t)
+        return [{"frase": m.group(1), "motivo": "não fecha"}] if m else []
+    rl.detectar_sem_sentido = _sempre_quebrado
+    _n = {"i": 0}
+
+    def _regen(_t):
+        _n["i"] += 1
+        return f"Tentativa {_n['i']}: segue quebrada."
+
+    _, _lg, _falha = rl.pipeline_lingua(_T, None, _regen,
+                                        call_claude_fn=lambda *a, **k: "OK",
+                                        max_tentativas=3)
+    salvaguarda("falha fechada quando o defeito não limpa", bool(_falha),
+                "pipeline_lingua devolveu motivo_falha vazio")
+    salvaguarda("teto de tentativas para o ciclo (3 rodadas, sem loop)",
+                len(_lg["rodadas"]) == 3 and _lg["regeneracoes"] == 2,
+                f"rodadas={len(_lg['rodadas'])} regeneracoes={_lg['regeneracoes']}")
+
+    # teto configurável — um teto que ignora o parâmetro é teto morto
+    _n["i"] = 0
+    _, _lg2, _f2 = rl.pipeline_lingua(_T, None, _regen,
+                                      call_claude_fn=lambda *a, **k: "OK",
+                                      max_tentativas=2)
+    salvaguarda("teto respeita o parâmetro (2 → 2 rodadas)",
+                len(_lg2["rodadas"]) == 2 and bool(_f2),
+                f"rodadas={len(_lg2['rodadas'])}")
+finally:
+    rl.detectar_sem_sentido = _orig_det
+
+# ------------------------------------------------------------------ 2
+# RECUSA ANTES DO SPLICE — reescrita de frase (text_verifier)
+_orig = "O perigo concreto é entrar num acordo enxergando o potencial alheio."
+for _nome, _saida in [
+    ("recusa: meta-comentário do reescritor",
+     'Ainda há "ela" — corrijo completamente:\n\nO perigo é outro.'),
+    ("recusa: saída em blocos",
+     "Primeira versão.\n\n---\n\nSegunda versão."),
+    ("recusa: saída vazia", ""),
+    ("recusa: inchaço", _orig * 4),
+]:
+    salvaguarda(_nome, bool(tv._motivo_reescrita_invalida(_orig, _saida)))
+
+# ------------------------------------------------------------------ 3
+# RECUSA ANTES DO SPLICE — passada de revisão (revisao_lingua)
+_p = ("A hesitação já é uma forma de se calar, e isso pesa mais do que "
+      "parece no cotidiano de quem escolhe as palavras.")
+for _nome, _saida in [
+    ("recusa da revisão: palavra INVENTADA",
+     _p.replace("hesitação", "hesitação cármica")),
+    ("recusa da revisão: frase APAGADA",
+     "A hesitação já é uma forma de se calar."),
+    ("recusa da revisão: meta-comentário",
+     "Aqui está o parágrafo revisado: a hesitação já é uma forma de se calar "
+     "e isso pesa mais do que parece no cotidiano de quem escolhe."),
+    ("recusa da revisão: blocos a mais",
+     _p + "\n\nOutro parágrafo que não estava lá."),
+]:
+    salvaguarda(_nome, bool(rl.motivo_recusa(_p, _saida)))
+
+# ------------------------------------------------------------------ 4
+# INVARIANTES — a revisão não pode tocar no astrológico
+_A = "Saturno em Aquário na casa 3, com orbe de 2.4 graus na quadratura com Vênus."
+for _nome, _B in [
+    ("invariante: troca de SIGNO",
+     _A.replace("Aquário", "Peixes")),
+    ("invariante: troca de CASA", _A.replace("casa 3", "casa 4")),
+    ("invariante: troca de CORPO", _A.replace("Vênus", "Marte")),
+    ("invariante: troca de ASPECTO", _A.replace("quadratura", "trígono")),
+    ("invariante: troca de NÚMERO", _A.replace("2.4", "3.4")),
+    ("invariante: corpo REMOVIDO", "Saturno em Aquário na casa 3."),
+]:
+    salvaguarda(_nome, bool(rl.divergencia_de_invariante(_A, _B)))
+
+# ------------------------------------------------------------------ 5
+# VERIFICAÇÃO PÓS-APLICAÇÃO do verifier: violação que persiste vira alarme.
+_src_rv = inspect.getsource(tv.run_verifier)
+salvaguarda("pós-aplicação: PERSISTIU_APOS_CORRECAO existe no caminho",
+            "PERSISTIU_APOS_CORRECAO" in _src_rv)
+salvaguarda("pós-aplicação: INTRODUZIDA_PELA_REESCRITA existe no caminho",
+            "INTRODUZIDA_PELA_REESCRITA" in _src_rv)
+salvaguarda("pós-aplicação: violação sem frase NÃO some em silêncio",
+            "SEM_FRASE_NAO_CORRIGIDA" in _src_rv)
+salvaguarda("pós-aplicação: re-roda _detectar_tudo sobre o texto CORRIGIDO",
+            "_detectar_tudo(corrected" in _src_rv)
+
+# ------------------------------------------------------------------ 6
+# FIAÇÃO — as chaves devolvidas batem com as lidas.
+# Foi esta lacuna que matou a falha fechada: o endpoint lia
+# result["meta"]["falha_lingua"] e a função devolve a chave no TOPO.
+_src_gr = inspect.getsource(rg._generate_report_locked)
+_devolvidas = set(re.findall(r'"([a-z_]+)":', _src_gr[_src_gr.rindex("return {"):]))
+_src_ep = inspect.getsource(app.generate_report_endpoint)
+
+salvaguarda("fiação: generate_report NÃO devolve chave 'meta'",
+            "meta" not in _devolvidas,
+            "se passar a devolver, a leitura antiga volta a ser possível")
+for _k in ("falha_lingua", "revisao_lingua", "verifier_log", "repetition_lint",
+           "crutch_lint", "sign_divergences"):
+    salvaguarda(f"fiação: '{_k}' é devolvida E lida do TOPO de result",
+                _k in _devolvidas and f'result.get("{_k}"' in _src_ep,
+                f"devolvida={_k in _devolvidas} "
+                f"lida={f'result.get(chr(34){_k}' in _src_ep}")
+salvaguarda("fiação: ninguém lê result['meta'][...]",
+            'result.get("meta")' not in _src_ep,
+            "leitura impossível — generate_report não devolve 'meta'")
+
+# ------------------------------------------------------------------ 7
+# FALHA FECHADA no ENDPOINT: ordem e efeito.
+_i = _src_ep.index("FALHA FECHADA DE LÍNGUA")
+for _marca, _rot in (("_apply_moon_note", "nota da Lua"),
+                     ("_generate_chart_svg", "SVG"),
+                     ("pg.generate_pdf", "PDF"),
+                     ("send_report_email", "e-mail")):
+    salvaguarda(f"falha fechada acontece ANTES de: {_rot}",
+                _src_ep.index(_marca) > _i)
+_bloco = _src_ep[_i:_src_ep.index("_apply_moon_note", _i)]
+salvaguarda("falha fechada responde 422", "422" in _bloco)
+salvaguarda("falha fechada alerta o executivo@",
+            "_send_failure_alert" in _bloco)
+salvaguarda("o alerta carrega seção, frase e motivo",
+            all(k in _bloco for k in ('"secao"', '"frase"', '"motivo"')))
+
+print()
+print("=" * 70)
+print(f"VIVAS: {vivas}    MORTAS: {len(mortas)}")
+print("=" * 70)
+if mortas:
+    for n, d in mortas:
+        print(f"  MORTA: {n}")
+    raise SystemExit(1)
