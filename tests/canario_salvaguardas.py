@@ -227,6 +227,25 @@ salvaguarda("aplicação das seções é de TRÁS PARA FRENTE (offsets)",
             "key=lambda x: -x[1]" in _src_pl,
             "substituir de frente desloca os offsets das seguintes")
 
+# ------------------------------------------------------------------ 9
+# O word_lint NÃO PODE REESCREVER (19/07). Ele foi a FONTE dos defeitos:
+# acusou "autossacrifício" de palavra colada e o reescritor PARTIU em
+# "auto sacrifício"; "monitorando" virou "estava a monitorar".
+import word_lint as _wlm
+_src_dt = inspect.getsource(tv._detectar_tudo)
+_i_wl = _src_dt.index("from word_lint import")
+_bloco_wl = _src_dt[_i_wl:_i_wl + 2200]
+salvaguarda("word_lint é FLAG-ONLY — nunca reescreve",
+            'violations_all[-1]["no_rewrite"] = True' in _bloco_wl
+            and 'if v["kind"] == "palavra:corrompida"' not in _bloco_wl,
+            "se voltar a reescrever, volta a PARTIR palavra correta")
+salvaguarda("R3 (palavra:corrompida) está REMOVIDA",
+            "palavra:corrompida" not in inspect.getsource(_wlm.word_lint),
+            "19 falsos positivos e 0 verdadeiros no texto CRU")
+salvaguarda("nome de corpo não é tratado como infinitivo (R5)",
+            "_NOMES_CORPO" in inspect.getsource(_wlm._acento_faltando),
+            "'Júpiter opera' e 'mover Urano' eram 5 dos 29 falsos")
+
 print()
 print("=" * 70)
 print(f"VIVAS: {vivas}    MORTAS: {len(mortas)}")

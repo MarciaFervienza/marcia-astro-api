@@ -332,3 +332,20 @@ protagonismo
 criativamente
 criativa
 criativo
+
+# 19/07, 3a leva: palavras CORRETAS que o word_lint acusava no texto
+# CRU. Foram medidas contra o cru, nao contra relatorio ja corrigido.
+autossacrifício
+monitorando
+entediante
+entediar
+internalizado
+internaliza
+acessa
+rupturas
+trígonos
+saturnianos
+saturniano
+gerencial
+apertadíssimo
+registros

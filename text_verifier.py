@@ -1913,8 +1913,27 @@ def _detectar_tudo(text, chart):
             # flexionadas não estão. Mandar o reescritor "consertar" palavra
             # certa é o defeito que matou o spell_lint. Sinaliza no log, não
             # toca no texto.
-            if v["kind"] == "palavra:corrompida":
-                violations_all[-1]["no_rewrite"] = True
+            # TODO o word_lint vira FLAG-ONLY (19/07, achado grave).
+            #
+            # A medição por ESTÁGIO provou que estas regras SÃO A FONTE dos
+            # defeitos que passei o dia caçando. R1 acusou "autossacrifício"
+            # (correto, ausente do dicionário europeu) de palavra colada, e
+            # o reescritor PARTIU: "auto sacrifício". "monitorando" virou
+            # "estava a monitorar" — gerundial portuguesa, defeito que eu
+            # tenho detector para pegar. "entediante" teve a frase inteira
+            # reescrita.
+            #
+            # E o defeito criado é INVISÍVEL para os meus próprios lints.
+            #
+            # Pior: a taxa de falso positivo que eu medi era falsa. Medi
+            # sobre relatórios ENTREGUES — onde o verifier já tinha
+            # "consertado" os falsos positivos, então eles não apareciam. O
+            # corpus de medição estava contaminado pelo efeito que eu queria
+            # medir. Só a captura do texto CRU expôs.
+            #
+            # Enquanto cada regra não for remedida contra texto CRU, nenhuma
+            # reescreve. Sinalizam no log.
+            violations_all[-1]["no_rewrite"] = True
     except Exception as e:
         logger.warning("verifier word_lint failed: %s", e)
 

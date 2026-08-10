@@ -139,9 +139,6 @@ CANARIOS = [
     ("contração que não aconteceu",
      lambda t: __import__("word_lint").word_lint(t),
      "a clareza de o que você pode dar"),
-    ("palavra corrompida (uma letra a mais)",
-     lambda t: __import__("word_lint").word_lint(t),
-     "a rigidez saturninan gravada na casa 4"),
     ("palavra PARTIDA ('conta tos' → 'contatos')",
      lambda t: [x for x in __import__("word_lint").word_lint(t)
                 if x["kind"] == "palavra:partida"],
@@ -373,6 +370,12 @@ NEGATIVOS = [
      lambda t: ([1] if tv._motivo_reescrita_invalida(
          "O perigo concreto é entrar num acordo enxergando potencial.", t) else []),
      "O perigo é fechar um acordo olhando o que a outra pessoa pode vir a ser."),
+    ("sujeito composto: 'Vênus e Marte librianos' é plural legítimo",
+     lambda t: __import__("word_lint").word_lint(t),
+     "onde Vênus e Marte librianos tendem à acomodação, o trígono abre via"),
+    ("palavras corretas ausentes do dicionário europeu não acendem",
+     lambda t: __import__("word_lint").word_lint(t),
+     "o autossacrifício e o hábito de ficar monitorando tudo cansam"),
     ("'sobre tudo' não é palavra partida (as duas são comuns)",
      lambda t: [x for x in __import__("word_lint").word_lint(t)
                 if x["kind"] == "palavra:partida"],

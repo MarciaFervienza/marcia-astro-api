@@ -25,8 +25,6 @@ def chk(rot, cond):
 REAIS = [
     ("o idealismo pode se voltarcontra você", "palavra:colada"),
     ("a clareza de o que você pode dar sem se perder", "palavra:contracao_faltando"),
-    ("a rigidez saturninan gravada na casa 4", "palavra:corrompida"),
-    ("A retrogradiação de Saturno sugere internalização", "palavra:corrompida"),
     ("expandindo a zona de conforto arianas", "palavra:concordancia_adjetivo"),
     ("sobre onde e com quem você quer fincar ancoras", "palavra:acento_faltando"),
 ]
@@ -44,7 +42,6 @@ print("=" * 62)
 INVENTADAS = [
     ("o medo pode se virarcontra você", "palavra:colada"),
     ("a raiz de o que sustenta", "palavra:contracao_faltando"),
-    ("uma postura leoninan firme", "palavra:corrompida"),
     ("a energia de conforto leoninas", "palavra:concordancia_adjetivo"),
 ]
 for frase, esperado in INVENTADAS:
@@ -74,6 +71,24 @@ print()
 print("=" * 62)
 print("D) O QUE O LINT NÃO ALCANÇA — registrado, não escondido")
 print("=" * 62)
+# REGRESSÃO DE COBERTURA ASSUMIDA (19/07). A R3 (palavra:corrompida) foi
+# REMOVIDA. Ela pegava "saturninan" e "retrogradiação" — 2 dos 7 defeitos
+# originais. Mas medida contra texto CRU deu 19 falsos positivos e ZERO
+# verdadeiros, e os falsos CORROMPIAM: o verifier obedecia e partia palavra
+# correta ("autossacrifício" → "auto sacrifício").
+#
+# Troca aceita: perder 2 verdadeiros para não criar 19 falsos por rodada
+# que viram corrupção. A cobertura das 7 cai de 6/7 para 4/7.
+import word_lint as _wl_mod
+import inspect as _insp_r3
+chk("R3 removida (19 falsos, 0 verdadeiros no CRU)",
+    "palavra:corrompida" not in _insp_r3.getsource(_wl_mod.word_lint))
+chk("'saturninan' NÃO é mais pego — regressão assumida",
+    not [x for x in word_lint("a rigidez saturninan gravada") ])
+chk("'retrogradiação' NÃO é mais pego — regressão assumida",
+    not [x for x in word_lint("A retrogradiação de Saturno pesa")])
+print("          → cobertura das 7: 4/7 (era 6/7). A R3 criava mais defeito")
+print("            do que achava, e o defeito criado era invisível.")
 nao_pega = "há uma tensão entre como você mente pensa e o que você busca"
 chk("'como você mente pensa' NÃO é pego (é sintaxe, não palavra)",
     not word_lint(nao_pega))

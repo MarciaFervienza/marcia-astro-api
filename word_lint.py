@@ -255,6 +255,12 @@ def _adjetivos_fechados():
 # dois relatórios — sem ele, 34 acusações ("olhar para" → "pará",
 # "sentir fica" → "ficá"); com ele, 1 acusação, que é a verdadeira.
 # ---------------------------------------------------------------
+_NOMES_CORPO = {
+    "sol", "lua", "mercúrio", "mercurio", "vênus", "venus", "marte",
+    "júpiter", "jupiter", "saturno", "urano", "netuno", "plutão", "plutao",
+    "quíron", "quiron", "lilith", "ceres", "palas", "pallas", "juno",
+    "vesta", "ascendente", "descendente", "opera", "operar",
+}
 _ACENTOS = {"a": "áàâã", "e": "éê", "i": "í", "o": "óôõ", "u": "ú"}
 
 
@@ -268,6 +274,13 @@ def _acento_faltando(ant, w):
     """(ant, w) consecutivos: w perdeu um acento e virou outra palavra?"""
     sp, _ = _dicionario()
     if sp is None or len(ant) <= 3 or not ant.endswith(("ar", "er", "ir")):
+        return None
+    # "JúpitER", "obsERvar UranO", "poder opera": nome de corpo terminado em
+    # -er/-ir NÃO é infinitivo. 5 dos 29 falsos positivos no cru eram isto.
+    import re as _re2
+    if _re2.sub(r"\s+", " ", ant.strip().lower()) in _NOMES_CORPO:
+        return None
+    if _re2.sub(r"\s+", " ", w.strip().lower()) in _NOMES_CORPO:
         return None
     if len(w) < 4 or not existe(w):
         return None
@@ -377,18 +390,17 @@ def word_lint(text):
                 f"'{m.group(0)}' → '{certo}'. Em português a contração é "
                 f"obrigatória aqui.")
 
-    # R3
-    vocab = _vocab_dominio()
-    for m in re.finditer(r"\b[a-zà-ÿ]{6,}\b", text, flags=re.IGNORECASE):
-        w = m.group(0).lower()
-        if w[0].isupper() or existe(w) or _corte(w):
-            continue
-        perto = [v for v in vocab if _dist1(w, v)]
-        if perto:
-            add("palavra:corrompida", m.group(0), m.start(),
-                f"'{m.group(0)}' não existe. A uma letra de "
-                f"'{perto[0]}' — provável erro de digitação do modelo.")
-
+    # R3 DESLIGADA (19/07, medida contra texto CRU).
+    #
+    # 19 acusações em 5 relatórios crus, TODAS falsas: rupturas, acessa,
+    # trígonos, internaliza, saturnianos, gerencial, apertadíssimo,
+    # registros. O critério — palavra a uma edição de termo do domínio —
+    # não distingue erro de digitação de palavra brasileira ausente do
+    # dicionário europeu. É o spell_lint outra vez, com outro nome.
+    #
+    # A medição anterior deu "2 acusações, ambas verdadeiras" porque rodou
+    # sobre relatórios ENTREGUES, onde o verifier já havia reescrito os
+    # falsos positivos. Corpus contaminado pelo efeito medido.
     # R4
     adjs = _adjetivos_fechados()
     plurais = "|".join(sorted({a + "s" for a in adjs}, key=len, reverse=True))
@@ -397,6 +409,12 @@ def word_lint(text):
                              flags=re.IGNORECASE):
             ant = m.group(1).lower()
             if ant.endswith("s") or ant in _PLURAL_OK or ant in _FUNCIONAIS:
+                continue
+            # SUJEITO COMPOSTO: "Vênus e Marte librianos" é plural legítimo —
+            # o núcleo são os DOIS, não só o último. Sem isto era falso
+            # positivo (medido no texto cru do carlos_ed, 19/07).
+            _antes30 = text[max(0, m.start() - 32):m.start()]
+            if re.search(r"\b[A-Za-zÀ-ÿ]{3,}\s+e\s+$", _antes30):
                 continue
             add("palavra:concordancia_adjetivo", m.group(0), m.start(),
                 f"'{m.group(2)}' está no plural e '{ant}' no singular. "
