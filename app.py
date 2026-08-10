@@ -1209,6 +1209,44 @@ def send_report_email(to_email: str, client_name: str, pdf_bytes: bytes,
         return f"SendGrid HTTP {resp.status_code}: {(resp.text or '')[:300]}"
 
 
+# =============================================================
+# REGISTRO DAS ÚLTIMAS GERAÇÕES (19/07)
+#
+# Existe por uma pergunta que nenhum de nós dois conseguia responder: se o
+# proxy corta em 300s e o cliente desconecta, o e-mail ainda sai?
+#
+# Sem isto, um e-mail que não chega tem DUAS explicações que levam a
+# decisões opostas — a desconexão abortou o processo, ou a geração falhou
+# fechada e o e-mail não saiu por desenho. O registro fica em memória e
+# sobrevive à desconexão do cliente, porque é o SERVIDOR que escreve.
+#
+# Só metadado: nome, quando, quanto tempo, desfecho, e se o e-mail saiu.
+# Nada de conteúdo de relatório.
+_ULTIMAS_GERACOES = _deque(maxlen=25)
+_geracoes_lock = _Lock()
+
+
+def _registra_geracao(**kw):
+    try:
+        with _geracoes_lock:
+            _ULTIMAS_GERACOES.append({"quando": _time.strftime("%H:%M:%S"), **kw})
+    except Exception:
+        pass
+
+
+@app.route("/ultimas-geracoes", methods=["GET"])
+def ultimas_geracoes_endpoint():
+    import hmac
+    presented = (request.headers.get("X-API-Key")
+                 or request.args.get("api_key") or "")
+    if not API_SECRET_KEY or not presented \
+            or not hmac.compare_digest(presented, API_SECRET_KEY):
+        return jsonify({"status": "error", "message": "unauthorized"}), 401
+    with _geracoes_lock:
+        return jsonify({"status": "ok",
+                        "geracoes": list(_ULTIMAS_GERACOES)}), 200
+
+
 @app.route("/buscar-cidade", methods=["GET", "POST"])
 def buscar_cidade_endpoint():
     """Opções de cidade para o formulário. Consome: ?q=santa+rosa
@@ -2417,6 +2455,8 @@ def generate_report_endpoint():
              "pendencias": _pend,
              "regeneracoes": _rl_log.get("regeneracoes"),
              "rodadas": len(_rl_log.get("rodadas") or [])})
+        _registra_geracao(nome=body.get("name"),
+                          desfecho="falha_fechada_lingua", email_enviado=False)
         return jsonify({
             "status": "error",
             "code": "lingua_falha_fechada",
@@ -2529,6 +2569,11 @@ def generate_report_endpoint():
                 send_result = f"unexpected error: {e}"
             if send_result is True:
                 email_sent = True
+                # Registra do lado do SERVIDOR: sobrevive à desconexão do
+                # cliente, e é assim que se descobre se o e-mail saiu mesmo
+                # quando o proxy já cortou a resposta.
+                _registra_geracao(nome=body.get("name"),
+                                  desfecho="ok", email_enviado=True)
                 logger.info("email sent to %s", recipient)
             else:
                 email_error = send_result
