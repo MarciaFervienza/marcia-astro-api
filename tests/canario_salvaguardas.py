@@ -31,6 +31,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import app
 import report_generator as rg
+APP_SRC = open(os.path.join(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))), "app.py"), encoding="utf-8").read()
 import revisao_lingua as rl
 import text_verifier as tv
 
@@ -239,9 +241,13 @@ salvaguarda("word_lint é FLAG-ONLY — nunca reescreve",
             'violations_all[-1]["no_rewrite"] = True' in _bloco_wl
             and 'if v["kind"] == "palavra:corrompida"' not in _bloco_wl,
             "se voltar a reescrever, volta a PARTIR palavra correta")
-salvaguarda("R3 (palavra:corrompida) está REMOVIDA",
-            "palavra:corrompida" not in inspect.getsource(_wlm.word_lint),
-            "19 falsos positivos e 0 verdadeiros no texto CRU")
+salvaguarda("R3 voltou mas é FLAG-ONLY (nunca reescreve)",
+            "palavra:corrompida" in inspect.getsource(_wlm.word_lint)
+            and "FLAG-ONLY" in inspect.getsource(_wlm.word_lint),
+            "com ~19 falsos por 5 relatórios, reescrever seria corrupção")
+salvaguarda("encanamento de língua LIGADO por padrão",
+            'body.get("revisao_lingua", True) is not False' in APP_SRC,
+            "desligado por padrão significa cliente sem proteção")
 salvaguarda("nome de corpo não é tratado como infinitivo (R5)",
             "_NOMES_CORPO" in inspect.getsource(_wlm._acento_faltando),
             "'Júpiter opera' e 'mover Urano' eram 5 dos 29 falsos")

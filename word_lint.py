@@ -401,6 +401,26 @@ def word_lint(text):
     # A medição anterior deu "2 acusações, ambas verdadeiras" porque rodou
     # sobre relatórios ENTREGUES, onde o verifier já havia reescrito os
     # falsos positivos. Corpus contaminado pelo efeito medido.
+    # R3 DE VOLTA, FLAG-ONLY (19/07, decisão da Márcia). Não reescreve nada
+    # — todo o word_lint é no_rewrite. Custa nada e responde sozinha: se
+    # "saturninan" ou "retrogradiação" reaparecerem, ela sinaliza no meta e
+    # sabemos que eram genuínas; se nunca reaparecerem em vinte relatórios,
+    # a resposta também está dada. Melhor que queimar gerações agora.
+    #
+    # Ela TEM ~19 falsos positivos por 5 relatórios crus. Como é flag-only,
+    # isso é ruído no log, não corrupção no texto.
+    vocab = _vocab_dominio()
+    for m in re.finditer(r"\b[a-zà-ÿ]{6,}\b", text, flags=re.IGNORECASE):
+        w = m.group(0).lower()
+        if w[0].isupper() or existe(w) or _corte(w):
+            continue
+        perto = [v for v in vocab if _dist1(w, v)]
+        if perto:
+            add("palavra:corrompida", m.group(0), m.start(),
+                f"'{m.group(0)}' pode ser erro de digitação — está a uma "
+                f"letra de '{perto[0]}'. FLAG-ONLY: conferir à mão, a regra "
+                f"tem ~19 falsos por 5 relatórios.")
+
     # R4
     adjs = _adjetivos_fechados()
     plurais = "|".join(sorted({a + "s" for a in adjs}, key=len, reverse=True))

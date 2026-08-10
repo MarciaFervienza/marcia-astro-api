@@ -81,14 +81,22 @@ print("=" * 62)
 # que viram corrupção. A cobertura das 7 cai de 6/7 para 4/7.
 import word_lint as _wl_mod
 import inspect as _insp_r3
-chk("R3 removida (19 falsos, 0 verdadeiros no CRU)",
-    "palavra:corrompida" not in _insp_r3.getsource(_wl_mod.word_lint))
-chk("'saturninan' NÃO é mais pego — regressão assumida",
-    not [x for x in word_lint("a rigidez saturninan gravada") ])
-chk("'retrogradiação' NÃO é mais pego — regressão assumida",
-    not [x for x in word_lint("A retrogradiação de Saturno pesa")])
-print("          → cobertura das 7: 4/7 (era 6/7). A R3 criava mais defeito")
-print("            do que achava, e o defeito criado era invisível.")
+# R3 VOLTOU, em FLAG-ONLY (decisão da Márcia, 19/07). Ela sinaliza e não
+# reescreve, então os ~19 falsos por 5 relatórios viram ruído no log, não
+# corrupção no texto. E responde sozinha a pergunta em aberto: se
+# "saturninan" reaparecer, era genuíno; se nunca reaparecer, também é
+# resposta. Melhor que queimar gerações agora.
+chk("R3 voltou e é FLAG-ONLY",
+    "palavra:corrompida" in _insp_r3.getsource(_wl_mod.word_lint)
+    and "FLAG-ONLY" in _insp_r3.getsource(_wl_mod.word_lint))
+chk("'saturninan' volta a ser SINALIZADO (sem reescrita)",
+    bool(word_lint("a rigidez saturninan gravada")))
+import text_verifier as _tv_r3
+chk("e no verifier ele NÃO dispara reescrita",
+    all(x.get("no_rewrite") for x in _tv_r3._detectar_tudo(
+        "a rigidez saturninan gravada", None)
+        if x["kind"].startswith("palavra")))
+print("          → cobertura das 7 volta a 6/7, mas SEM poder corromper.")
 nao_pega = "há uma tensão entre como você mente pensa e o que você busca"
 chk("'como você mente pensa' NÃO é pego (é sintaxe, não palavra)",
     not word_lint(nao_pega))

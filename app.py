@@ -2150,9 +2150,16 @@ def generate_report_endpoint():
     # nem importância do par de corpos — essa camada de "pesos por par"
     # é planejada para uma rodada futura.
     # ==================================================================
-    # Flag de MEDIÇÃO da passada de revisão (19/07). Desligado por padrão;
-    # nenhuma geração de cliente muda enquanto ninguém mandar true.
-    body["_revisao_lingua"] = bool(body.get("revisao_lingua"))
+    # ENCANAMENTO DE LÍNGUA — LIGADO POR PADRÃO (19/07, decisão da Márcia).
+    #
+    # Medido contra o texto CRU dos 5 mapas de QA: ~1 defeito de língua por
+    # relatório, todos na classe que só leitura alcança ("responcer", frase
+    # que não fecha, referente ausente). O detector é FLAG-ONLY e não
+    # corrompe; a correção é REGENERAR a seção, que produz texto novo; e a
+    # falha fechada protege o cliente se não limpar.
+    #
+    # `revisao_lingua: false` no corpo desliga, para diagnóstico.
+    body["_revisao_lingua"] = body.get("revisao_lingua", True) is not False
     # Captura por estágio para a medição de ONDE os defeitos surgem.
     body["_debug_estagios"] = bool(body.get("debug_estagios"))
 
