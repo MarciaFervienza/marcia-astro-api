@@ -252,6 +252,24 @@ salvaguarda("nome de corpo não é tratado como infinitivo (R5)",
             "_NOMES_CORPO" in inspect.getsource(_wlm._acento_faltando),
             "'Júpiter opera' e 'mover Urano' eram 5 dos 29 falsos")
 
+# ------------------------------------------------------------------ 10
+# O DEFEITO QUE O VERIFIER INTRODUZ entra no encanamento (19/07).
+# "habite a sua intensidade sem a filtrar" — gerundial portuguesa criada
+# pela reescrita do verifier — saiu no Lucca entregue. A pós-verificação
+# pegou e só REGISTROU. Agora os detectores determinísticos entram na mesma
+# rodada do encanamento, e a correção é regenerar a seção.
+_src_lk = inspect.getsource(rg._generate_report_locked)
+salvaguarda("detectores determinísticos alimentam o encanamento",
+            "detector_extra=_det_regex" in _src_lk,
+            "sem isso, o que o verifier INTRODUZ só vira linha de log")
+salvaguarda("word_lint NÃO alimenta o detector extra",
+            'v.get("no_rewrite")' in _src_lk,
+            "ele foi a FONTE dos defeitos; realimentá-lo reabriria o ciclo")
+salvaguarda("pipeline_lingua aceita detector_extra",
+            "detector_extra" in inspect.getsource(rl.pipeline_lingua))
+salvaguarda("frase_do_offset converte achado de offset em frase",
+            callable(getattr(rl, "frase_do_offset", None)))
+
 print()
 print("=" * 70)
 print(f"VIVAS: {vivas}    MORTAS: {len(mortas)}")

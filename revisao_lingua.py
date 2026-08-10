@@ -427,6 +427,16 @@ def _mapa_de_secoes(texto):
     return out
 
 
+def frase_do_offset(texto, off):
+    """A frase que contém este offset — para converter achado de detector
+    determinístico (que aponta offset) no formato do encanamento (que
+    aponta frase)."""
+    ini = max((texto.rfind(c, 0, off) for c in ".;:!?\n"), default=-1) + 1
+    fim = min([p for p in (texto.find(".", off), texto.find("\n", off))
+               if p != -1] or [len(texto)])
+    return texto[ini:fim + 1].strip()
+
+
 def secao_da_frase(texto, frase):
     """Em que seção está a frase apontada? (titulo, ini, fim) ou None."""
     pos = texto.find(frase[:60])
@@ -443,7 +453,8 @@ def secao_da_frase(texto, frase):
 
 
 def pipeline_lingua(full_report, chart, regenerar_secao_fn,
-                    call_claude_fn=None, max_tentativas=3, log_fn=None):
+                    call_claude_fn=None, max_tentativas=3, log_fn=None,
+                    detector_extra=None):
     """Detecta, regenera as seções apontadas, redetecta, falha fechado.
 
     `regenerar_secao_fn(titulo) -> texto_novo_da_secao | None` é injetada
@@ -460,6 +471,19 @@ def pipeline_lingua(full_report, chart, regenerar_secao_fn,
 
     for rodada in range(1, max_tentativas + 1):
         achados = detectar_sem_sentido(texto, call_claude_fn=call_claude_fn)
+        # DEFEITO QUE O VERIFIER INTRODUZ (19/07). O encanamento roda DEPOIS
+        # do verifier e só procura frase SEM SENTIDO. O que a reescrita do
+        # verifier cria é gramatical — "habite a sua intensidade sem a
+        # filtrar" (gerundial portuguesa) saiu no Lucca entregue. A
+        # pós-verificação PEGOU e só registrou; o texto foi assim mesmo.
+        #
+        # Aqui os detectores determinísticos entram na MESMA rodada, e a
+        # correção é a mesma: regenerar a seção. Regenerar não corrompe.
+        if detector_extra is not None:
+            try:
+                achados = achados + (detector_extra(texto) or [])
+            except Exception as exc:
+                _log(f"detector extra falhou: {exc}")
         _p, _i = _fatiar(texto, "paragrafo")
         log["chamadas_detector"] += sum(1 for i in _i if len(_p[i].strip()) >= 40)
         log["rodadas"].append({"rodada": rodada, "achados": achados})

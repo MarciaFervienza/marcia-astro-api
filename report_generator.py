@@ -3473,9 +3473,27 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
                 _res = generate_section(alvo, chart, name, gender)
                 return _res[0] if isinstance(_res, tuple) else _res
 
+            def _det_regex(txt):
+                """Detectores DETERMINÍSTICOS como achados do encanamento.
+
+                Só os que exigem ação (no_rewrite=False). O word_lint é todo
+                flag-only e por isso NÃO entra aqui — ele foi a fonte dos
+                defeitos, não a solução.
+                """
+                out = []
+                for v in _tv._detectar_tudo(txt, _chart_for_verifier):
+                    if v.get("no_rewrite") or v["kind"].startswith("neg_subst"):
+                        continue
+                    frase = _rl.frase_do_offset(txt, v.get("offset", 0))
+                    if frase:
+                        out.append({"frase": frase,
+                                    "motivo": f"{v['kind']}: {v['match'][:60]}"})
+                return out
+
             full_report, revisao_log, falha_lingua = _rl.pipeline_lingua(
                 full_report, chart, _regenera,
                 call_claude_fn=call_claude,
+                detector_extra=_det_regex,
                 max_tentativas=int((chart or {}).get("_lingua_tentativas") or 3),
                 log_fn=log)
             _stage['lingua'] = round(time.time() - _t_rev, 1)
