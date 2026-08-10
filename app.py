@@ -2201,9 +2201,15 @@ def generate_report_endpoint():
     #
     # Vem ANTES de tudo o mais de propósito — nada é construído nem enviado
     # a partir de um texto que o próprio sistema já sabe que está quebrado.
-    _falha_lingua = (result.get("meta") or {}).get("falha_lingua")
+    # BUG CORRIGIDO ANTES DE QUALQUER USO (19/07): a primeira versão lia
+    # `result["meta"]["falha_lingua"]`. `generate_report` devolve
+    # `falha_lingua` no TOPO do dicionário — não há chave "meta" ali. A
+    # verificação lia None SEMPRE, e a falha fechada nunca disparava.
+    # Detector de segurança morto é pior que ausente: o log diz que está
+    # protegido. Foi a medição que expôs, não a leitura do código.
+    _falha_lingua = result.get("falha_lingua")
     if _falha_lingua:
-        _rl_log = (result.get("meta") or {}).get("revisao_lingua") or {}
+        _rl_log = result.get("revisao_lingua") or {}
         _pend = []
         for _r in (_rl_log.get("rodadas") or [])[-1:]:
             for _a in _r.get("achados", []):
@@ -2399,6 +2405,10 @@ def generate_report_endpoint():
             # whitelist estabilizar sobre relatórios limpos.
             "spell_lint": result.get("spell_lint", []),
             "crutch_lint": result.get("crutch_lint", []),
+            # Encanamento de língua: detectar → regenerar → redetectar.
+            # `falha_lingua` não-nulo significa que o relatório NÃO SAIU.
+            "revisao_lingua": result.get("revisao_lingua", {}),
+            "falha_lingua": result.get("falha_lingua"),
             # Vocabulário rebuscado (flag-only): palavras de baixa frequência
             # para a Márcia triar. O que ela banir vai para o léxico.
             "rare_word_lint": result.get("rare_word_lint", []),

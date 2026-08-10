@@ -173,6 +173,31 @@ for _marca, _rot in (("_apply_moon_note", "nota da Lua"),
     chk(f"falha fechada vem ANTES de: {_rot}", _src.index(_marca) > _i)
 _bloco = _src[_i:_src.index("_apply_moon_note", _i)]
 chk("responde 422, não 200", "422" in _bloco)
+
+# A FALHA FECHADA ESTAVA MORTA (19/07). A primeira versão lia
+# `result["meta"]["falha_lingua"]`, e generate_report devolve `falha_lingua`
+# no TOPO — não há chave "meta" ali. Lia None sempre. A medição expôs; a
+# leitura do código não. Este teste garante que a leitura bate com o que a
+# função devolve, em vez de confiar que bate.
+import report_generator as _rg2
+# generate_report é um INVÓLUCRO que delega para _generate_report_locked
+# (serialização por _GENERATION_LOCK). O dicionário de retorno vive lá.
+# Inspecionar o invólucro daria "não achei" — foi assim que este teste
+# quebrou na primeira escrita.
+_src_gr = _insp.getsource(_rg2._generate_report_locked)
+_i_ret = _src_gr.rindex("return {")
+_chaves_devolvidas = _re.findall(r'"([a-z_]+)":', _src_gr[_i_ret:])
+chk("generate_report devolve 'falha_lingua' no TOPO",
+    "falha_lingua" in _chaves_devolvidas)
+chk("generate_report NÃO tem chave 'meta' (a leitura antiga era impossível)",
+    "meta" not in _chaves_devolvidas)
+chk("o endpoint lê falha_lingua do TOPO de result",
+    'result.get("falha_lingua")' in _bloco)
+chk("o endpoint NÃO lê de result['meta']",
+    '(result.get("meta") or {}).get("falha_lingua")' not in _src)
+chk("o meta da resposta carrega revisao_lingua e falha_lingua",
+    '"revisao_lingua": result.get("revisao_lingua"' in _src
+    and '"falha_lingua": result.get("falha_lingua")' in _src)
 chk("alerta para o executivo@ com seção e frase",
     "_send_failure_alert" in _bloco and '"secao"' in _bloco
     and '"frase"' in _bloco)
