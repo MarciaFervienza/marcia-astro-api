@@ -184,6 +184,17 @@ salvaguarda("falha fechada alerta o executivo@",
 salvaguarda("o alerta carrega seção, frase e motivo",
             all(k in _bloco for k in ('"secao"', '"frase"', '"motivo"')))
 
+# ------------------------------------------------------------------ 8
+# REGENERAÇÃO EM PARALELO — em série o pior caso crescia com o número de
+# seções (299s com 3, contra o teto de 300s do proxy).
+_src_pl = inspect.getsource(rl.pipeline_lingua)
+salvaguarda("regeneração de seções roda em PARALELO",
+            "ThreadPoolExecutor" in _src_pl,
+            "em série o pior caso chega a 299s com 3 seções")
+salvaguarda("aplicação das seções é de TRÁS PARA FRENTE (offsets)",
+            "key=lambda x: -x[1]" in _src_pl,
+            "substituir de frente desloca os offsets das seguintes")
+
 print()
 print("=" * 70)
 print(f"VIVAS: {vivas}    MORTAS: {len(mortas)}")

@@ -231,6 +231,25 @@ classifica por ramo; um ramo que engorda ou uma abstenção que cresce são o
 sinal. O canário protege o que já se sabe; a varredura é o que descobre o
 que ainda não se sabe.
 
+### R11. Reinjeção que não derruba o canário é reinjeção INCOMPLETA (19/07)
+
+Ao provar o canário de salvaguardas, removi o teto de tentativas trocando
+`range(1, max_tentativas + 1)` por `range(1, 99)` — e o canário seguiu
+verde. A leitura tentadora é "a proteção resistiu". A leitura correta era
+outra: **havia DUAS travas** (o `range` e um `break` interno) e eu tinha
+tirado só uma. Removendo as duas, o canário caiu na hora.
+
+**Regra: quando a reinjeção não derruba o teste, a primeira hipótese é que
+a reinjeção foi incompleta — não que a proteção funcionou.**
+
+É a mesma família do detector morto, um nível acima: lá o detector devolvia
+vazio e isso parecia "limpo"; aqui a reinjeção falha e isso parece
+"protegido". Nos dois casos o silêncio é lido como aprovação.
+
+Procedimento: antes de concluir que a proteção resistiu, listar TODOS os
+pontos do código que implementam aquela proteção e confirmar que a
+reinjeção atingiu todos.
+
 ### R10. Um único ponto de saída para cada serviço externo (19/07)
 
 `messages.create` aparece UMA vez no código inteiro, dentro de
@@ -560,6 +579,43 @@ de forma natural".
 Regex fecha CLASSE ENUMERÁVEL — andaime, geracional e regência deram zero
 duas vezes seguidas depois de cobertas por forma. Sintaxe e sentido são
 gerativos. São camadas diferentes e as duas ficam.
+
+## Geração ASSÍNCRONA — decidida, com GATILHO (19/07)
+
+**Não entra antes dos testers.** É mudança de arquitetura no caminho do
+cliente, com o Wix acoplado (hoje ele espera a resposta HTTP). Dez testers
+não geram concorrência, e o pior caso cabe.
+
+**Gatilho para entrar** — qualquer um dos dois:
+  · o pior caso do encanamento voltar a passar de **250s**;
+  · o volume justificar (concorrência real, mais de um cliente por vez).
+
+**Quando entrar, com fila DE VERDADE, não improvisada.** Fila em processo
+perde o job num restart, que é justamente o que se quer evitar.
+
+**A favor:** o cliente já recebe por e-mail — a resposta HTTP só carrega o
+PDF porque o fluxo é síncrono. Assíncrono remove o teto de 300s do proxy de
+vez, e também os 502 de deploy: requisição enfileirada sobrevive a restart.
+
+**Custo:** segundo serviço no Railway ou fila persistida; endpoint passa a
+devolver 202 + id; o Wix precisa mudar; e o alerta ao executivo@ vira o
+ÚNICO canal de erro, porque ninguém está escutando a resposta.
+
+### Orçamento de tempo (medido, 19/07)
+| etapa | tempo |
+|---|---|
+| geração base | 88–95s |
+| fase de seções (17, paralela) | 59–65s |
+| uma seção isolada | ~11s |
+| detector de língua (92 chamadas) | ~45s em produção |
+
+Pior caso do encanamento (teto 3, 2 rodadas de regeneração), **com a
+regeneração PARALELA**: **~253s, fixo**, independente de quantas seções
+forem apontadas. Em série era 253s com 1 seção e **299s com 3** — a um
+segundo de o cliente perder a requisição com o relatório pronto.
+
+Margem contra o teto de 300s: **3,2×** na geração limpa de hoje, **2,1×**
+com uma rodada de detecção, **1,2×** no pior caso.
 
 ## Revisão de língua — MEDIDO em 7 relatórios (19/07)
 

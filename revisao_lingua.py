@@ -483,24 +483,39 @@ def pipeline_lingua(full_report, chart, regenerar_secao_fn,
         if rodada == max_tentativas:
             break                       # última rodada só detecta, não regenera
 
-        for titulo in [t for t in alvos if t]:
-            novo = None
-            try:
-                novo = regenerar_secao_fn(titulo)
-            except Exception as exc:
-                _log(f"regeneração de {titulo!r} falhou: {exc}")
-            log["regeneracoes"] += 1
-            if not novo or not novo.strip():
-                continue
-            loc = None
-            for t2, ini, fim in _mapa_de_secoes(texto):
-                if t2 == titulo:
-                    loc = (ini, fim)
-                    break
-            if not loc:
+        # REGENERAÇÃO EM PARALELO (19/07). Em série, o pior caso crescia com
+        # o número de seções apontadas: 253s com 1, 299s com 3 — e o proxy
+        # do Railway corta em 300s, então 3 seções ficavam a 1 segundo de o
+        # cliente perder a requisição COM O RELATÓRIO PRONTO. Em paralelo o
+        # pior caso fica fixo em ~253s, independente de quantas forem.
+        #
+        # A APLICAÇÃO continua sequencial e de trás para frente, porque cada
+        # substituição desloca os offsets das seguintes — mesma disciplina
+        # do splice do verifier.
+        titulos = [t for t in alvos if t]
+        novos = {}
+        if titulos:
+            from concurrent.futures import ThreadPoolExecutor
+
+            def _um(t):
+                try:
+                    return t, regenerar_secao_fn(t)
+                except Exception as exc:
+                    _log(f"regeneração de {t!r} falhou: {exc}")
+                    return t, None
+
+            with ThreadPoolExecutor(max_workers=min(6, len(titulos))) as ex:
+                for t, novo in ex.map(_um, titulos):
+                    log["regeneracoes"] += 1
+                    if novo and novo.strip():
+                        novos[t] = novo.strip()
+
+        for titulo, ini, fim in sorted(_mapa_de_secoes(texto),
+                                       key=lambda x: -x[1]):
+            if titulo not in novos:
                 continue
             cabecalho = f"\n## {titulo}\n\n"
-            texto = texto[:loc[0]] + cabecalho + novo.strip() + "\n" + texto[loc[1]:]
+            texto = texto[:ini] + cabecalho + novos[titulo] + "\n" + texto[fim:]
             _log(f"seção {titulo!r} regenerada")
 
     pendentes = log["rodadas"][-1]["achados"]
