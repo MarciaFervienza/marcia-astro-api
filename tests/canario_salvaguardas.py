@@ -270,6 +270,15 @@ salvaguarda("pipeline_lingua aceita detector_extra",
 salvaguarda("frase_do_offset converte achado de offset em frase",
             callable(getattr(rl, "frase_do_offset", None)))
 
+# ------------------------------------------------------------------ 11
+# O log tem de distinguir o que CHEGOU ao cliente do que foi resolvido.
+salvaguarda("sinalizado é reclassificado contra o texto FINAL",
+            "SINALIZADO_E_ENTREGUE" in _src_lk
+            and "sinalizado_e_resolvido" in _src_lk,
+            "sem isso o log mostra o estado do SCAN, não o da entrega")
+salvaguarda("a reclassificação registra no_texto_final",
+            '"no_texto_final"' in _src_lk)
+
 print()
 print("=" * 70)
 print(f"VIVAS: {vivas}    MORTAS: {len(mortas)}")

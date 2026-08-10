@@ -654,6 +654,28 @@ segundo de o cliente perder a requisição com o relatório pronto.
 Margem contra o teto de 300s: **3,2×** na geração limpa de hoje, **2,1×**
 com uma rodada de detecção, **1,2×** no pior caso.
 
+## LINHA DE BASE: o primeiro relatório limpo de origem (19/07)
+
+**Lucca, 19/07, commit b435ffc: ZERO achados do detector semântico em 96
+parágrafos.** Uma rodada, nenhuma regeneração, nenhuma falha fechada, 132s.
+
+É o primeiro relatório do projeto que não precisou de **nenhuma** correção
+de língua. E é exatamente o que a medição do texto CRU previa: ~1 defeito
+por relatório na geração, com variância que inclui o zero.
+
+**Por que isto é a linha de base, e não uma boa notícia isolada.** Durante
+semanas eu reportei três ou mais defeitos por relatório. Aquele número era
+inflado por duas coisas:
+  · o `word_lint` CRIAVA palavras partidas que depois eu encontrava (R12);
+  · eu media sobre texto entregue, já alterado pelas camadas (R12).
+
+Com as duas causas removidas, a taxa real apareceu. **Os dez relatórios dos
+testers devem ser lidos contra este número**, não contra o histórico: uma
+geração que precisa de 2 regenerações é acima da média, não normal.
+
+Contraprova na mesma rodada: a Helena precisou de 2 regenerações e saiu
+limpa. As duas pontas do intervalo estão medidas.
+
 ## Revisão de língua — MEDIDO em 7 relatórios (19/07)
 
 A Márcia fechou: não lança enquanto erro de língua puder sair. Os dados

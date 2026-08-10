@@ -3540,6 +3540,26 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
         print(f"{'='*70}\n")
         print(full_report)
 
+    # SINALIZADO-E-RESOLVIDO × SINALIZADO-E-ENTREGUE (19/07, Márcia).
+    #
+    # O log flag-only registra o estado no momento do SCAN, não na entrega.
+    # Na Helena, "individuali za" foi sinalizado e depois REMOVIDO pela
+    # regeneração de seção — mas o log dizia só "sinalizada_sem_reescrita",
+    # e quem lê dez logs de testers não teria como saber o que chegou ao
+    # cliente.
+    #
+    # Aqui cada sinalização é conferida contra o texto FINAL.
+    try:
+        for _v in verifier_log:
+            if _v.get("status") != "sinalizada_sem_reescrita":
+                continue
+            _m = (_v.get("match") or "").strip()
+            _v["status"] = ("SINALIZADO_E_ENTREGUE" if _m and _m in full_report
+                            else "sinalizado_e_resolvido")
+            _v["no_texto_final"] = bool(_m and _m in full_report)
+    except Exception as _e:
+        log(f"reclassificação de sinalizados falhou: {_e}")
+
     if _cap:
         _estagios["3_final"] = full_report
 
