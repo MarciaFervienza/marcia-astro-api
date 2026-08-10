@@ -2191,6 +2191,54 @@ def generate_report_endpoint():
     # / cusp analysis. Runs against the returned report text before it goes
     # into the PDF, so both the PDF and the response's report field carry
     # the note. Never raises — falls back to the original text on error.
+    # ============================================================
+    # FALHA FECHADA DE LÍNGUA (19/07, decisão da Márcia)
+    #
+    # "Prefiro gerar à mão do que mandar defeito." Se o encanamento de
+    # língua não conseguiu limpar o relatório dentro do teto de tentativas,
+    # ele NÃO SAI: sem PDF, sem e-mail para o cliente, e alerta para o
+    # executivo@ com o mapa, a seção e a frase apontada.
+    #
+    # Vem ANTES de tudo o mais de propósito — nada é construído nem enviado
+    # a partir de um texto que o próprio sistema já sabe que está quebrado.
+    _falha_lingua = (result.get("meta") or {}).get("falha_lingua")
+    if _falha_lingua:
+        _rl_log = (result.get("meta") or {}).get("revisao_lingua") or {}
+        _pend = []
+        for _r in (_rl_log.get("rodadas") or [])[-1:]:
+            for _a in _r.get("achados", []):
+                _sec = None
+                try:
+                    import revisao_lingua as _rlm
+                    _loc = _rlm.secao_da_frase(result.get("report") or "",
+                                               _a.get("frase", ""))
+                    _sec = _loc[0] if _loc else None
+                except Exception:
+                    pass
+                _pend.append({"secao": _sec, "frase": _a.get("frase", "")[:200],
+                              "motivo": _a.get("motivo", "")[:160]})
+        logger.error("FALHA FECHADA DE LÍNGUA: %s", _falha_lingua[:400])
+        _send_failure_alert(
+            "lingua_falha_fechada",
+            RuntimeError(_falha_lingua[:400]),
+            {"name": body.get("name"), "email": body.get("email"),
+             "birth_date": birth_date_raw, "birth_city": body.get("birth_city"),
+             "ip": _client_ip, "ua": _ua,
+             "pendencias": _pend,
+             "regeneracoes": _rl_log.get("regeneracoes"),
+             "rodadas": len(_rl_log.get("rodadas") or [])})
+        return jsonify({
+            "status": "error",
+            "code": "lingua_falha_fechada",
+            "message": ("O relatório não passou na verificação de língua e "
+                        "não foi enviado. A Márcia foi avisada e vai gerar "
+                        "este mapa manualmente."),
+            "meta": {"falha_lingua": _falha_lingua,
+                     "pendencias": _pend,
+                     "regeneracoes": _rl_log.get("regeneracoes"),
+                     "rodadas": len(_rl_log.get("rodadas") or [])},
+        }), 422
+
     result["report"] = _apply_moon_note(result["report"], moon_meta, time_estimated)
 
     # Generate the chart-wheel SVG locally via Kerykeion (best-effort). The

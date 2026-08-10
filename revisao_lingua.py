@@ -394,3 +394,117 @@ def revisar_texto(texto, genero="feminino", call_claude_fn=None,
                 if status in ("recusado", "rejeitado_invariante"):
                     logger.warning("revisão de língua %s: %s", status, det)
     return "".join(partes), log
+
+
+# ==================================================================
+# ENCANAMENTO: detectar → regenerar a seção → redetectar → falhar fechado
+# ==================================================================
+# Desenho da Márcia (19/07), depois de MEDIDO que a passada de reescrita
+# corrige 5 dos 16 defeitos e precisou de seis guardas para chegar a zero
+# corrupção numa amostra de 5 edições. O detector acha 16 com risco zero.
+#
+# Por que REGENERAR e não reescrever: reescrever exige adivinhar o que a
+# frase quebrada queria dizer, e foi adivinhar que produziu o "carma".
+# Regenerar a seção produz texto NOVO, que não carrega o defeito, e ninguém
+# precisa adivinhar nada.
+#
+# TETO DE TENTATIVAS: sem ele, um defeito teimoso vira loop — e cada volta
+# custa uma geração de seção inteira.
+#
+# FALHA FECHADA: acima do teto o relatório NÃO SAI. A Márcia prefere gerar
+# à mão a mandar defeito.
+
+_RE_SECAO = re.compile(r"(?m)^## (.+)$")
+
+
+def _mapa_de_secoes(texto):
+    """[(titulo, inicio, fim)] de cada seção do relatório montado."""
+    marcas = [(m.group(1).strip(), m.start()) for m in _RE_SECAO.finditer(texto)]
+    out = []
+    for i, (titulo, ini) in enumerate(marcas):
+        fim = marcas[i + 1][1] if i + 1 < len(marcas) else len(texto)
+        out.append((titulo, ini, fim))
+    return out
+
+
+def secao_da_frase(texto, frase):
+    """Em que seção está a frase apontada? (titulo, ini, fim) ou None."""
+    pos = texto.find(frase[:60])
+    if pos < 0:
+        # o detector copia a frase; se houver diferença de espaço, tenta
+        # por um trecho menor antes de desistir
+        pos = texto.find(frase[:35])
+    if pos < 0:
+        return None
+    for titulo, ini, fim in _mapa_de_secoes(texto):
+        if ini <= pos < fim:
+            return titulo, ini, fim
+    return None
+
+
+def pipeline_lingua(full_report, chart, regenerar_secao_fn,
+                    call_claude_fn=None, max_tentativas=3, log_fn=None):
+    """Detecta, regenera as seções apontadas, redetecta, falha fechado.
+
+    `regenerar_secao_fn(titulo) -> texto_novo_da_secao | None` é injetada
+    para este módulo não depender de report_generator (ciclo de import).
+
+    Devolve (texto, log, motivo_falha). `motivo_falha` não-nulo significa
+    FALHA FECHADA: o chamador NÃO pode enviar o relatório.
+    """
+    _log = log_fn or (lambda *a, **k: None)
+    if call_claude_fn is None:
+        from report_generator import call_claude as call_claude_fn
+    log = {"rodadas": [], "chamadas_detector": 0, "regeneracoes": 0}
+    texto = full_report
+
+    for rodada in range(1, max_tentativas + 1):
+        achados = detectar_sem_sentido(texto, call_claude_fn=call_claude_fn)
+        _p, _i = _fatiar(texto, "paragrafo")
+        log["chamadas_detector"] += sum(1 for i in _i if len(_p[i].strip()) >= 40)
+        log["rodadas"].append({"rodada": rodada, "achados": achados})
+        _log(f"língua rodada {rodada}: {len(achados)} frase(s) apontada(s)")
+        if not achados:
+            return texto, log, None
+
+        # agrupa por SEÇÃO: uma regeneração conserta todas as frases dela
+        alvos = {}
+        for a in achados:
+            loc = secao_da_frase(texto, a.get("frase", ""))
+            if loc:
+                alvos.setdefault(loc[0], []).append(a)
+            else:
+                alvos.setdefault(None, []).append(a)
+
+        if None in alvos and len(alvos) == 1:
+            return texto, log, ("frase apontada não foi localizada em nenhuma "
+                                "seção — não há o que regenerar")
+
+        if rodada == max_tentativas:
+            break                       # última rodada só detecta, não regenera
+
+        for titulo in [t for t in alvos if t]:
+            novo = None
+            try:
+                novo = regenerar_secao_fn(titulo)
+            except Exception as exc:
+                _log(f"regeneração de {titulo!r} falhou: {exc}")
+            log["regeneracoes"] += 1
+            if not novo or not novo.strip():
+                continue
+            loc = None
+            for t2, ini, fim in _mapa_de_secoes(texto):
+                if t2 == titulo:
+                    loc = (ini, fim)
+                    break
+            if not loc:
+                continue
+            cabecalho = f"\n## {titulo}\n\n"
+            texto = texto[:loc[0]] + cabecalho + novo.strip() + "\n" + texto[loc[1]:]
+            _log(f"seção {titulo!r} regenerada")
+
+    pendentes = log["rodadas"][-1]["achados"]
+    frases = "; ".join(f"{a.get('frase','')[:70]!r} ({a.get('motivo','')[:50]})"
+                       for a in pendentes[:4])
+    return texto, log, (f"{len(pendentes)} frase(s) seguem quebradas após "
+                        f"{max_tentativas} tentativas: {frases}")

@@ -3404,20 +3404,37 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
     #
     # Roda DEPOIS do verifier: o verifier conserta o que é enumerável
     # (fato, doutrina, voz), e a revisão pega o que é gerativo (sintaxe).
-    revisao_log = []
+    # ENCANAMENTO DE LÍNGUA (19/07): detectar → regenerar a seção →
+    # redetectar → FALHAR FECHADO.
+    #
+    # A passada de REESCRITA saiu do encanamento por medição: corrige 5 dos
+    # 16 defeitos, precisou de seis guardas para chegar a zero corrupção
+    # numa amostra de 5 edições, e as guardas recusam correção legítima
+    # junto com a corrompida. O detector acha 16 com risco zero.
+    revisao_log = {}
+    falha_lingua = None
     if (chart or {}).get("_revisao_lingua"):
         try:
             _t_rev = time.time()
             import revisao_lingua as _rl
-            _gen = ((chart or {}).get("gender") or "feminino")
-            full_report, revisao_log = _rl.revisar_texto(
-                full_report, genero=_gen, call_claude_fn=call_claude)
-            _stage['revisao_lingua'] = round(time.time() - _t_rev, 1)
-            log(f"revisão de língua: {sum(1 for x in revisao_log if x['status']=='revisado')} "
-                f"parágrafos alterados")
+
+            def _regenera(titulo):
+                """Regenera UMA seção pelo título. Texto novo não carrega o
+                defeito — e ninguém precisa adivinhar a intenção."""
+                alvo = next((s for s in sections if s["title"] == titulo), None)
+                if alvo is None:
+                    return None
+                return generate_section(alvo, chart, name, gender)
+
+            full_report, revisao_log, falha_lingua = _rl.pipeline_lingua(
+                full_report, chart, _regenera,
+                call_claude_fn=call_claude,
+                max_tentativas=int((chart or {}).get("_lingua_tentativas") or 3),
+                log_fn=log)
+            _stage['lingua'] = round(time.time() - _t_rev, 1)
         except Exception as e:
-            log(f"revisão de língua falhou: {e}")
-            revisao_log = [{"status": "erro", "detalhe": str(e)[:200]}]
+            log(f"encanamento de língua falhou: {e}")
+            falha_lingua = f"erro no encanamento de língua: {str(e)[:200]}"
 
     spell_lint_out = []
     try:
@@ -3470,6 +3487,7 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
         "repetition_lint": repetition_lint,
         "spell_lint": spell_lint_out,
         "revisao_lingua": revisao_log,
+        "falha_lingua": falha_lingua,
         "crutch_lint": crutch_lint,
         "rare_word_lint": rare_lint,
         "sign_divergences": sign_divergences,

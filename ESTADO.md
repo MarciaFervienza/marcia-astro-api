@@ -525,6 +525,42 @@ neste caso, mas por ausência de dado, não por análise.
 Enquanto a decisão não vem, o comportamento atual é conservador — acusa
 quando não reconhece o corpo — e isso é o lado seguro.
 
+## `coloram` — a prova de que existe classe que só LEITURA pega (19/07)
+
+Registro permanente, a pedido da Márcia. Esta é a justificativa de o
+detector semântico existir, e ela não expira.
+
+> "os aspectos de Juno com Vênus e com Netuno — já abordados em outra seção
+> — precisam ser lembrados aqui: eles **coloram** esse compromisso com
+> tanto encantamento…"
+
+O verbo certo é **colorem** (de *colorir*). Mas `coloram` **existe** — é
+forma de *colorar*, verbo raro — e o dicionário a aceita.
+
+**Por que nenhum lint pode alcançar isso:**
+- `word_lint` R1 (palavra colada): não é colada;
+- R3 (quase-acerto de termo do domínio): a palavra EXISTE, então nem entra
+  no teste;
+- léxico explícito: só pega o que está enumerado, e ninguém enumera
+  conjugações erradas de verbos raros;
+- `spell_lint`: aceitaria — a palavra está no dicionário.
+
+A pergunta que um lint faz é **"esta sequência existe?"**. A pergunta que o
+defeito exige é **"esta palavra cabe aqui?"** — e essa depende do sentido
+da frase, não da existência da forma.
+
+**Companheiros da mesma classe**, todos achados pelo detector e por nada
+mais: `librar` (não cabe no contexto), `turnam` (por *tornam*), `Hay` (por
+*Há* — espanhol), `outro camada`, `que se atritos`, `o chão firme` sem
+verbo, e uma contradição lógica no Fio Condutor da Gisela — o parágrafo
+anuncia uma TENSÃO e a frase seguinte diz que as duas coisas "se integram
+de forma natural".
+
+**Consequência de projeto:** nenhuma quantidade de regex fecha a língua.
+Regex fecha CLASSE ENUMERÁVEL — andaime, geracional e regência deram zero
+duas vezes seguidas depois de cobertas por forma. Sintaxe e sentido são
+gerativos. São camadas diferentes e as duas ficam.
+
 ## Revisão de língua — MEDIDO em 7 relatórios (19/07)
 
 A Márcia fechou: não lança enquanto erro de língua puder sair. Os dados
@@ -552,6 +588,22 @@ As 5 aplicadas: `turnam`→`tornam`, `netuniana`→`netunianas`, `conta
 tos`→`contatos`, `uma certa magnetismo`→`um certo magnetismo`, e uma
 correção parcial de sintaxe. Nenhuma inventa nem apaga. A guarda de
 contagem de frases pegou uma remoção real ("4 frases viraram 3").
+
+### Encanamento final: detectar → regenerar → redetectar → falhar fechado
+A passada de REESCRITA saiu do encanamento, por medição: corrige 5 dos 16,
+precisou de seis guardas para chegar a zero corrupção numa amostra de só 5
+edições, e as guardas recusam correção legítima junto com a corrompida.
+
+  · **detectar** — flag-only, uma chamada por parágrafo, risco zero;
+  · **regenerar a SEÇÃO** apontada — texto novo não carrega o defeito, e
+    ninguém precisa adivinhar o que a frase quebrada queria dizer (foi
+    adivinhar que produziu o "carma");
+  · **redetectar** com teto de tentativas (padrão 3). Sem teto, um defeito
+    teimoso vira loop e cada volta custa uma geração de seção;
+  · **falhar fechado** acima do teto: HTTP 422, sem PDF, sem e-mail ao
+    cliente, alerta ao executivo@ com mapa, seção e frase. A verificação
+    vem ANTES da nota da Lua, do SVG, do PDF e do envio — nada é construído
+    a partir de texto que o sistema já sabe que está quebrado.
 
 ### O detector semântico é o instrumento forte
 | | parágrafos | apontadas | verdadeiras | falsas |
