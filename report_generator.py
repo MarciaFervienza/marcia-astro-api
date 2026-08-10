@@ -3299,7 +3299,25 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
 
     # Post-generation cleanup
     log(f"\n--- Post-generation cleanup ---", flush=True)
+    # ==================================================================
+    # CAPTURA POR ESTÁGIO (19/07, pedido da Márcia)
+    #
+    # Hipótese dela: um LLM escrevendo livremente quase nunca parte uma
+    # palavra ao meio. "conta tos", "cri ativamente", "autoe stima" são
+    # assinatura de CIRURGIA DE STRING, não de geração. Eu tinha checado o
+    # splice do verifier — e há QUATRO camadas antes dele que mexem no
+    # texto por offset: cleanup_pass, verify_planet_signs,
+    # apply_correction_rewrites e o próprio verifier.
+    #
+    # Sem capturar cada uma, "surgiu entre 1 e 2" não diz QUAL delas.
+    _estagios = {}
+    _cap = bool((chart or {}).get("_debug_estagios"))
+    if _cap:
+        _estagios["1_cru"] = full_report
+
     full_report, cleanup_changes = cleanup_pass(full_report)
+    if _cap:
+        _estagios["1b_pos_cleanup"] = full_report
     if verbose:
         _print_cleanup_report(cleanup_changes)
 
@@ -3311,6 +3329,8 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
     # via app.py, para o operador saber que uma alucinação foi capturada.
     _mm = _moon_ingress_meta(chart)
     _moon_uncertain = _time_is_unknown(chart) and bool(_mm.get("moon_sign_uncertain"))
+    if _cap:
+        _estagios["_marca"] = True
     full_report, sign_divergences = verify_planet_signs(
         full_report, chart, moon_uncertain=_moon_uncertain,
     )
@@ -3324,6 +3344,8 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
     # deixou a argumentação astrológica incoerente com o signo real. Só
     # dispara se houver divergência do tipo 'sign_replaced'. Reescritas
     # deduplicadas por parágrafo (múltiplos corpos afetados = 1 chamada).
+    if _cap:
+        _estagios["1c_pos_signos"] = full_report
     full_report, correction_rewrites = apply_correction_rewrites(
         full_report, sign_divergences, chart,
     )
@@ -3348,6 +3370,7 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
         _chart_for_verifier = dict(chart or {})
         _chart_for_verifier.setdefault("_client_name", name)
         _t_ver = time.time()
+        _estagios["1d_pos_correcao_rewrites"] = full_report if _cap else None
         full_report, verifier_log = _tv.run_verifier(
             full_report, _chart_for_verifier, call_claude,
         )
@@ -3411,6 +3434,9 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
     # 16 defeitos, precisou de seis guardas para chegar a zero corrupção
     # numa amostra de 5 edições, e as guardas recusam correção legítima
     # junto com a corrompida. O detector acha 16 com risco zero.
+    if _cap:
+        _estagios["2_pos_verifier"] = full_report
+
     revisao_log = {}
     falha_lingua = None
     if (chart or {}).get("_revisao_lingua"):
@@ -3496,6 +3522,9 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
         print(f"{'='*70}\n")
         print(full_report)
 
+    if _cap:
+        _estagios["3_final"] = full_report
+
     return {
         "report": full_report,
         "name": name,
@@ -3508,6 +3537,8 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
         "repetition_lint": repetition_lint,
         "spell_lint": spell_lint_out,
         "revisao_lingua": revisao_log,
+        "estagios": ({k: v for k, v in _estagios.items()
+                      if v and k != "_marca"} if _cap else {}),
         "falha_lingua": falha_lingua,
         "crutch_lint": crutch_lint,
         "rare_word_lint": rare_lint,

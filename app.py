@@ -2153,6 +2153,8 @@ def generate_report_endpoint():
     # Flag de MEDIÇÃO da passada de revisão (19/07). Desligado por padrão;
     # nenhuma geração de cliente muda enquanto ninguém mandar true.
     body["_revisao_lingua"] = bool(body.get("revisao_lingua"))
+    # Captura por estágio para a medição de ONDE os defeitos surgem.
+    body["_debug_estagios"] = bool(body.get("debug_estagios"))
 
     kept, dropped = filter_aspects(
         _raw_aspects, body.get('points') or {}, unknown_birth_time)
@@ -2408,6 +2410,7 @@ def generate_report_endpoint():
             # Encanamento de língua: detectar → regenerar → redetectar.
             # `falha_lingua` não-nulo significa que o relatório NÃO SAIU.
             "revisao_lingua": result.get("revisao_lingua", {}),
+            "estagios": result.get("estagios", {}),
             "falha_lingua": result.get("falha_lingua"),
             # Vocabulário rebuscado (flag-only): palavras de baixa frequência
             # para a Márcia triar. O que ela banir vai para o léxico.
