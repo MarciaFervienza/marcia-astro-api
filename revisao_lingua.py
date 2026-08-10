@@ -93,6 +93,90 @@ _META = re.compile(
     re.IGNORECASE)
 
 
+_FUNCIONAIS_OK = {
+    # Palavras que uma revisão PODE inserir: artigo, preposição, pronome,
+    # conjunção, verbo de ligação. São o material de conserto de sintaxe.
+    "a", "o", "as", "os", "um", "uma", "uns", "umas", "de", "do", "da",
+    "dos", "das", "em", "no", "na", "nos", "nas", "por", "pelo", "pela",
+    "para", "com", "sem", "que", "se", "e", "ou", "mas", "ao", "aos", "à",
+    "às", "lhe", "lhes", "me", "te", "nos", "vos", "ele", "ela", "eles",
+    "elas", "seu", "sua", "seus", "suas", "este", "esta", "esse", "essa",
+    "isso", "isto", "aquilo", "não", "já", "é", "são", "foi", "era", "ser",
+    "está", "estão", "há", "tem", "têm", "como", "quando", "onde", "mais",
+    "menos", "muito", "pouco", "também", "ainda", "só", "sempre", "nunca",
+}
+
+
+def _tokens(t):
+    return re.findall(r"[a-zà-ÿ]+", _sem_acento(t.lower()))
+
+
+def _sem_acento(s):
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFD", s)
+                   if unicodedata.category(c) != "Mn")
+
+
+def _dist1(a, b):
+    if abs(len(a) - len(b)) > 1 or a == b:
+        return abs(len(a) - len(b)) <= 1 and a != b and _dist1_calc(a, b)
+    return _dist1_calc(a, b)
+
+
+def _dist1_calc(a, b):
+    if a == b:
+        return True
+    if len(a) == len(b):
+        return sum(x != y for x, y in zip(a, b)) <= 1
+    if abs(len(a) - len(b)) != 1:
+        return False
+    curto, longo = (a, b) if len(a) < len(b) else (b, a)
+    for i in range(len(longo)):
+        if longo[:i] + longo[i + 1:] == curto:
+            return True
+    return False
+
+
+def palavra_inventada(original, saida):
+    """A revisão introduziu CONTEÚDO que não estava lá?
+
+    Achado de 19/07, na primeira medição real: pedida para consertar "a
+    quadratura aos Nodos do carregada de significado", a revisão devolveu
+    "aos Nodos DO CARMA É carregada de significado" — inventou um termo
+    astrológico. Os invariantes não pegaram porque cobrem corpo, signo,
+    casa, aspecto e número, e "carma" não é nenhum deles.
+
+    Regra: toda palavra de conteúdo (≥4 letras) na saída tem de existir no
+    original, ou ser variação morfológica de uma que existe, ou vir da
+    junção/separação de palavras vizinhas ("conta tos" → "contatos").
+    """
+    orig_tok = set(_tokens(original))
+    orig_colado = _sem_acento(re.sub(r"[^a-zA-ZÀ-ÿ]", "", original.lower()))
+    for t in _tokens(saida):
+        if len(t) < 4 or t in orig_tok or t in _FUNCIONAIS_OK:
+            continue
+        if t in orig_colado:            # veio de palavra partida remontada
+            continue
+        if any(_dist1_calc(t, o) for o in orig_tok):
+            continue                    # flexão: pronta→pronto, mesma→mesmo
+        return t
+    return None
+
+
+def frases_perdidas(original, saida):
+    """A revisão APAGOU conteúdo?
+
+    Achado de 19/07: num parágrafo do Lucca a revisão simplesmente sumiu com
+    "Isso provavelmente tem uma história." A faixa de tamanho não pegou —
+    uma frase curta dentro de um parágrafo longo mantém a razão acima de
+    0,70. Contar frases pega.
+    """
+    def n(t):
+        return len([x for x in re.split(r"(?<=[.!?])\s+", t.strip()) if x.strip()])
+    a, b = n(original), n(saida)
+    return f"{a} frases viraram {b}" if a != b else None
+
+
 def motivo_recusa(original, saida):
     """None se a saída é uma revisão plausível do trecho; senão o motivo."""
     if not saida or not saida.strip():
@@ -111,8 +195,16 @@ def motivo_recusa(original, saida):
         m = _META.search(s)
         return f"meta-comentário do revisor: {m.group(0)!r}"
     r = len(s) / max(1, len(original.strip()))
-    if not (0.70 <= r <= 1.40):
+    # Faixa APERTADA (19/07, 2ª versão). 0,70–1,40 deixou passar a remoção
+    # de uma frase inteira. Revisão de língua muda pouco o tamanho.
+    if not (0.85 <= r <= 1.20):
         return f"tamanho {r:.2f}× o original — revisão não reescreve o trecho"
+    perdidas = frases_perdidas(original, s)
+    if perdidas:
+        return f"contagem de frases mudou: {perdidas}"
+    inventada = palavra_inventada(original, s)
+    if inventada:
+        return f"palavra INVENTADA na revisão: {inventada!r}"
     return None
 
 

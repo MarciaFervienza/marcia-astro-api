@@ -330,6 +330,18 @@ NEGATIVOS = [
      lambda t: ([] if __import__("revisao_lingua").divergencia_de_invariante(
          "Saturno em Aquário na casa 3", t) else [1]),
      "Saturno em Aquário na casa 4"),
+    ("revisão que INVENTA palavra é recusada ('carma')",
+     lambda t: ([] if __import__("revisao_lingua").motivo_recusa(
+         "Já a quadratura aos Nodos do carregada de significado traz tensão.", t)
+         else [1]),
+     "Já a quadratura aos Nodos do carma é carregada de significado traz tensão."),
+    ("revisão que APAGA frase é recusada",
+     lambda t: ([] if __import__("revisao_lingua").motivo_recusa(
+         "Isso provavelmente tem uma história. A mãe nutria de um jeito "
+         "recolhido e pouco visível para quem estava de fora do círculo.", t)
+         else [1]),
+     "A mãe nutria de um jeito recolhido e pouco visível para quem estava "
+     "de fora do círculo."),
     ("meta-comentário do revisor é recusado antes do splice",
      lambda t: ([] if __import__("revisao_lingua").motivo_recusa(
          "A hesitação já é uma forma de se calar, e isso pesa no cotidiano.", t)
