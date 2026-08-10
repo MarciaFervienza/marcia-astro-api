@@ -287,6 +287,19 @@ salvaguarda("sinalizado é reclassificado contra o texto FINAL",
 salvaguarda("a reclassificação registra no_texto_final",
             '"no_texto_final"' in _src_lk)
 
+# ------------------------------------------------------------------ 12
+# ESCOPO DO DETECTOR SEMÂNTICO (19/07). Ele procurava só frase SEM
+# SENTIDO — e "foram lidos" faz sentido, só está errado. Buraco de classe:
+# concordância e regência passavam inteiras.
+_pr = rl._PROMPT_SEMANTICO
+salvaguarda("detector semântico cobre CONCORDÂNCIA",
+            "CONCORDÂNCIA errada" in _pr and "foram lidos" in _pr.lower()
+            or "FORAM lidos" in _pr)
+salvaguarda("detector semântico cobre REGÊNCIA",
+            "REGÊNCIA errada" in _pr and "pousar" in _pr)
+salvaguarda("o prompt avisa que fazer sentido não basta",
+            "AINDA ASSIM estar errada" in _pr)
+
 print()
 print("=" * 70)
 print(f"VIVAS: {vivas}    MORTAS: {len(mortas)}")

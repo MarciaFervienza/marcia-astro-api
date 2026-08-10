@@ -697,6 +697,22 @@ def _detect_third_person_leak(text, voice):
 # O que denuncia o vazamento não é o pronome — é a INSTANCIAÇÃO: o texto
 # cria um referente de terceira pessoa para quem deveria ser "você". O
 # pronome vem depois, arrastado.
+# DISTINÇÃO DA MÁRCIA (19/07): corrigir só quando INSTANCIA UM SUJEITO
+# NOVO que está no lugar de quem lê — "há uma pessoa aqui que pensa muito",
+# "esse mapa pertence a alguém que…". Construção GENERALIZANTE — "o
+# resultado costuma ser alguém que aprendeu a ser competente por
+# necessidade" — é recurso retórico dela e FICA.
+#
+# O que separa: ÂNCORA DÊITICA (aqui, este/esse mapa) instancia; MARCA DE
+# GENERALIZAÇÃO (costuma, tende, geralmente, muitas vezes) não.
+_ANCORA_DEITICA = re.compile(
+    r"\b(?:aqui|neste\s+mapa|nesse\s+mapa|este\s+mapa|esse\s+mapa|"
+    r"do\s+seu\s+mapa|no\s+seu\s+mapa)\b", re.IGNORECASE)
+_MARCA_GENERALIZA = re.compile(
+    r"\b(?:costuma|costumam|tende|tendem|geralmente|em\s+geral|"
+    r"muitas\s+vezes|com\s+frequência|quase\s+sempre|via\s+de\s+regra|"
+    r"normalmente|frequentemente|o\s+resultado)\b", re.IGNORECASE)
+
 _PESSOA_TERCEIRA = [
     (r"\bhá\s+uma\s+pessoa\b", "cria um referente em 3ª pessoa"),
     (r"\buma\s+pessoa\s+aqui\b", "cria um referente em 3ª pessoa"),
@@ -711,6 +727,46 @@ _PESSOA_OK_ANTES = re.compile(r"(?:você\s+é|é\s+você|seja|se\s+torna)\s*$",
                               re.IGNORECASE)
 
 
+# CONCORDÂNCIA DE GÊNERO DO SUJEITO (19/07). Achado do GPT no Lucca:
+# "a ferida ligada à estrutura tem saída pelo trabalho para SI MESMA" —
+# sujeito masculino. Nenhum detector conferia: `_detect_third_person_leak`
+# nem olha `gender`.
+#
+# Escopo estreito de propósito: só as formas AUTORREFERENTES explícitas.
+# Adjetivo solto ("pronta", "segura") pode se referir a outro substantivo
+# feminino da frase, e acusaria português correto.
+_AUTORREF = [
+    (r"\b(?:si|você|voce)\s+mesm([ao])\b", "si/você mesmo(a)"),
+    (r"\bde\s+si\s+mesm([ao])\b", "de si mesmo(a)"),
+    (r"\bela\s+própri([ao])\b|\bele\s+própri([ao])\b", "ele/ela próprio(a)"),
+    (r"\bse\s+sentir\s+pront([ao])\b", "se sentir pronto(a)"),
+    (r"\bse\s+sentir\s+sozinh([ao])\b", "se sentir sozinho(a)"),
+]
+
+
+def _detect_genero_do_sujeito(text, chart):
+    """Autorreferência que não concorda com o gênero do sujeito."""
+    g = str((chart or {}).get("gender") or "").strip().lower()
+    if g not in ("masculino", "feminino"):
+        return []
+    esperado = "o" if g == "masculino" else "a"
+    out = []
+    for pat, rot in _AUTORREF:
+        for m in re.finditer(pat, text, flags=re.IGNORECASE):
+            achado = next((x for x in m.groups() if x), None)
+            if not achado or achado.lower() == esperado:
+                continue
+            out.append({
+                "kind": "voz:genero_do_sujeito",
+                "match": m.group(0)[:70], "offset": m.start(),
+                "suggestion": (
+                    f"O sujeito deste relatório é {g}, e '{m.group(0)}' está "
+                    f"na forma oposta. Corrigir a terminação para '-{esperado}' "
+                    f"({rot}). Não mexer em nada além disso."),
+            })
+    return out
+
+
 def _detect_person_instantiation(text, voice):
     """O texto inventa um 'ele/ela' para quem devia ser 'você'."""
     if (voice or {}).get("person") == "terceira":
@@ -720,6 +776,22 @@ def _detect_person_instantiation(text, voice):
         for m in re.finditer(pat, text, flags=re.IGNORECASE):
             if _PESSOA_OK_ANTES.search(text[max(0, m.start() - 18):m.start()]):
                 continue
+            # A oração em volta decide: instancia ou generaliza?
+            _ini = max((text.rfind(c, 0, m.start()) for c in ".;:!?\n"),
+                       default=-1) + 1
+            _fim = min([p for p in (text.find(".", m.end()),
+                                    text.find("\n", m.end())) if p != -1]
+                       or [len(text)])
+            _janela = text[_ini:_fim]
+            # JARGÃO não é absolvido por generalização: "a nativa tende a
+            # se cobrar" é jargão astrológico em 3ª pessoa, generalizando
+            # ou não. Só as construções com "pessoa" é que podem ser
+            # recurso retórico.
+            _e_jargao = "jargão" in motivo
+            if (not _e_jargao
+                    and _MARCA_GENERALIZA.search(_janela)
+                    and not _ANCORA_DEITICA.search(_janela)):
+                continue          # recurso retórico dela — FICA
             # a mesma ocorrência casa em mais de um padrão ("há uma pessoa"
             # e "uma pessoa aqui"): reporta uma vez só
             if any(abs(m.start() - v) < 20 for v in vistos):
@@ -836,6 +908,37 @@ def _detect_primeira_pessoa_predicativa(text):
 
 # 4. "poucos graus de X" sem a preposição. "Vesta também está em Libra,
 #    poucos graus de Ceres" (Lucca) — falta o 'a': "a poucos graus de".
+# 5. REGÊNCIA DE "CONVERGIR" (19/07, reincidente). O verbo é
+#    INTRANSITIVO: coisas convergem PARA algo. Duas quebras já saíram —
+#    "o que este mapa inteiro converge em apontar" e "a orientação prática
+#    que este mapa inteiro converge é". O prompt do Fio semeava a
+#    construção; foi corrigido lá também.
+def _detect_convergir_transitivo(text):
+    out = []
+    for m in re.finditer(
+            # Exige SUJEITO entre "que" e "converge" (≥4 chars). "o que
+            # converge quando tudo é resumido" é intransitivo e CORRETO —
+            # não há sujeito no meio. "que este mapa inteiro converge" tem.
+            r"\b(?:que|o\s+que|a\s+qual)\s+[^.;:!?]{4,60}?\bconverge\b"
+            r"(?!\s+(?:para|pra|em\s+dire|num|numa|no\s+mesmo|a\s+um|,|\.))",
+            text, flags=re.IGNORECASE):
+        # "é PARA LÁ que o mapa converge" é correto: a preposição vem antes
+        # do "que", separada por outras palavras. Lookbehind não alcança
+        # (largura fixa), então a janela anterior é conferida aqui.
+        _ini = max((text.rfind(c, 0, m.start()) for c in ".;:!?\n"), default=-1) + 1
+        if re.search(r"\b(?:para|pra|até|rumo)\b", text[_ini:m.start()],
+                     flags=re.IGNORECASE):
+            continue
+        out.append({
+            "kind": "lingua:convergir_transitivo",
+            "match": m.group(0)[:70], "offset": m.start(),
+            "suggestion": ("'convergir' é INTRANSITIVO — coisas convergem "
+                           "PARA algo. Reescrever como 'aponta para', "
+                           "'converge para' ou 'tudo converge para'."),
+        })
+    return out
+
+
 def _detect_graus_sem_preposicao(text):
     out = []
     for m in re.finditer(r"(?<!a\s)\b(poucos|alguns|dois|três|quatro|cinco)\s+"
@@ -1883,11 +1986,14 @@ def _detectar_tudo(text, chart):
         for v in (_detect_gerundial_portuguesa(scan_text)
                   + _detect_ainda_sem_negacao(scan_text)
                   + _detect_primeira_pessoa_predicativa(scan_text)
-                  + _detect_graus_sem_preposicao(scan_text)):
+                  + _detect_graus_sem_preposicao(scan_text)
+                  + _detect_convergir_transitivo(scan_text)):
             _add(v["kind"], v["match"], v["offset"], v["suggestion"])
         for v in _detect_angle_rulership(scan_text, chart):
             _add(v["kind"], v["match"], v["offset"], v["suggestion"])
         for v in _detect_shared_element(scan_text, chart):
+            _add(v["kind"], v["match"], v["offset"], v["suggestion"])
+        for v in _detect_genero_do_sujeito(scan_text, chart):
             _add(v["kind"], v["match"], v["offset"], v["suggestion"])
         for v in _detect_person_instantiation(scan_text, (chart or {}).get("_voice")):
             _add(v["kind"], v["match"], v["offset"], v["suggestion"])

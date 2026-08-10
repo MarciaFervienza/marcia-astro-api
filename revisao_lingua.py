@@ -287,11 +287,21 @@ def _revisar_paragrafo(par, genero, call_claude_fn):
 # adivinhar o que a frase queria dizer.
 _PROMPT_SEMANTICO = """Abaixo vem um parágrafo de um relatório de astrologia em português do Brasil.
 
-Sua única tarefa é dizer se alguma frase dele está QUEBRADA ou SEM SENTIDO. Procure:
+Sua única tarefa é dizer se alguma frase dele está QUEBRADA, SEM SENTIDO ou GRAMATICALMENTE ERRADA. Procure:
 - frase que não fecha, que perdeu uma palavra e ficou incompreensível
 - sentido INVERTIDO por falta de uma negação ("é sempre X" onde só faz sentido "não é sempre X")
 - palavra ou expressão inserida onde não cabe, deixando a frase sem sentido
 - construção que não significa nada em português
+- CONCORDÂNCIA errada de verbo ou de número, mesmo que a frase faça sentido:
+  · "O Sol em conjunção com Júpiter e Mercúrio FORAM lidos" (o sujeito é o Sol: "foi lido")
+  · "junto do Nodo Sul ESTÃO Urano nesse mesmo signo" ("está Urano")
+  · "quando ela é CHAMADO legítimo para agir" (concordância de gênero)
+  · "Isso não desapareceu. ELE opera ainda hoje" (o pronome não retoma "isso")
+- REGÊNCIA errada — preposição ou pronome que o verbo não pede:
+  · "onde esse material vai SE POUSAR" (pousar não é reflexivo)
+  · "uma capacidade de ver o que é justo E FAZER SENTIDO independentemente" (coordenação quebrada)
+
+ATENÇÃO: uma frase pode fazer todo sentido e AINDA ASSIM estar errada. "foram lidos" é compreensível e é erro. Aponte também esses.
 
 NÃO É DEFEITO, e você deve ignorar:
 - frase curta, fragmento ou oração incompleta usada como recurso de estilo
@@ -299,10 +309,10 @@ NÃO É DEFEITO, e você deve ignorar:
 - escolha de palavra que você acharia melhor de outro jeito
 - estilo, ritmo, repetição, tom
 
-Se TODAS as frases fizerem sentido, responda exatamente:
+Se TODAS as frases estiverem corretas, responda exatamente:
 OK
 
-Se alguma NÃO fizer, responda UMA linha por frase, assim:
+Se alguma NÃO estiver, responda UMA linha por frase, assim:
 FRASE: <a frase exata, copiada> | MOTIVO: <por que não faz sentido, em até 12 palavras>
 
 Não sugira correção. Não reescreva nada.
