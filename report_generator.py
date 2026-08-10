@@ -3424,7 +3424,14 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
                 alvo = next((s for s in sections if s["title"] == titulo), None)
                 if alvo is None:
                     return None
-                return generate_section(alvo, chart, name, gender)
+                # generate_section devolve (texto, chunks) — TUPLA. A
+                # primeira versão devolvia a tupla inteira e o encanamento
+                # estourava com "'tuple' object has no attribute 'strip'"
+                # em 4 dos 5 mapas de QA (19/07). A falha fechada pegou e
+                # recusou o envio — funcionou —, mas a medição virou 4/5 de
+                # exceção, não de defeito de língua.
+                _res = generate_section(alvo, chart, name, gender)
+                return _res[0] if isinstance(_res, tuple) else _res
 
             full_report, revisao_log, falha_lingua = _rl.pipeline_lingua(
                 full_report, chart, _regenera,

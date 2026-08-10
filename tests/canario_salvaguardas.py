@@ -184,6 +184,26 @@ salvaguarda("falha fechada alerta o executivo@",
 salvaguarda("o alerta carrega seção, frase e motivo",
             all(k in _bloco for k in ('"secao"', '"frase"', '"motivo"')))
 
+# ------------------------------------------------------------------ 7b
+# CONTRATO DA FUNÇÃO INJETADA (19/07). As provas do encanamento usavam um
+# `regenerar_secao_fn` falso que devolvia STRING. A função REAL,
+# `generate_section`, devolve (texto, chunks) — TUPLA. O encanamento
+# estourou em 4 dos 5 mapas de QA com "'tuple' object has no attribute
+# 'strip'". O dublê não batia com o contrato do original: "o instrumento
+# não é o produto", agora dentro do próprio canário de salvaguardas.
+_src_reg = inspect.getsource(rg._generate_report_locked)
+_i_reg = _src_reg.index("def _regenera(")
+_bloco_reg = _src_reg[_i_reg:_i_reg + 900]
+salvaguarda("contrato: _regenera desembrulha a TUPLA de generate_section",
+            "isinstance(_res, tuple)" in _bloco_reg,
+            "generate_section devolve (texto, chunks); passar a tupla "
+            "adiante estoura no .strip()")
+_sig_gs = inspect.getsource(rg.generate_section)
+salvaguarda("contrato: generate_section AINDA devolve tupla (se mudar, revisar)",
+            "return text, chunks" in _sig_gs,
+            "se passar a devolver só texto, o desembrulho vira ruído — mas "
+            "isinstance() continua correto")
+
 # ------------------------------------------------------------------ 8
 # REGENERAÇÃO EM PARALELO — em série o pior caso crescia com o número de
 # seções (299s com 3, contra o teto de 300s do proxy).
