@@ -142,6 +142,14 @@ CANARIOS = [
     ("palavra corrompida (uma letra a mais)",
      lambda t: __import__("word_lint").word_lint(t),
      "a rigidez saturninan gravada na casa 4"),
+    ("palavra PARTIDA ('conta tos' → 'contatos')",
+     lambda t: [x for x in __import__("word_lint").word_lint(t)
+                if x["kind"] == "palavra:partida"],
+     "os vizinhos, dos conta tos cotidianos, das conversas breves"),
+    ("palavra partida com as duas metades reais ('manda tório')",
+     lambda t: [x for x in __import__("word_lint").word_lint(t)
+                if x["kind"] == "palavra:partida"],
+     "O crescimento é lento e quase sempre manda tório."),
     ("acento faltando depois de infinitivo",
      lambda t: __import__("word_lint").word_lint(t),
      "você quer fincar ancoras nesse terreno"),
@@ -365,6 +373,20 @@ NEGATIVOS = [
      lambda t: ([1] if tv._motivo_reescrita_invalida(
          "O perigo concreto é entrar num acordo enxergando potencial.", t) else []),
      "O perigo é fechar um acordo olhando o que a outra pessoa pode vir a ser."),
+    ("'sobre tudo' não é palavra partida (as duas são comuns)",
+     lambda t: [x for x in __import__("word_lint").word_lint(t)
+                if x["kind"] == "palavra:partida"],
+     "sobre tudo o que você constrói ao longo dos anos"),
+    ("'perguntas sem resposta' não é palavra partida",
+     lambda t: [x for x in __import__("word_lint").word_lint(t)
+                if x["kind"] == "palavra:partida"],
+     "perguntas sem resposta ficam rondando por anos"),
+    ("'gradualidade' não é palavra colada (sufixo -idade)",
+     lambda t: __import__("word_lint").word_lint(t),
+     "a gradualidade do processo importa mais do que a pressa"),
+    ("'relacionada a pertencimento' — 'a' é preposição, não artigo",
+     lambda t: __import__("word_lint").word_lint(t),
+     "uma ferida relacionada a pertencimento e originalidade"),
     ("pt-BR fora do dicionário europeu não é corrupção",
      lambda t: __import__("word_lint").word_lint(t),
      "você precisa planejar e registrar as seções do contato harmônico"),

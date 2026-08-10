@@ -321,3 +321,14 @@ tensionar
 aterrissagem
 assertivo
 assertiva
+
+# 19/07, 2ª leva: pt-BR ausente do dicionário europeu, achado ao
+# medir a regra de palavra PARTIDA (a junção precisa ser conhecida).
+mandatório
+mandatória
+contatos
+gradualidade
+protagonismo
+criativamente
+criativa
+criativo

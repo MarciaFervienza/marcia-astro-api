@@ -78,9 +78,16 @@ def _variantes_pt(w):
     v = {w}
     for a, b in (("ô", "ó"), ("ê", "é"), ("â", "á")):
         v |= {x.replace(a, b) for x in v}
-    v |= {re.sub(r"to\b", "cto", w), re.sub(r"ta\b", "cta", w),
-          re.sub(r"ção\b", "cção", w), re.sub(r"to\b", "pto", w),
-          re.sub(r"ção\b", "pção", w), re.sub(r"tiv", "ctiv", w)}
+    # PLURAIS (19/07, 2ª correção). A primeira versão só cobria singular:
+    # `to\b` não alcança "conta{TOS}". Consequência medida — existe(
+    # "contatos") era False, e por isso a regra de PALAVRA PARTIDA não via
+    # "conta tos": ela exige que a JUNÇÃO seja palavra conhecida.
+    for suf, eur in (("to", "cto"), ("ta", "cta"), ("ção", "cção"),
+                     ("to", "pto"), ("ção", "pção"),
+                     ("tos", "ctos"), ("tas", "ctas"), ("ções", "cções"),
+                     ("tos", "ptos"), ("ções", "pções")):
+        v.add(re.sub(rf"{suf}\b", eur, w))
+    v.add(re.sub(r"tiv", "ctiv", w))
     return v
 
 
@@ -128,12 +135,22 @@ def _dist1(a, b):
 # "se voltarcontra você". Token que não existe mas corta em dois que
 # existem. Medido: 1 acusação em 2183 tokens, e é a verdadeira.
 # ---------------------------------------------------------------
+# Sufixos produtivos que TAMBÉM são palavra solta. Sem esta lista,
+# "gradualidade" (pt-BR correto, ausente do dicionário europeu) era cortada
+# em "gradual" + "idade" e acusada como palavra colada — falso positivo
+# medido nos 5 mapas de QA, 19/07.
+_SUFIXOS = {"idade", "mente", "ismo", "ista", "ente", "ante", "ação", "acao",
+            "agem", "eiro", "eira", "oso", "osa", "ico", "ica", "ivo", "iva"}
+
+
 def _corte(w):
     if len(w) < 8 or existe(w):
         return None
     for i in range(3, len(w) - 2):
         a, b = w[:i], w[i:]
         if len(b) < 3 or a in _PREFIXOS or _sem_acento(a) in _PREFIXOS:
+            continue
+        if b in _SUFIXOS or _sem_acento(b) in _SUFIXOS:
             continue
         if existe(a) and existe(b):
             return a, b
@@ -270,8 +287,12 @@ def _acento_faltando(ant, w):
 # -tude, -agem, -ice, -eza, -ência, -ância são femininas; -mento e -ismo
 # masculinas. Medido no corpus: 1 acusação, a verdadeira, zero falso
 # positivo nas duas direções.
-_DET_M = r"(?:um|o|este|esse|aquele|seu|nosso|meu|algum|nenhum|todo)"
-_DET_F = r"(?:uma|a|esta|essa|aquela|sua|nossa|minha|alguma|nenhuma|toda)"
+# "a" e "o" SAÍRAM das listas (19/07, 2ª correção). Em "esbarrar numa ferida
+# relacionada A PERTENCIMENTO" o "a" é PREPOSIÇÃO, não artigo — e a regra
+# acusava concordância. Determinante ambíguo não serve para decidir gênero;
+# os inequívocos bastam ("um inquietação", o caso real, segue pego).
+_DET_M = r"(?:um|este|esse|aquele|seu|nosso|meu|algum|nenhum|todo)"
+_DET_F = r"(?:uma|esta|essa|aquela|sua|nossa|minha|alguma|nenhuma|toda)"
 _FIM_F = r"[a-zà-ÿ]+(?:ção|são|dade|tude|agem|ice|eza|ência|ância)"
 _FIM_M = r"[a-zà-ÿ]+(?:mento|ismo)"
 # Masculinos apesar da terminação feminina. Lista curta e explícita.
@@ -286,6 +307,48 @@ def _genero_errado(text):
                 continue
             out.append((m, g))
     return out
+
+
+# ---------------------------------------------------------------
+# R7 — PALAVRA PARTIDA (19/07)
+# "os conta tos cotidianos", "a autoe stima", "quase sempre manda tório".
+# A R1 pega palavra COLADA; partida não tinha regra nenhuma — só o detector
+# semântico via, e ele NÃO É DETERMINÍSTICO: achou "conta tos" numa rodada
+# e não na seguinte. Esta é a rede determinística para a classe.
+#
+# Critério medido em 12 relatórios: acusa só quando a junção É palavra
+# conhecida E pelo menos uma das metades NÃO é. A variante frouxa ("metade
+# curta") dava 4 falsos positivos — "sobre tudo", "amor nem", "conversas
+# sem", "perguntas sem", todos português correto.
+_COMUNS_CURTAS = {
+    "de", "da", "do", "a", "o", "e", "em", "um", "uma", "que", "se", "com",
+    "por", "na", "no", "os", "as", "dos", "das", "ao", "aos", "mais", "meu",
+    "seu", "sua", "ela", "ele", "tem", "ser", "ter", "foi", "era", "nos",
+    "lhe", "me", "te", "já", "só", "não", "nem", "sem", "tudo", "isso",
+}
+
+
+def _partida(a, b):
+    """(a, b) adjacentes são uma palavra partida? Devolve a junção."""
+    if len(a) < 3 or len(b) < 2:
+        return None
+    if a.lower() in _COMUNS_CURTAS or b.lower() in _COMUNS_CURTAS:
+        return None
+    junta = (a + b).lower()
+    if not existe(junta):
+        return None
+    if not (existe(a) and existe(b)):
+        return junta                   # metade que não é palavra: partida
+    # As DUAS metades são palavras — "conta"+"tos", "manda"+"tório". O que
+    # separa de português correto ("sobre tudo", "amor nem") é FREQUÊNCIA.
+    # Medido: nas partidas reais o min das frequências é ≤485; no correto o
+    # menor é 6.709. O limiar de 1.000 fica no meio do vão.
+    sp, _ = _dicionario()
+    if sp is None:
+        return None
+    if min(sp.word_frequency[a.lower()], sp.word_frequency[b.lower()]) < 1000:
+        return junta
+    return None
 
 
 def word_lint(text):
@@ -344,6 +407,15 @@ def word_lint(text):
         add("palavra:genero_determinante", m.group(0), m.start(),
             f"'{m.group(1)}' é {g} e o determinante não concorda. "
             f"Corrigir o determinante em '{m.group(0)}'.")
+
+    # R7 — palavra partida, sobre os mesmos pares consecutivos da R5.
+    _tk = [(mm.group(0), mm.start()) for mm in
+           re.finditer(r"\b[a-zà-ÿ]+\b", text, flags=re.IGNORECASE)]
+    for (a1, _p1), (b1, p2) in zip(_tk, _tk[1:]):
+        j = _partida(a1, b1)
+        if j:
+            add("palavra:partida", f"{a1} {b1}", p2,
+                f"'{a1} {b1}' é a palavra '{j}' partida ao meio. Juntar.")
 
     # R5 — varre PARES CONSECUTIVOS. re.finditer de dois tokens não serve:
     # ele não sobrepõe, então testar "fincar ancoras" dependia da paridade
