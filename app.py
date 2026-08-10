@@ -1629,11 +1629,23 @@ def revisar_texto_endpoint():
     if gran not in ("frase", "paragrafo", "secao"):
         return jsonify({"status": "error",
                         "message": "granularidade: frase | paragrafo | secao"}), 400
+    modo = body.get("modo") or "revisar"     # "revisar" | "detectar"
     try:
         import revisao_lingua as rl
         import report_generator as rg
         rg.init_clients()
         t0 = _t.time()
+        if modo == "detectar":
+            # FLAG-ONLY: aponta frases sem sentido, não altera nada.
+            achados = rl.detectar_sem_sentido(
+                texto, call_claude_fn=rg.call_claude, granularidade=gran)
+            _p, _i = rl._fatiar(texto, gran)
+            return jsonify({
+                "status": "ok", "modo": "detectar", "granularidade": gran,
+                "chamadas": sum(1 for i in _i if len(_p[i].strip()) >= 40),
+                "segundos": round(_t.time() - t0, 1),
+                "achados": achados,
+            }), 200
         _partes, _idx = rl._fatiar(texto, gran)
         n_chamadas = sum(1 for i in _idx if len(_partes[i].strip()) >= 40)
         revisado, log = rl.revisar_texto(

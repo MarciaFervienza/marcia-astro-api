@@ -269,6 +269,85 @@ def _revisar_paragrafo(par, genero, call_claude_fn):
     return saida, "revisado", ""
 
 
+# ==================================================================
+# DETECÇÃO SEMÂNTICA — FLAG-ONLY (19/07, decisão da Márcia)
+# ==================================================================
+# Dois defeitos escaparam da passada de revisão, e são a mesma classe:
+#   "um destino e sempre um ponto de chegada"   (falta o "não")
+#   "a hesitação, você mesma, já é uma forma"   (inserção sem sentido)
+# Localmente bem-formados, semanticamente errados.
+#
+# A tentação era uma segunda passada de REESCRITA perguntando "isto faz
+# sentido?". A Márcia vetou, e com razão: foi ADIVINHAR A INTENÇÃO que
+# produziu o "carma". Uma pergunta mais aberta corrompe mais.
+#
+# Aqui a detecção é separada da correção. Este detector NÃO reescreve nada —
+# só aponta. Risco de corrupção: zero. A correção, quando vier, é regenerar
+# a SEÇÃO, que produz texto novo sem carregar o defeito, e ninguém precisa
+# adivinhar o que a frase queria dizer.
+_PROMPT_SEMANTICO = """Abaixo vem um parágrafo de um relatório de astrologia em português do Brasil.
+
+Sua única tarefa é dizer se alguma frase dele está QUEBRADA ou SEM SENTIDO. Procure:
+- frase que não fecha, que perdeu uma palavra e ficou incompreensível
+- sentido INVERTIDO por falta de uma negação ("é sempre X" onde só faz sentido "não é sempre X")
+- palavra ou expressão inserida onde não cabe, deixando a frase sem sentido
+- construção que não significa nada em português
+
+NÃO É DEFEITO, e você deve ignorar:
+- frase curta, fragmento ou oração incompleta usada como recurso de estilo
+- linguagem astrológica, por mais técnica que pareça
+- escolha de palavra que você acharia melhor de outro jeito
+- estilo, ritmo, repetição, tom
+
+Se TODAS as frases fizerem sentido, responda exatamente:
+OK
+
+Se alguma NÃO fizer, responda UMA linha por frase, assim:
+FRASE: <a frase exata, copiada> | MOTIVO: <por que não faz sentido, em até 12 palavras>
+
+Não sugira correção. Não reescreva nada.
+
+PARÁGRAFO:
+\"\"\"
+{par}
+\"\"\""""
+
+
+def _detectar_um(par, call_claude_fn):
+    if len(par.strip()) < 40:
+        return []
+    try:
+        saida = call_claude_fn(_PROMPT_SEMANTICO.format(par=par.strip()),
+                               max_tokens=400).strip()
+    except Exception as exc:
+        return [{"erro": str(exc)[:120]}]
+    if saida.upper().strip().strip(".") == "OK":
+        return []
+    achados = []
+    for linha in saida.split("\n"):
+        m = re.match(r"\s*FRASE\s*:\s*(.+?)\s*\|\s*MOTIVO\s*:\s*(.+)",
+                     linha, flags=re.IGNORECASE)
+        if m:
+            achados.append({"frase": m.group(1).strip().strip('"'),
+                            "motivo": m.group(2).strip()})
+    return achados
+
+
+def detectar_sem_sentido(texto, call_claude_fn=None, max_workers=6,
+                         granularidade="paragrafo"):
+    """Aponta frases quebradas. NÃO altera o texto. Devolve lista."""
+    if call_claude_fn is None:
+        from report_generator import call_claude as call_claude_fn
+    partes, idx = _fatiar(texto, granularidade)
+    from concurrent.futures import ThreadPoolExecutor
+    out = []
+    with ThreadPoolExecutor(max_workers=max_workers) as ex:
+        for achados in ex.map(lambda i: _detectar_um(partes[i], call_claude_fn),
+                              idx):
+            out.extend(achados)
+    return out
+
+
 def _fatiar(texto, granularidade):
     """Devolve `partes` alternando conteúdo e separador, e os índices de
     conteúdo. Erro de sintaxe é LOCAL — o revisor não precisa do relatório
