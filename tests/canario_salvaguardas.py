@@ -262,6 +262,10 @@ _src_lk = inspect.getsource(rg._generate_report_locked)
 salvaguarda("detectores determinísticos alimentam o encanamento",
             "detector_extra=_det_regex" in _src_lk,
             "sem isso, o que o verifier INTRODUZ só vira linha de log")
+salvaguarda("léxico e glossário NÃO pedem regeneração",
+            'v["kind"].startswith(("lexico:", "glossario"))' in _src_lk,
+            "escolha de palavra se conserta trocando a palavra; regenerar "
+            "reproduz o mesmo termo e o ciclo nunca limpa")
 salvaguarda("só as regras de precisão MEDIDA pedem regeneração",
             "_WL_CONFIAVEIS" in _src_lk
             and '"palavra:colada"' not in _src_lk.split("_WL_CONFIAVEIS")[1][:400],

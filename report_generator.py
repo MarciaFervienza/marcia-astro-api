@@ -3501,6 +3501,22 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
                 for v in _tv._detectar_tudo(txt, _chart_for_verifier):
                     if v["kind"].startswith("neg_subst"):
                         continue          # estilo, categoria 4
+                    # LÉXICO E GLOSSÁRIO NÃO REGENERAM (19/07, medido).
+                    #
+                    # A única falha fechada em 10 mapas foi "É um recurso
+                    # interno, não uma performance." — português perfeito,
+                    # segurado por `lexico:termo_ingles`. Regenerar é a
+                    # ferramenta ERRADA para escolha de palavra: o texto
+                    # novo usa "performance" de novo, porque é a palavra
+                    # natural ali, e o ciclo nunca limpa. Trajetória
+                    # [1, 3, 1] — a regeneração até AUMENTOU os achados.
+                    #
+                    # Léxico se conserta TROCANDO A PALAVRA, e disso o
+                    # verifier já cuida. Se ele não conseguiu, vira
+                    # failed_kept_original no log — visível, sem segurar o
+                    # relatório inteiro por uma palavra.
+                    if v["kind"].startswith(("lexico:", "glossario")):
+                        continue
                     if v.get("no_rewrite") and v["kind"] not in _WL_CONFIAVEIS:
                         continue
                     frase = _rl.frase_do_offset(txt, v.get("offset", 0))
