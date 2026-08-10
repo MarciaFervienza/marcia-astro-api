@@ -499,7 +499,15 @@ def pipeline_lingua(full_report, chart, regenerar_secao_fn,
 
             def _um(t):
                 try:
-                    return t, regenerar_secao_fn(t)
+                    _r = regenerar_secao_fn(t)
+                    if _r is None:
+                        # Regeneração impossível para esta seção. Sem este
+                        # aviso o no-op era SILENCIOSO: o ciclo gastava as
+                        # 3 rodadas e falhava fechado sem ninguém saber que
+                        # nunca houve tentativa real (caso do Fio Condutor,
+                        # 19/07).
+                        _log(f"seção {t!r} NÃO É REGENERÁVEL — no-op")
+                    return t, _r
                 except Exception as exc:
                     _log(f"regeneração de {t!r} falhou: {exc}")
                     return t, None
@@ -509,6 +517,8 @@ def pipeline_lingua(full_report, chart, regenerar_secao_fn,
                     log["regeneracoes"] += 1
                     if novo and novo.strip():
                         novos[t] = novo.strip()
+                    elif novo is None:
+                        log.setdefault("_nao_regen", set()).add(t)
 
         for titulo, ini, fim in sorted(_mapa_de_secoes(texto),
                                        key=lambda x: -x[1]):
@@ -518,6 +528,7 @@ def pipeline_lingua(full_report, chart, regenerar_secao_fn,
             texto = texto[:ini] + cabecalho + novos[titulo] + "\n" + texto[fim:]
             _log(f"seção {titulo!r} regenerada")
 
+    log["nao_regeneraveis"] = sorted(log.get("_nao_regen", set()))
     pendentes = log["rodadas"][-1]["achados"]
     frases = "; ".join(f"{a.get('frase','')[:70]!r} ({a.get('motivo','')[:50]})"
                        for a in pendentes[:4])

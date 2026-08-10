@@ -193,11 +193,23 @@ salvaguarda("o alerta carrega seção, frase e motivo",
 # não é o produto", agora dentro do próprio canário de salvaguardas.
 _src_reg = inspect.getsource(rg._generate_report_locked)
 _i_reg = _src_reg.index("def _regenera(")
-_bloco_reg = _src_reg[_i_reg:_i_reg + 900]
+# A janela era de 900 chars e ficou curta quando o ramo do Fio Condutor
+# entrou — o teste caiu por tamanho de janela, não por defeito. Delimita
+# pelo FIM da função aninhada em vez de por um número mágico.
+_fim_reg = _src_reg.index("full_report, revisao_log, falha_lingua", _i_reg)
+_bloco_reg = _src_reg[_i_reg:_fim_reg]
 salvaguarda("contrato: _regenera desembrulha a TUPLA de generate_section",
             "isinstance(_res, tuple)" in _bloco_reg,
             "generate_section devolve (texto, chunks); passar a tupla "
             "adiante estoura no .strip()")
+salvaguarda("contrato: o FIO CONDUTOR é regenerável (não é uma 'section')",
+            "fio condutor" in _bloco_reg.lower()
+            and "generate_fio_condutor" in _bloco_reg,
+            "sem este ramo a regeneração do Fio vira no-op silencioso e o "
+            "ciclo falha fechado sem nunca ter tentado")
+_src_pl0 = inspect.getsource(rl.pipeline_lingua)
+salvaguarda("no-op de regeneração é REGISTRADO, não silencioso",
+            "NÃO É REGENERÁVEL" in _src_pl0 and "nao_regeneraveis" in _src_pl0)
 _sig_gs = inspect.getsource(rg.generate_section)
 salvaguarda("contrato: generate_section AINDA devolve tupla (se mudar, revisar)",
             "return text, chunks" in _sig_gs,

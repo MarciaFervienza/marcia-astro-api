@@ -3421,8 +3421,22 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
             def _regenera(titulo):
                 """Regenera UMA seção pelo título. Texto novo não carrega o
                 defeito — e ninguém precisa adivinhar a intenção."""
+                # O FIO CONDUTOR não é uma seção: sai de
+                # generate_fio_condutor, não de generate_section, e não está
+                # em `sections`. Sem este ramo, `alvo` era None, a
+                # regeneração virava no-op silencioso e o defeito NUNCA
+                # saía — as duas falhas fechadas dos 5 mapas de QA (19/07)
+                # eram exatamente isto, as duas no Fio.
+                #
+                # Ele recebe o relatório INTEIRO como contexto, então é
+                # regenerado com o texto corrente — que já traz as seções
+                # consertadas nas rodadas anteriores.
+                if titulo.strip().lower().startswith("fio condutor"):
+                    return generate_fio_condutor(name, chart, full_report, gender)
                 alvo = next((s for s in sections if s["title"] == titulo), None)
                 if alvo is None:
+                    _log_falta = f"seção {titulo!r} não é regenerável"
+                    log(_log_falta)
                     return None
                 # generate_section devolve (texto, chunks) — TUPLA. A
                 # primeira versão devolvia a tupla inteira e o encanamento
