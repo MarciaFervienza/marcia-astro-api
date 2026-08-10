@@ -231,6 +231,43 @@ classifica por ramo; um ramo que engorda ou uma abstenção que cresce são o
 sinal. O canário protege o que já se sabe; a varredura é o que descobre o
 que ainda não se sabe.
 
+### R12. Medir no corpus que a camada já alterou não vale (19/07)
+
+**A lição mais forte do projeto.** Medi a taxa de falso positivo do
+`word_lint` sobre relatórios ENTREGUES e reportei **zero**, com convicção,
+mais de uma vez. A taxa real, medida contra o texto CRU, era **29
+acusações e 1 verdadeira — 97% falso.**
+
+Por que o zero apareceu: o verifier já havia REESCRITO os falsos positivos
+antes de eu medir. Eles não estavam mais lá para serem contados. **O corpus
+estava contaminado pelo efeito que eu queria medir.**
+
+E o efeito era pior que ruído. O `word_lint` acusava palavra correta, o
+reescritor obedecia, e o resultado era o defeito:
+
+| palavra correta no cru | virou |
+|---|---|
+| `autossacrifício` | `auto sacrifício` |
+| `monitorando` | `estava a monitorar` (gerundial portuguesa) |
+| `entediante` | frase reescrita inteira |
+
+**Eu criava as palavras partidas que passei o dia caçando.** E o defeito
+criado era INVISÍVEL para os meus próprios lints — `auto sacrifício` não
+aciona nenhuma regra.
+
+**Regra: para medir uma camada, o corpus tem de ser anterior a ela.** Se o
+texto já passou por qualquer coisa que reescreve, o número mede o resíduo,
+não a taxa. Vale para detector, para lint, para o verifier e para a
+revisão.
+
+**Como cumprir:** a captura por estágio (`debug_estagios`) existe para
+isso. `1_cru` é o único corpus válido para medir qualquer camada de
+detecção ou correção.
+
+**Sintoma de que a regra foi violada:** o número dá bom demais. Zero falso
+positivo num detector heurístico sobre linguagem natural é resultado
+improvável — quando aparecer, a primeira hipótese é corpus contaminado.
+
 ### R11. Reinjeção que não derruba o canário é reinjeção INCOMPLETA (19/07)
 
 Ao provar o canário de salvaguardas, removi o teto de tentativas trocando

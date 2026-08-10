@@ -204,6 +204,10 @@ confere("R10", "um único ponto de saída para a API Anthropic",
         n_create == 1, f"achei {n_create}")
 
 # Decisões de 19/07 registradas E implementadas
+confere("19/07", "R12 registrada (medir no corpus que a camada alterou)",
+        "### R12." in ESTADO and "corpus" in ESTADO)
+confere("19/07", "captura por estágio existe (corpus válido para medição)",
+        "_debug_estagios" in APP and "1_cru" in RG)
 confere("19/07", "word_lint.py existe e o ESTADO o descreve",
         os.path.exists(os.path.join(RAIZ, "word_lint.py"))
         and "### word_lint.py" in ESTADO)
