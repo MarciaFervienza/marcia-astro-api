@@ -2375,6 +2375,13 @@ def generate_report_endpoint():
     body["_revisao_lingua"] = body.get("revisao_lingua", True) is not False
     # Captura por estágio para a medição de ONDE os defeitos surgem.
     body["_debug_estagios"] = bool(body.get("debug_estagios"))
+    # Teto de tentativas do encanamento, exposto para medir se 3 é o número
+    # certo. Faixa 1..6 — acima disso o custo em tempo estoura o proxy.
+    try:
+        _tent = int(body.get("lingua_tentativas") or 3)
+        body["_lingua_tentativas"] = max(1, min(6, _tent))
+    except Exception:
+        body["_lingua_tentativas"] = 3
 
     kept, dropped = filter_aspects(
         _raw_aspects, body.get('points') or {}, unknown_birth_time)
@@ -2456,7 +2463,12 @@ def generate_report_endpoint():
              "regeneracoes": _rl_log.get("regeneracoes"),
              "rodadas": len(_rl_log.get("rodadas") or [])})
         _registra_geracao(nome=body.get("name"),
-                          desfecho="falha_fechada_lingua", email_enviado=False)
+                          desfecho="falha_fechada_lingua", email_enviado=False,
+                          rodadas=len(_rl_log.get("rodadas") or []),
+                          regeneracoes=_rl_log.get("regeneracoes"),
+                          por_rodada=[len(r.get("achados", []))
+                                      for r in (_rl_log.get("rodadas") or [])],
+                          pendencias=[p.get("frase", "")[:110] for p in _pend])
         return jsonify({
             "status": "error",
             "code": "lingua_falha_fechada",
@@ -2572,8 +2584,13 @@ def generate_report_endpoint():
                 # Registra do lado do SERVIDOR: sobrevive à desconexão do
                 # cliente, e é assim que se descobre se o e-mail saiu mesmo
                 # quando o proxy já cortou a resposta.
-                _registra_geracao(nome=body.get("name"),
-                                  desfecho="ok", email_enviado=True)
+                _rl_ok = result.get("revisao_lingua") or {}
+                _registra_geracao(
+                    nome=body.get("name"), desfecho="ok", email_enviado=True,
+                    rodadas=len(_rl_ok.get("rodadas") or []),
+                    regeneracoes=_rl_ok.get("regeneracoes"),
+                    por_rodada=[len(r.get("achados", []))
+                                for r in (_rl_ok.get("rodadas") or [])])
                 logger.info("email sent to %s", recipient)
             else:
                 email_error = send_result
