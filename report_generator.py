@@ -3473,16 +3473,35 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
                 _res = generate_section(alvo, chart, name, gender)
                 return _res[0] if isinstance(_res, tuple) else _res
 
+            # REGRAS DO word_lint QUE PODEM PEDIR REGENERAÇÃO (19/07).
+            #
+            # O problema do word_lint era REESCREVER, não APONTAR. Regenerar
+            # a seção não corrompe — produz texto novo. Então as regras de
+            # precisão MEDIDA voltam ao ciclo por essa via.
+            #
+            # Precisão medida contra texto CRU:
+            #   partida ............ 5/5 verdadeiras
+            #   contracao_faltando . verdadeiras ("de o que", "de ela")
+            #   genero_determinante  1/1 depois dos consertos
+            #   acento_faltando .... 1/1 depois de excluir nome de corpo
+            #   colada ............. FALSOS (entretecida, autossacrifício…)
+            #   corrompida ......... 19 falsos em 29 — fica FLAG-ONLY
+            _WL_CONFIAVEIS = {
+                "palavra:partida", "palavra:contracao_faltando",
+                "palavra:genero_determinante", "palavra:acento_faltando",
+            }
+
             def _det_regex(txt):
                 """Detectores DETERMINÍSTICOS como achados do encanamento.
 
-                Só os que exigem ação (no_rewrite=False). O word_lint é todo
-                flag-only e por isso NÃO entra aqui — ele foi a fonte dos
-                defeitos, não a solução.
+                Nenhum deles REESCREVE — todos pedem REGENERAÇÃO da seção,
+                que é a operação que não corrompe.
                 """
                 out = []
                 for v in _tv._detectar_tudo(txt, _chart_for_verifier):
-                    if v.get("no_rewrite") or v["kind"].startswith("neg_subst"):
+                    if v["kind"].startswith("neg_subst"):
+                        continue          # estilo, categoria 4
+                    if v.get("no_rewrite") and v["kind"] not in _WL_CONFIAVEIS:
                         continue
                     frase = _rl.frase_do_offset(txt, v.get("offset", 0))
                     if frase:

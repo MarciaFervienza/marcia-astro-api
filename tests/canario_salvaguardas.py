@@ -262,9 +262,13 @@ _src_lk = inspect.getsource(rg._generate_report_locked)
 salvaguarda("detectores determinísticos alimentam o encanamento",
             "detector_extra=_det_regex" in _src_lk,
             "sem isso, o que o verifier INTRODUZ só vira linha de log")
-salvaguarda("word_lint NÃO alimenta o detector extra",
-            'v.get("no_rewrite")' in _src_lk,
-            "ele foi a FONTE dos defeitos; realimentá-lo reabriria o ciclo")
+salvaguarda("só as regras de precisão MEDIDA pedem regeneração",
+            "_WL_CONFIAVEIS" in _src_lk
+            and '"palavra:colada"' not in _src_lk.split("_WL_CONFIAVEIS")[1][:400],
+            "colada e corrompida têm falso positivo alto — ficam flag-only")
+salvaguarda("word_lint segue sem REESCREVER (só regenera)",
+            'violations_all[-1]["no_rewrite"] = True' in _bloco_wl,
+            "reescrever foi o que partiu 'autossacrifício'")
 salvaguarda("pipeline_lingua aceita detector_extra",
             "detector_extra" in inspect.getsource(rl.pipeline_lingua))
 salvaguarda("frase_do_offset converte achado de offset em frase",
