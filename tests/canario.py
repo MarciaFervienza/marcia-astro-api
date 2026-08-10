@@ -200,6 +200,10 @@ CANARIOS = [
     ("gênero do determinante ('um inquietação')",
      lambda t: __import__("word_lint").word_lint(t),
      "quando o outro se torna previsível, acende um inquietação"),
+    ("espanhol vazado: 'Hay' por 'Há' (achado nos 5 mapas de QA)",
+     lambda t: [x for x in tv._detectar_tudo(t, None)
+                if x["kind"] == "lexico:erro_espanhol"],
+     "Hay uma diferença entre escolher e fechar a porta."),
     ("IC sem tradução",
      lambda t: tv._detect_bare_ic(t),
      "O IC organiza a base da carta."),
@@ -330,10 +334,6 @@ NEGATIVOS = [
      lambda t: ([] if __import__("revisao_lingua").divergencia_de_invariante(
          "Saturno em Aquário na casa 3", t) else [1]),
      "Saturno em Aquário na casa 4"),
-    ("espanhol vazado: 'Hay' por 'Há' (achado nos 5 mapas de QA)",
-     lambda t: [x for x in tv._detectar_tudo(t, None)
-                if x["kind"] == "lexico:erro_espanhol"],
-     "Hay uma diferença entre escolher e fechar a porta."),
     ("revisão que INVENTA palavra é recusada ('carma')",
      lambda t: ([] if __import__("revisao_lingua").motivo_recusa(
          "Já a quadratura aos Nodos do carregada de significado traz tensão.", t)

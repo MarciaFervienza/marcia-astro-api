@@ -126,5 +126,9 @@ if [ "$FALHAS" -eq 0 ]; then
   exit 0
 else
   echo "GATE FALHOU em $FALHAS etapa(s) — NÃO DEPLOYAR"
+  echo
+  echo "  ATENÇÃO: se você encadeou este gate com '&& git push', confira que"
+  echo "  o && está no GATE e não num grep depois dele. Em 19/07 eu empurrei"
+  echo "  com o gate reprovando porque o && pegou o sucesso do grep."
   exit 1
 fi
