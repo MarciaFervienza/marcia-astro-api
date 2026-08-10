@@ -100,9 +100,13 @@ def motivo_recusa(original, saida):
     s = saida.strip()
     if re.search(r"(?m)^\s*---\s*$", s):
         return "separador '---': saída em blocos"
-    n_blocos = len([b for b in re.split(r"\n\s*\n", s) if b.strip()])
-    if n_blocos > 1:
-        return f"{n_blocos} blocos — o trecho enviado era um parágrafo"
+    # O número de blocos tem de ser o MESMO da entrada. Com granularidade de
+    # frase ou parágrafo isso é "1"; com seção, é quantos parágrafos a seção
+    # tinha. Fixar em 1 quebraria a granularidade de seção.
+    n_ent = len([b for b in re.split(r"\n\s*\n", original) if b.strip()])
+    n_sai = len([b for b in re.split(r"\n\s*\n", s) if b.strip()])
+    if n_sai != n_ent:
+        return f"{n_sai} blocos na saída contra {n_ent} na entrada"
     if _META.search(s):
         m = _META.search(s)
         return f"meta-comentário do revisor: {m.group(0)!r}"
@@ -151,11 +155,12 @@ PARÁGRAFO:
 
 def _revisar_paragrafo(par, genero, call_claude_fn):
     """(texto_final, status, detalhe). Nunca levanta."""
-    if len(par.strip()) < 40 or par.lstrip().startswith("#"):
-        return par, "pulado", "curto ou cabeçalho"
+    if len(par.strip()) < 40 or par.strip() in ("---",):
+        return par, "pulado", "curto demais para ter sintaxe"
     try:
+        _tok = min(4000, max(600, int(len(par) / 2)))
         saida = call_claude_fn(
-            _PROMPT.format(par=par.strip(), genero=genero), max_tokens=1400
+            _PROMPT.format(par=par.strip(), genero=genero), max_tokens=_tok
         ).strip()
     except Exception as exc:
         return par, "erro_chamada", str(exc)[:120]
@@ -172,17 +177,33 @@ def _revisar_paragrafo(par, genero, call_claude_fn):
     return saida, "revisado", ""
 
 
-def revisar_texto(texto, genero="feminino", call_claude_fn=None,
-                  max_workers=6):
-    """Revisa o relatório inteiro, parágrafo a parágrafo.
+def _fatiar(texto, granularidade):
+    """Devolve `partes` alternando conteúdo e separador, e os índices de
+    conteúdo. Erro de sintaxe é LOCAL — o revisor não precisa do relatório
+    inteiro, mas também não precisa de uma frase por vez. As três opções
+    existem para MEDIR qual custa menos pelo mesmo resultado.
+    """
+    if granularidade == "secao":
+        # corta em cabeçalhos ## — mantém o cabeçalho no bloco seguinte
+        partes = re.split(r"(\n(?=## ))", texto)
+    elif granularidade == "frase":
+        partes = re.split(r"(?<=[.!?])(\s+)", texto)
+    else:                                   # parágrafo (padrão)
+        partes = re.split(r"(\n\s*\n)", texto)
+    idx = [i for i, p in enumerate(partes) if i % 2 == 0 and p.strip()]
+    return partes, idx
 
-    A APLICAÇÃO preserva o separador de cauda de cada parágrafo — a mesma
+
+def revisar_texto(texto, genero="feminino", call_claude_fn=None,
+                  max_workers=6, granularidade="paragrafo"):
+    """Revisa o relatório inteiro na granularidade pedida.
+
+    A APLICAÇÃO preserva o separador de cauda de cada trecho — a mesma
     armadilha que colou frases no PDF em 16/07.
     """
     if call_claude_fn is None:
         from report_generator import call_claude as call_claude_fn
-    partes = re.split(r"(\n\s*\n)", texto)
-    idx_par = [i for i, p in enumerate(partes) if i % 2 == 0 and p.strip()]
+    partes, idx_par = _fatiar(texto, granularidade)
 
     from concurrent.futures import ThreadPoolExecutor
     log = []

@@ -1596,6 +1596,67 @@ def _compute_missing_aspects(points):
         })
     return out
 
+@app.route("/revisar-texto", methods=["POST"])
+def revisar_texto_endpoint():
+    """MEDIÇÃO da passada de revisão sobre TEXTO QUE JÁ EXISTE (19/07).
+
+    Por que existe. A medição óbvia — gerar de novo com a passada ligada —
+    NÃO mede o que a Márcia quer: gerar produz texto NOVO, com malformações
+    diferentes. Os defeitos que queremos testar estão nos relatórios ATUAIS.
+    Este caminho recebe o texto pronto e devolve o revisado, então a
+    comparação é direta: destes defeitos, quantos ela pega.
+
+    Body: {"api_key", "texto", "genero", "granularidade"}
+      granularidade: "frase" | "paragrafo" (padrão) | "secao"
+
+    Não gera PDF, não manda e-mail, não toca em nada do fluxo do cliente.
+    """
+    import hmac
+    import time as _t
+    presented = request.headers.get("X-API-Key", "")
+    body = request.get_json(silent=True) or {}
+    if isinstance(body, dict) and set(body.keys()) == {"data"} and isinstance(body["data"], dict):
+        body = body["data"]
+    presented = presented or body.pop("api_key", "")
+    if not API_SECRET_KEY or not hmac.compare_digest(presented, API_SECRET_KEY):
+        return jsonify({"error": "unauthorized"}), 401
+
+    texto = body.get("texto") or ""
+    if not texto.strip():
+        return jsonify({"status": "error", "message": "campo 'texto' vazio"}), 400
+    genero = body.get("genero") or "feminino"
+    gran = body.get("granularidade") or "paragrafo"
+    if gran not in ("frase", "paragrafo", "secao"):
+        return jsonify({"status": "error",
+                        "message": "granularidade: frase | paragrafo | secao"}), 400
+    try:
+        import revisao_lingua as rl
+        import report_generator as rg
+        rg.init_clients()
+        t0 = _t.time()
+        _partes, _idx = rl._fatiar(texto, gran)
+        n_chamadas = sum(1 for i in _idx if len(_partes[i].strip()) >= 40)
+        revisado, log = rl.revisar_texto(
+            texto, genero=genero, call_claude_fn=rg.call_claude,
+            granularidade=gran)
+        return jsonify({
+            "status": "ok",
+            "granularidade": gran,
+            "chamadas": n_chamadas,
+            "segundos": round(_t.time() - t0, 1),
+            "alterados": sum(1 for x in log if x["status"] == "revisado"),
+            "recusados": sum(1 for x in log if x["status"] == "recusado"),
+            "rejeitados_invariante": sum(1 for x in log
+                                         if x["status"] == "rejeitado_invariante"),
+            "erros": sum(1 for x in log if x["status"] == "erro_chamada"),
+            "log": log[:80],
+            "texto": revisado,
+        }), 200
+    except Exception as e:
+        logger.exception("revisar-texto failed")
+        return jsonify({"status": "error", "message": str(e)[:300]}), 500
+
+
 @app.route("/generate-report", methods=["POST"])
 def generate_report_endpoint():
     """Accept chart JSON, generate the report, return as JSON.
