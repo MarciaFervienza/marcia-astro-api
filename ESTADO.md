@@ -525,6 +525,49 @@ neste caso, mas por ausência de dado, não por análise.
 Enquanto a decisão não vem, o comportamento atual é conservador — acusa
 quando não reconhece o corpo — e isso é o lado seguro.
 
+## Revisão de língua — MEDIDO em 7 relatórios (19/07)
+
+A Márcia fechou: não lança enquanto erro de língua puder sair. Os dados
+sustentam — os defeitos são NOVOS a cada geração, não resíduo.
+
+### Granularidade: parágrafo (medido, não escolhido)
+| granularidade | chamadas/rel | segundos | pega (dos 7) |
+|---|---|---|---|
+| seção | 17 | 13–15 | **0** |
+| **parágrafo** | **92–93** | **22–29** | **5** (3 depois das guardas) |
+| frase | 251–254 | 63–73 | 3 |
+
+Parágrafo pega MAIS que frase com um terço das chamadas. Frase perde
+contexto; seção dilui (14 de 17 voltaram INTACTO).
+
+### As guardas custam acerto — e mesmo assim ficam
+Com as três guardas novas a passada caiu de 5/7 para **3/7**: elas recusam
+correção legítima junto com a corrompida (o modelo devolve 4 parágrafos
+onde entrou 1, e tudo daquele trecho se perde). É o preço, e vale — a
+alternativa é o "carma".
+
+### Taxa de corrupção nos 5 mapas de QA
+**5 edições aplicadas, 7 recusadas pelas guardas, 0 corrupção escapando.**
+As 5 aplicadas: `turnam`→`tornam`, `netuniana`→`netunianas`, `conta
+tos`→`contatos`, `uma certa magnetismo`→`um certo magnetismo`, e uma
+correção parcial de sintaxe. Nenhuma inventa nem apaga. A guarda de
+contagem de frases pegou uma remoção real ("4 frases viraram 3").
+
+### O detector semântico é o instrumento forte
+| | parágrafos | apontadas | verdadeiras | falsas |
+|---|---|---|---|---|
+| Helena + Lucca | 185 | 5 | 5 | **0** |
+| 5 mapas de QA | 465 | 11 | 11 | **0** |
+
+**16 de 16 verdadeiras em ~650 parágrafos.** Achou o que a passada não
+pega (negação faltando, "você mesma" inserido), o que os lints não podem
+pegar (`coloram`, `librar`, `turnam` — palavras que o dicionário aceita ou
+desconhece sem estar perto de termo do domínio), e vazamento de espanhol
+(`Hay`) que o léxico não listava.
+
+**Todos os 7 relatórios têm de 1 a 3 defeitos de língua.** Nenhuma geração
+sai limpa. É o dado que sustenta a decisão de não lançar.
+
 ### Negação-substituição — varredura de formas sobre as 22 reais
 A Márcia mediu: dos ~22 casos genuínos do inventário do GPT, os padrões
 antigos pegavam **~35%**. E o meu instrumento de MEDIÇÃO tinha o MESMO viés

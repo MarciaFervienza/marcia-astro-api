@@ -93,6 +93,15 @@ _FORBIDDEN_LEXICON = [
     # que NÃO são também palavra válida em pt-BR (por isso "rapaz" fica de
     # fora: em pt-BR é palavra corrente, não marca de Portugal).
     # Achados do GPT em 19/07 (última auditoria antes dos testers).
+    # Vazamento de ESPANHOL achado pelo detector semântico nos 5 mapas de
+    # QA (19/07): "Hay uma diferença entre escolher…". A categoria
+    # erro_espanhol já existia; estas formas não estavam nela.
+    (r"\bhay\b",             "erro_espanhol", "há"),
+    (r"\bpero\b",            "erro_espanhol", "mas"),
+    (r"\bdesde\s+que\s+hay\b", "erro_espanhol", "desde que há"),
+    (r"\bentonces\b",        "erro_espanhol", "então"),
+    (r"\bsiempre\b",         "erro_espanhol", "sempre"),
+    (r"\btambi[ée]n\b",      "erro_espanhol", "também"),
     (r"\btrav[ãa]o\b",       "pt_europeu", "freio"),
     (r"\bentre\s+safra\b",  "erro_grafia", "entressafra (palavra única)"),
     (r"\blilit[hi]?[ia]n[ao]s?\b", "termo_inventado",
