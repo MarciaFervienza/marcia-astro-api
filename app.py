@@ -1261,6 +1261,102 @@ def _fila_ou_erro():
             "message": f"A fila persistida não está disponível: {exc}"}), 503)
 
 
+@app.route("/diag-fila", methods=["POST"])
+def diag_fila_endpoint():
+    """Roda as asserções da fila contra o BANCO REAL, de dentro do servidor.
+
+    Existe porque o DATABASE_URL do Railway é interno: da minha máquina eu
+    só alcanço o SQLite dos testes, e "o instrumento não é o produto" já
+    custou caro neste projeto. Especialmente a concorrência — FOR UPDATE
+    SKIP LOCKED é justamente o ramo que o SQLite NÃO exercita.
+
+    Limpa o que cria: usa ids próprios e apaga no fim.
+    """
+    import hmac
+    import threading as _th
+    body = request.get_json(silent=True) or {}
+    presented = request.headers.get("X-API-Key") or body.pop("api_key", "")
+    if not API_SECRET_KEY or not presented \
+            or not hmac.compare_digest(presented, API_SECRET_KEY):
+        return jsonify({"status": "error", "message": "unauthorized"}), 401
+
+    res, criados = [], []
+
+    def ok(nome, cond, det=""):
+        res.append({"asserção": nome, "passou": bool(cond), "detalhe": det})
+
+    try:
+        import fila as _f
+        f = _f.Fila()
+        f.criar_tabelas()
+        ok("criar_tabelas roda (idempotente)", True)
+        ok("é Postgres, não SQLite", f.postgres, f"postgres={f.postgres}")
+
+        tid = f.enfileirar({"diag": True}, nome="DIAG", email="diag@x")
+        criados.append(tid)
+        ok("enfileira", bool(tid))
+        ok("nasce PENDENTE", f.buscar(tid)["estado"] == _f.PENDENTE)
+        j = f.reivindicar("diag-w1")
+        ok("reivindica", j is not None)
+        f.concluir(tid, markdown="# diag", chart={"points": {"sun": {}}})
+        b = f.buscar(tid)
+        ok("conclui e guarda markdown", b["estado"] == _f.OK
+           and b["markdown"] == "# diag")
+        ok("guarda o chart", (b["chart"] or {}).get("points") == {"sun": {}})
+
+        # CONCORRÊNCIA CONTRA O POSTGRES REAL — o ramo SKIP LOCKED.
+        n = int(body.get("n") or 8)
+        ids = [f.enfileirar({"diag": i}) for i in range(n)]
+        criados += ids
+        pegos, erros, lock = [], [], _th.Lock()
+
+        def _w(w):
+            try:
+                while True:
+                    t = f.reivindicar(f"diag-{w}")
+                    if not t:
+                        return
+                    if t["id"] not in ids:
+                        return          # trabalho de outro; devolve e sai
+                    with lock:
+                        pegos.append(t["id"])
+            except Exception as exc:
+                with lock:
+                    erros.append(f"{w}: {type(exc).__name__}: {exc}")
+
+        ths = [_th.Thread(target=_w, args=(i,)) for i in range(4)]
+        [t.start() for t in ths]
+        [t.join() for t in ths]
+        ok("nenhum worker morreu", not erros, "; ".join(erros[:2]))
+        ok(f"{n} trabalhos, {n} reivindicações", len(pegos) == n,
+           f"pegos={len(pegos)}")
+        ok("NENHUM trabalho pego duas vezes",
+           len(set(pegos)) == len(pegos),
+           f"duplicados={len(pegos) - len(set(pegos))}")
+
+        contagem = f.contagem_por_estado()
+    except Exception as exc:
+        logger.exception("diag-fila falhou")
+        return jsonify({"status": "error", "message": str(exc)[:400],
+                        "assercoes": res}), 500
+    finally:
+        try:
+            con = f.con()
+            for t in criados:
+                con.cursor().execute(f._q("DELETE FROM trabalhos WHERE id=%s"),
+                                     (t,))
+            if f.postgres:
+                con.commit()
+        except Exception:
+            pass
+
+    falharam = [r for r in res if not r["passou"]]
+    return jsonify({"status": "ok" if not falharam else "error",
+                    "passaram": len(res) - len(falharam), "de": len(res),
+                    "assercoes": res, "contagem_antes_da_limpeza": contagem}), \
+        (200 if not falharam else 500)
+
+
 @app.route("/remontar-pdf", methods=["POST"])
 def remontar_pdf_endpoint():
     """DEGRAU 3 da recuperação: markdown editado à mão → PDF → cliente.
@@ -1405,6 +1501,19 @@ def health():
 
 
 @app.route("/env-check", methods=["GET"])
+def _host_do_dsn(dsn):
+    """Host do DSN, sem usuário nem senha. Diagnóstico não vaza segredo."""
+    if not dsn:
+        return "(unset)"
+    try:
+        corpo = dsn.split("://", 1)[1]
+        if "@" in corpo:
+            corpo = corpo.split("@", 1)[1]
+        return corpo.split("/", 1)[0]
+    except Exception:
+        return "(ilegível)"
+
+
 def env_check():
     """Diagnostic: report whether email-related env vars are visible to the
     running process. Returns booleans + lengths only for the secrets — never
@@ -1419,6 +1528,12 @@ def env_check():
         "EMAIL_FROM_NAME": os.environ.get("EMAIL_FROM_NAME", "(default)"),
         "API_SECRET_KEY_set": bool(os.environ.get("API_SECRET_KEY")),
         "API_SECRET_KEY_length": len(os.environ.get("API_SECRET_KEY", "")),
+        # Fila persistida. Só o SCHEME e o host, nunca a senha.
+        "DATABASE_URL_set": bool(os.environ.get("DATABASE_URL")),
+        "DATABASE_URL_scheme": (
+            (os.environ.get("DATABASE_URL", "").split("://", 1) or [""])[0]
+            or "(unset)"),
+        "DATABASE_URL_host": _host_do_dsn(os.environ.get("DATABASE_URL", "")),
     }), 200
 
 
