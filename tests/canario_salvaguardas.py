@@ -300,6 +300,26 @@ salvaguarda("detector semântico cobre REGÊNCIA",
 salvaguarda("o prompt avisa que fazer sentido não basta",
             "AINDA ASSIM estar errada" in _pr)
 
+# ------------------------------------------------------------------ 12
+# ROTA APONTA PARA A FUNÇÃO CERTA (19/07). Ao inserir uma função auxiliar
+# eu a coloquei ENTRE o decorador e a função — a rota /env-check passou a
+# decorar o helper, e o endpoint virou 500. O gate não pegou porque nenhum
+# teste chamava a rota. Isto compara o nome do endpoint com o da rota.
+_ROTAS_ESPERADAS = {
+    "/health": "health", "/env-check": "env_check",
+    "/generate-report": "generate_report_endpoint",
+    "/buscar-cidade": "buscar_cidade_endpoint",
+    "/remontar-pdf": "remontar_pdf_endpoint",
+    "/diag-fila": "diag_fila_endpoint",
+    "/ultimas-geracoes": "ultimas_geracoes_endpoint",
+    "/revisar-texto": "revisar_texto_endpoint",
+}
+_mapa = {r.rule: r.endpoint for r in app.app.url_map.iter_rules()}
+for _rota, _fn in _ROTAS_ESPERADAS.items():
+    salvaguarda(f"rota {_rota} aponta para {_fn}()",
+                _mapa.get(_rota) == _fn,
+                f"aponta para {_mapa.get(_rota)!r}")
+
 print()
 print("=" * 70)
 print(f"VIVAS: {vivas}    MORTAS: {len(mortas)}")

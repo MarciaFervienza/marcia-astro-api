@@ -1500,7 +1500,6 @@ def health():
     }), 200
 
 
-@app.route("/env-check", methods=["GET"])
 def _host_do_dsn(dsn):
     """Host do DSN, sem usuário nem senha. Diagnóstico não vaza segredo."""
     if not dsn:
@@ -1514,6 +1513,7 @@ def _host_do_dsn(dsn):
         return "(ilegível)"
 
 
+@app.route("/env-check", methods=["GET"])
 def env_check():
     """Diagnostic: report whether email-related env vars are visible to the
     running process. Returns booleans + lengths only for the secrets — never
