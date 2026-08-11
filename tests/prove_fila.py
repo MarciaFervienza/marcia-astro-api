@@ -153,6 +153,47 @@ chk("janela antiga não traz nada", f5.falhados_desde(time.time() + 60) == [])
 chk("contagem por estado", f5.contagem_por_estado().get(F.FALHOU) == 1)
 
 print()
+# ==================================================================
+# DEVOLVER — o diagnóstico não pode custar nada a quem está na fila.
+#
+# Defeito real (19/07): o /diag-fila roda 4 threads chamando
+# `reivindicar`, que devolve QUALQUER pendente — inclusive pedido de
+# cliente. A thread via que o id não era dela e retornava seco, deixando
+# o trabalho preso em PROCESSANDO sem worker atrás. Dois pedidos reais
+# travaram assim, e só sairiam quando um worker subisse e o
+# `retomar_orfaos` os alcançasse 5 minutos depois.
+# ==================================================================
+print()
+print("--- devolver (trabalho tocado por engano) ---")
+_f2 = F.Fila(":memory:")
+_f2.criar_tabelas()
+_real = _f2.enfileirar({"cliente": True}, nome="Cliente Real")
+
+_t = _f2.reivindicar("diag-0")
+chk("reivindicar pega o trabalho do cliente", _t["id"] == _real)
+chk("e INCREMENTA a tentativa", _f2.buscar(_real)["tentativas"] == 1)
+
+_f2.devolver(_real, "diag-0")
+_b = _f2.buscar(_real)
+chk("devolver: volta para PENDENTE", _b["estado"] == F.PENDENTE)
+chk("devolver: DESFAZ a tentativa", _b["tentativas"] == 0)
+chk("devolver: solta o worker_id", not _b.get("worker_id"))
+
+# Sem desfazer a tentativa, TRÊS diagnósticos matariam um trabalho que
+# nunca falhou — o teto de retomadas é 2.
+for _ in range(3):
+    _f2.reivindicar("diag-x")
+    _f2.devolver(_real, "diag-x")
+chk(f"3 diagnósticos NÃO consomem o teto de {F.TETO_RETOMADAS} retomadas",
+    _f2.buscar(_real)["tentativas"] == 0)
+
+# Devolver não pode roubar trabalho de OUTRO worker.
+_f2.reivindicar("worker-legitimo")
+_f2.devolver(_real, "diag-intruso")
+chk("devolver de outro worker NÃO tem efeito",
+    _f2.buscar(_real)["estado"] == F.PROCESSANDO)
+
+print()
 if falhas:
     print(f">>> {falhas} FALHOU")
     raise SystemExit(1)

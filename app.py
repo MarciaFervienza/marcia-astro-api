@@ -1308,24 +1308,45 @@ def diag_fila_endpoint():
         n = int(body.get("n") or 8)
         ids = [f.enfileirar({"diag": i}) for i in range(n)]
         criados += ids
-        pegos, erros, lock = [], [], _th.Lock()
+        pegos, erros, alheios, lock = [], [], [], _th.Lock()
+
+        # BARREIRA DE LARGADA. Sem ela, a thread 0 podia esvaziar a fila
+        # antes de as outras três começarem: `pegos == n` e `duplicados == 0`
+        # ficariam VERDES sem nunca ter havido disputa, e o SKIP LOCKED —
+        # o ramo que o SQLite não exercita e a razão de este endpoint
+        # existir — não seria exercitado. Todas partem juntas.
+        largada = _th.Event()
+        por_worker = {}
 
         def _w(w):
+            largada.wait(5)
             try:
                 while True:
                     t = f.reivindicar(f"diag-{w}")
                     if not t:
                         return
                     if t["id"] not in ids:
-                        return          # trabalho de outro; devolve e sai
+                        # TRABALHO DE CLIENTE. Antes isto era um `return`
+                        # seco: o pedido ficava preso em PROCESSANDO com
+                        # nenhum worker atrás dele, e com uma tentativa
+                        # queimada do teto de 2. O diagnóstico contaminava
+                        # produção — dois pedidos reais travaram assim.
+                        f.devolver(t["id"], f"diag-{w}")
+                        with lock:
+                            # guarda o valor de ANTES (reivindicar já
+                            # incrementou) para conferir a devolução
+                            alheios.append((t["id"], t["tentativas"] - 1))
+                        return
                     with lock:
                         pegos.append(t["id"])
+                        por_worker[w] = por_worker.get(w, 0) + 1
             except Exception as exc:
                 with lock:
                     erros.append(f"{w}: {type(exc).__name__}: {exc}")
 
         ths = [_th.Thread(target=_w, args=(i,)) for i in range(4)]
         [t.start() for t in ths]
+        largada.set()
         [t.join() for t in ths]
         ok("nenhum worker morreu", not erros, "; ".join(erros[:2]))
         ok(f"{n} trabalhos, {n} reivindicações", len(pegos) == n,
@@ -1333,6 +1354,26 @@ def diag_fila_endpoint():
         ok("NENHUM trabalho pego duas vezes",
            len(set(pegos)) == len(pegos),
            f"duplicados={len(pegos) - len(set(pegos))}")
+        # A asserção que faltava: sem ela, uma thread sozinha fazendo todo
+        # o trabalho produz exatamente o mesmo resultado das quatro
+        # cooperando. "Passou" não é o mesmo que "exercitou".
+        ok("MAIS DE UM worker disputou (o SKIP LOCKED foi exercitado)",
+           len(por_worker) > 1,
+           f"distribuição por worker: {dict(sorted(por_worker.items()))}")
+        # O diagnóstico não pode custar nada a quem está na fila de
+        # verdade. Confere estado E tentativas: devolver deixando a
+        # tentativa queimada gastaria o teto de retomadas em silêncio.
+        _sujos = []
+        for _tid, _tent_antes in dict(alheios).items():
+            _t = f.buscar(_tid)
+            if (not _t or _t["estado"] != _f.PENDENTE
+                    or _t["tentativas"] != _tent_antes):
+                _sujos.append(f"{_tid}: estado={_t and _t['estado']} "
+                              f"tentativas={_t and _t['tentativas']} "
+                              f"(esperado pendente/{_tent_antes})")
+        ok("trabalho de cliente tocado por engano foi DEVOLVIDO intacto",
+           not _sujos,
+           f"tocados={len(dict(alheios))} sujos={_sujos or 'nenhum'}")
 
         contagem = f.contagem_por_estado()
     except Exception as exc:

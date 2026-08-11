@@ -185,6 +185,31 @@ class Fila:
         return {"id": linha[0], "payload": json.loads(linha[1]),
                 "tentativas": linha[2]}
 
+    def devolver(self, tid, worker_id):
+        """Solta um trabalho reivindicado por engano, SEM gastar tentativa.
+
+        Existe por um defeito real (19/07): o /diag-fila roda quatro
+        threads chamando `reivindicar`, e `reivindicar` devolve QUALQUER
+        pendente — inclusive trabalho de cliente. A thread via que o id
+        não era dela e simplesmente retornava, deixando o pedido preso em
+        PROCESSANDO sem worker nenhum atrás dele. Dois pedidos reais
+        ficaram travados assim, e só sairiam de lá quando algum worker
+        subisse e o `retomar_orfaos` os alcançasse cinco minutos depois.
+
+        Desfazer a tentativa é parte do contrato, não refinamento: sem
+        isso, cada diagnóstico consumiria uma das DUAS retomadas do teto,
+        e três diagnósticos matariam um trabalho que nunca falhou.
+        """
+        con = self.con()
+        con.cursor().execute(self._q(
+            "UPDATE trabalhos SET estado=%s, worker_id=NULL, heartbeat=NULL, "
+            "atualizado_em=%s, "
+            "tentativas=CASE WHEN tentativas > 0 THEN tentativas - 1 ELSE 0 END "
+            "WHERE id=%s AND worker_id=%s AND estado=%s"),
+            (PENDENTE, time.time(), tid, worker_id, PROCESSANDO))
+        if self.postgres:
+            con.commit()
+
     def heartbeat(self, tid, worker_id):
         con = self.con()
         con.cursor().execute(self._q(
