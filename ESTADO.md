@@ -1373,3 +1373,60 @@ crescer muito — ou de existir dicionário pt-BR de verdade.
 
 **Lição de método:** instalar uma dependência pode ATIVAR código dormente.
 Antes de adicionar lib ao requirements, procurar o que já a importa.
+
+---
+
+## Leitura da Marcelle — 11/08 (cliente, não astróloga)
+
+Primeira leitura por alguém que **não conhece o sistema** e não sabia o
+que procurar. Ela conferiu uma remissão — por isso achou.
+
+### Linha de base: o que ela NÃO reclamou
+
+Registrado porque é o número que diz onde o produto já está, e porque a
+tentação é só catalogar defeito:
+
+- **Balde de defeitos de língua: VAZIO.** Nenhuma palavra inexistente,
+  nenhuma sintaxe quebrada, nenhuma alucinação. A suíte segurou — é a
+  primeira leitura externa em que a camada de língua não deixa passar nada.
+- **Nenhuma parada por vocabulário.** Ninguém tropeçou numa palavra.
+- **Nada soou genérico.** Nenhum "isso serve para qualquer um".
+- **Nenhum cansaço apontado.** 23 páginas sem reclamação de extensão.
+- **Nenhuma dúvida sobre a mandala nem sobre as páginas novas.**
+
+**Tudo o que ela achou é ESTRUTURAL** — relação entre seções e entre
+peças, não frase. Nenhum detector de frase poderia ter visto: cada frase,
+isolada, é impecável.
+
+### O defeito que motivou a máquina de remissão
+
+Os 7 aspectos do Sol da Helena **não eram desenvolvidos em lugar nenhum**.
+A tríade lista e adia; a p.12 diz "já foram descritas"; a p.15, a p.22 e a
+p.24 adiam de novo. Cada seção aponta para outra e o círculo fecha vazio.
+
+**Doutrina (decisão da Márcia):** como não existe seção do Sol, a seção
+**Sol+Saturno é dona de TODOS os aspectos do Sol** e os desenvolve por
+inteiro. As outras só referenciam.
+
+**Consequência a acompanhar:** no mapa da Helena isso dá **7 aspectos**
+para Sol+Saturno, contra 5 de Júpiter e 4 de Mercúrio — a maior seção do
+relatório, e cresce mais em mapa com Sol muito aspectado. **Nada será
+espremido sem decisão da Márcia.**
+
+### Assimetria fala × escrita (medida)
+
+`remissoes_soltas` acusa 48 ocorrências em 58M de caracteres das
+transcrições de consulta — **todas verdadeiras**. Na consulta ao vivo "já
+falamos" é legítimo: a cliente estava lá. No relatório escrito é ponteiro
+que ninguém pode seguir. A mesma frase é correta num meio e defeito no
+outro, e é por isso que o corpus de fala não serve como alvo de estilo
+para o produto escrito.
+
+### R13 — asserção sobre a FONTE não vê peça que sumiu
+
+A tabela de aspectos desapareceu do PDF com **todos os testes de código
+verdes**. O filtro procurava uma chave inexistente e devolvia 0 de 27, em
+silêncio. Só asserção sobre o **artefato** (`tests/prove_artefato.py`)
+alcança essa classe. Corolário: **título fixo é promessa que não sabe se
+foi cumprida** — o título da página de referência passa a ser composto do
+que é realmente emitido.
