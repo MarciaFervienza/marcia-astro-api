@@ -1416,6 +1416,40 @@ def diag_fila_endpoint():
         (200 if not falharam else 500)
 
 
+@app.route("/diag-geocache", methods=["GET"])
+def diag_geocache_endpoint():
+    """Estado do cache de cidades. Existe porque o tempo NÃO prova nada.
+
+    Medindo da minha máquina, consulta com cache e sem cache levam o mesmo
+    tempo — a latência é dominada pela ida e volta até o Railway, não pelo
+    geocoding. Duas respostas idênticas também não provam: o provedor
+    devolveria idêntico. `consultas_evitadas` é o único sinal que
+    distingue "o cache funciona" de "eu presumi que funciona".
+    """
+    import hmac
+    presented = request.headers.get("X-API-Key") or request.args.get("api_key") or ""
+    if not API_SECRET_KEY or not presented \
+            or not hmac.compare_digest(presented, API_SECRET_KEY):
+        return jsonify({"status": "error", "message": "unauthorized"}), 401
+    try:
+        import geo_cache
+        c = geo_cache.cache()
+        if c is None:
+            return jsonify({"status": "ok", "ligado": False,
+                            "motivo": "sem DATABASE_URL ou banco fora"}), 200
+        est = c.estatisticas()
+        # `q` opcional: diz se ESTA consulta já está guardada, e sob que
+        # chave. É como se confere que a normalização casa o que devia.
+        q = (request.args.get("q") or "").strip()
+        detalhe = {}
+        if q:
+            detalhe = {"consulta": q, "chave": geo_cache.normaliza(q),
+                       "guardada": c.buscar(q) is not None}
+        return jsonify({"status": "ok", "ligado": True, **est, **detalhe}), 200
+    except Exception as exc:                            # noqa: BLE001
+        return jsonify({"status": "error", "message": str(exc)[:300]}), 500
+
+
 @app.route("/remontar-pdf", methods=["POST"])
 def remontar_pdf_endpoint():
     """DEGRAU 3 da recuperação: markdown editado à mão → PDF → cliente.
