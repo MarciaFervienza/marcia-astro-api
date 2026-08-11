@@ -108,3 +108,49 @@ if falhas:
     print(f">>> {falhas} FALHOU")
     raise SystemExit(1)
 print("CIDADE 19/07: TUDO PROVADO")
+
+
+print()
+print("=" * 66)
+print("E) report_for — RÓTULO POR EXTENSO, não só a chave curta")
+print("=" * 66)
+# O Wix Forms não separa rótulo de valor: o que a cliente LÊ é o que é
+# enviado. Antes disto a API tinha DEFAULT SILENCIOSO para "a" — qualquer
+# valor não reconhecido virava segunda pessoa, e "Para presentear alguém"
+# produziria um relatório em "você" sobre outra pessoa. Sem erro, sem alerta.
+for _txt, _esp in [
+    ("", "a"), ("meu", "a"), ("presente", "b"), ("sobre_outro", "c"),
+    ("O mapa é meu", "a"),
+    ("Quero entender o meu mapa", "a"),
+    ("É um presente para outra pessoa", "b"),
+    ("Para presentear alguém", "b"),
+    ("De outra pessoa, para ela ler", "b"),
+    ("Sobre outra pessoa, para eu ler", "c"),
+    ("Quero entender melhor alguém próximo", "c"),
+    ("É PRESENTE PARA OUTRA PESSOA", "b"),
+    ("é um presente pra outra pessoa", "b"),
+]:
+    _m, _inc = app._resolver_report_for(_txt)
+    chk(f"{_txt[:42]!r:46s} → {_esp}", _m == _esp and not _inc,
+        f"deu {_m!r} incerto={_inc}")
+
+for _txt in ("banana", "xpto qualquer", "12345"):
+    _m, _inc = app._resolver_report_for(_txt)
+    chk(f"não reconhecido {_txt!r} marca INCERTO", _inc)
+
+_src_ep2 = inspect.getsource(app.generate_report_endpoint)
+chk("valor incerto ALERTA em vez de ficar em silêncio",
+    "report_for_nao_reconhecido" in _src_ep2)
+chk("valor incerto NÃO recusa a geração",
+    "report_for_nao_reconhecido" in _src_ep2
+    and "return jsonify" not in _src_ep2[
+        _src_ep2.index("report_for_nao_reconhecido"):
+        _src_ep2.index("report_for_nao_reconhecido") + 700])
+chk("o meta registra o valor bruto e se foi reconhecido",
+    '"report_for_bruto"' in _src_ep2 and '"report_for_reconhecido"' in _src_ep2)
+
+print()
+if falhas:
+    print(f">>> {falhas} FALHOU")
+    raise SystemExit(1)
+print("CIDADE + report_for 19/07: TUDO PROVADO")

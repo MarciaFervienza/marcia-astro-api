@@ -1500,6 +1500,59 @@ def health():
     }), 200
 
 
+# =============================================================
+# report_for — RECONHECER O RÓTULO, NÃO SÓ A CHAVE (19/07)
+#
+# O Wix Forms não separa rótulo de valor: o que a cliente lê é o que é
+# enviado. Antes disso a API tinha um mapa de chaves curtas e um DEFAULT
+# SILENCIOSO para "a" — qualquer valor não reconhecido virava segunda
+# pessoa. "Para presentear alguém" produziria um relatório em "você"
+# quando deveria falar da pessoa em terceira. Sem erro e sem alerta.
+#
+# A tradução fica AQUI, e não na automação do Wix, porque na automação ela
+# desalinha em silêncio: no dia em que o rótulo for reescrito para melhorar
+# a redação, a automação segue traduzindo o texto antigo.
+#
+# Casamento por PALAVRA-CHAVE sobre o texto normalizado (sem acento, sem
+# caixa), para sobreviver a reescrita de rótulo.
+_MODE_CHAVES = {
+    "": "a", "a": "a", "meu": "a", "para_mim": "a", "self": "a",
+    "b": "b", "presente": "b", "para_ela": "b", "gift": "b",
+    "c": "c", "sobre_outro": "c", "sobre_outra_pessoa": "c",
+    "para_eu_ler": "c", "about_other": "c",
+}
+
+# ORDEM IMPORTA: (c) é testada antes de (b) porque "para outra pessoa, para
+# eu ler" contém as marcas das duas, e a distintiva é quem LÊ.
+_MODE_PADROES = [
+    ("c", r"eu\s+(?:vou\s+)?ler|para\s+mim\s+ler|sobre\s+(?:outr|algu)|"
+          r"presente(?:ar)?.*\bpara\s+eu\b|entender\s+(?:melhor\s+)?(?:outr|algu)"),
+    ("b", r"presente|presentear|de\s+outra\s+pessoa|para\s+outra\s+pessoa|"
+          r"para\s+(?:ela|ele)\s+ler|dar\s+de\s+presente|para\s+algu[eé]m"),
+    ("a", r"\bmeu\b|\bminha\b|para\s+mim|de\s+mim|sobre\s+mim|"
+          r"o\s+meu\s+mapa|eu\s+mesm[ao]"),
+]
+
+
+def _resolver_report_for(bruto):
+    """(modo, incerto). `incerto` True quando o valor veio preenchido e
+    NÃO foi reconhecido — aí quem chama decide, em vez de assumir."""
+    import re
+    import unicodedata
+    if not bruto:
+        return "a", False
+    chave = bruto.strip().lower()
+    if chave in _MODE_CHAVES:
+        return _MODE_CHAVES[chave], False
+    norm = "".join(c for c in unicodedata.normalize("NFD", chave)
+                   if unicodedata.category(c) != "Mn")
+    norm = re.sub(r"\s+", " ", norm)
+    for modo, padrao in _MODE_PADROES:
+        if re.search(padrao, norm):
+            return modo, False
+    return "a", True
+
+
 def _host_do_dsn(dsn):
     """Host do DSN, sem usuário nem senha. Diagnóstico não vaza segredo."""
     if not dsn:
@@ -2410,15 +2463,22 @@ def generate_report_endpoint():
     # TRAVA: sujeito MENOR (<18) força a voz (c) — terceira pessoa para o
     # responsável — independente do que o formulário disser.
     # ==================================================================
-    _raw_for = str(body.pop("report_for", "") or "").strip().lower()
+    _raw_for = str(body.pop("report_for", "") or "").strip()
     _relationship = str(body.pop("relationship", "") or "").strip().lower()[:40]
-    _MODE_MAP = {
-        "": "a", "a": "a", "meu": "a", "para_mim": "a", "self": "a",
-        "b": "b", "presente": "b", "para_ela": "b", "gift": "b",
-        "c": "c", "sobre_outro": "c", "sobre_outra_pessoa": "c",
-        "para_eu_ler": "c", "about_other": "c",
-    }
-    _mode = _MODE_MAP.get(_raw_for, "a")
+    _mode, _mode_incerto = _resolver_report_for(_raw_for)
+    if _mode_incerto:
+        # NÃO recusa: voz errada é defeito visível e corrigível, não um
+        # mapa de outra pessoa — a recusa aqui custaria mais do que
+        # protege. Mas TAMBÉM não fica em silêncio, que era o defeito
+        # antigo: o valor não reconhecido virava "meu" sem ninguém saber.
+        logger.warning("report_for NÃO RECONHECIDO: %r — assumindo 'meu'", _raw_for)
+        _send_failure_alert(
+            "report_for_nao_reconhecido",
+            RuntimeError(f"report_for={_raw_for!r} não casou nenhum padrão; "
+                         f"o relatório saiu em SEGUNDA pessoa por padrão"),
+            {"name": body.get("name"), "email": body.get("email"),
+             "birth_date": birth_date_raw, "birth_city": body.get("birth_city"),
+             "ip": _client_ip, "ua": _ua, "report_for": _raw_for})
 
     _age = None
     try:
@@ -2872,6 +2932,8 @@ def generate_report_endpoint():
             # para esta geração, incluindo a trava de menor.
             "voice": {k: v for k, v in (body.get("_voice") or {}).items()},
             "voice_rel_gender_conflict": _rel_gender_conflict,
+            "report_for_bruto": _raw_for,
+            "report_for_reconhecido": not _mode_incerto,
             # Repetição quase-verbatim entre seções (janela de 12 palavras).
             # Gate pré-testers exige [].
             "stage_timings": result.get("stage_timings", {}),
