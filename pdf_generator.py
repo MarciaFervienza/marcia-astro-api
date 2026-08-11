@@ -857,6 +857,7 @@ def _wheel_page_flowables(
     styles,
     wheel_cm: float = WHEEL_SIZE_CM,
     points: dict = None,
+    emitido_out=None,
 ):
     """Página dedicada à mandala.
 
@@ -932,8 +933,16 @@ def _wheel_page_flowables(
                 _el, _mo = _pt.count_elements_modalities(_rows)
                 _pan = _pt.elements_panel_flowable(_el, _mo, styles, 8.5)
                 _pan.hAlign = "LEFT"
-                flow.append(Spacer(1, 0.15 * cm))
-                flow.append(_pan)
+                # INDIVISÍVEL (11/08, leitura da Marcelle). O painel é uma
+                # Table, e Table quebra POR LINHA: com a mandala ocupando
+                # quase a página, sobrava espaço para três linhas e a
+                # quarta ia sozinha para a página seguinte — "Água 2"
+                # órfã na p.5. Contagem partida ao meio não é contagem.
+                # Mesma família da pull-quote: KeepTogether joga o bloco
+                # INTEIRO adiante em vez de rachá-lo.
+                flow.append(KeepTogether([Spacer(1, 0.15 * cm), _pan]))
+                if emitido_out is not None:
+                    emitido_out.append("elementos")
         except Exception as e:
             logger.warning("painel de elementos falhou: %s", e)
 
@@ -986,7 +995,29 @@ def _indice_flowables(styles):
     ]
 
 
-def _positions_page_flowables(points, aspects, styles):
+def titulo_referencia(pecas):
+    """Compõe o título a partir do que foi REALMENTE emitido (11/08).
+
+    Antes o título era a constante "Posições, aspectos e elementos". Ele
+    existia porque as três peças estavam lá — e continuou prometendo as
+    três depois que a tabela de aspectos parou de ser emitida. Um título
+    fixo é uma promessa que não sabe se foi cumprida: sobrevive ao
+    desaparecimento daquilo que nomeia, e é assim que a leitora vai
+    procurar o que o texto citou e não acha.
+
+    Ordem fixa, para o sumário não dançar entre relatórios.
+    """
+    rotulos = [r for r in ("Posições", "aspectos", "elementos") if r.lower()
+               in {p.lower() for p in pecas}]
+    if not rotulos:
+        return ""
+    rotulos[0] = rotulos[0][0].upper() + rotulos[0][1:]
+    if len(rotulos) == 1:
+        return rotulos[0]
+    return ", ".join(rotulos[:-1]) + " e " + rotulos[-1]
+
+
+def _positions_page_flowables(points, aspects, styles, emitido_out=None):
     """Página de referência: tabela de posições + tabela de aspectos, ambas
     em DUAS COLUNAS (escolha da Márcia, 17/07).
 
@@ -1020,12 +1051,29 @@ def _positions_page_flowables(points, aspects, styles):
     meio = (len(rows) + 1) // 2
     flow.append(Paragraph("Posições", styles["section_title"]))
     flow.append(Spacer(1, 0.35 * cm))
+    if emitido_out is not None:
+        emitido_out.append("Posições")
     flow.append(_par(
         _pt.positions_table_flowable(rows[:meio], symbols, styles, 8.5, 8.5, _CW),
         _pt.positions_table_flowable(rows[meio:], symbols, styles, 8.5, 8.5, _CW)))
 
     if aspects:
-        in_sign = [a for a in aspects if a.get("planet_a_pt") and a.get("planet_b_pt")]
+        # REGRESSÃO CORRIGIDA (11/08, leitura da Marcelle: a tabela de
+        # aspectos SUMIU do relatório).
+        #
+        # Estava assim:
+        #     [a for a in aspects if a.get("planet_a_pt") and ...]
+        # e a lista de aspectos NÃO TEM `planet_a_pt` — as chaves são
+        # planet_a/planet_b/type/type_pt/orb. O filtro devolvia 0 de 27,
+        # a tabela não era emitida, e nada reclamava. A página irmã
+        # (_aspects_page_flowables) sempre usou `get_in_sign_aspects`;
+        # esta tinha uma segunda implementação do mesmo conceito, escrita
+        # à mão. R3 de novo: duas versões de "quais aspectos entram", e a
+        # que divergiu foi a que ninguém olhava.
+        #
+        # O efeito para a leitora não é cosmético: o texto cita "orbe
+        # apertadíssimo" e "sextil com Plutão" e ela não tem onde conferir.
+        in_sign = get_in_sign_aspects(aspects, points or {})
         if in_sign:
             m = (len(in_sign) + 1) // 2
             def _col(items):
@@ -1036,6 +1084,8 @@ def _positions_page_flowables(points, aspects, styles):
             flow.append(Paragraph("Aspectos", styles["section_title"]))
             flow.append(Spacer(1, 0.35 * cm))
             flow.append(_par(_col(in_sign[:m]), _col(in_sign[m:])))
+            if emitido_out is not None:
+                emitido_out.append("aspectos")
     flow.append(PageBreak())
     return flow
 
@@ -1355,6 +1405,32 @@ def _subtitle_from_prefix(prefix: str, points: dict, time_unknown: bool = False)
     return "   ·   ".join(pieces)
 
 
+def capitaliza_titulo(s: str) -> str:
+    """Primeira letra maiúscula, o resto intocado (11/08).
+
+    A REGRA é da Márcia e já estava decidida: só a primeira palavra
+    maiúscula. O defeito era outro — o título de seção renderizado é a
+    parte DEPOIS dos dois-pontos ("Mercúrio: como você pensa" → "como
+    você pensa"), e essa parte nasce minúscula por construção. Quando a
+    regra mudou de caixa-alta para sentença, o corte passou a produzir
+    títulos começando em minúscula: 14 dos 19.
+
+    Só o PRIMEIRO caractere é tocado. `.capitalize()` e `.title()` estão
+    ambos errados aqui: o primeiro rebaixaria "Sol, Lua e Ascendente"
+    para "Sol, lua e ascendente", e o segundo devolveria a caixa-alta que
+    a Márcia tirou. O resto do título é escolha editorial dela.
+
+    Ponto ÚNICO: o par (título, subtítulo) é calculado uma vez e servido
+    ao índice E à seção, então os dois herdam daqui. Índice e corpo
+    divergindo em maiúscula seria a mesma classe de defeito que já mordeu
+    três vezes com a casa de Júpiter.
+    """
+    s = (s or "").strip()
+    if not s:
+        return s
+    return s[0].upper() + s[1:]
+
+
 def _split_section_title(title: str, points: dict, time_unknown: bool = False):
     """Split a section title into (main_heading, subtitle).
 
@@ -1370,11 +1446,11 @@ def _split_section_title(title: str, points: dict, time_unknown: bool = False):
                                                               when it isn't a planet)
     """
     if ":" not in title:
-        return title, ""
+        return capitaliza_titulo(title), ""
 
     prefix, _, rest = title.partition(":")
     prefix = prefix.strip()
-    main = rest.strip() or title
+    main = capitaliza_titulo(rest.strip() or title)
     subtitle = _subtitle_from_prefix(prefix, points, time_unknown=time_unknown)
     if not subtitle:
         # Prefix is a non-planet label (Casa 4, Asteróides, Sua Tríade, Nodo Sul e Nodo Norte).
@@ -1533,6 +1609,10 @@ def generate_pdf(
     # Chart wheel page (own page) — mandala dominates, birth data in the
     # upper-left corner as a small identity block, technical footer
     # (Zodíaco Tropical · Casas Placidus) sits under the block.
+    # Peças de referência REALMENTE emitidas (painel de elementos na página
+    # da mandala; posições e aspectos na página seguinte). O título do
+    # sumário é composto delas.
+    _emitido_ref = []
     if chart_image_url:
         _p_mandala = Paragraph("", styles["section_subtitle"])
         _p_mandala._toc = (0, "O seu mapa")
@@ -1541,15 +1621,21 @@ def generate_pdf(
         story.extend(_wheel_page_flowables(
             chart_image_url, client_name, birth_date, birth_time,
             birth_place, latitude, longitude, styles,
-            wheel_cm=wheel_cm, points=points,
+            wheel_cm=wheel_cm, points=points, emitido_out=_emitido_ref,
         ))
     # Página de referência: posições + aspectos em duas colunas (17/07).
     # Substitui a antiga página só-de-aspectos.
-    _p_ref = Paragraph("", styles["section_subtitle"])
-    _p_ref._toc = (0, "Posições, aspectos e elementos")
-    _p_ref.height = 0
-    story.append(_p_ref)
-    story.extend(_positions_page_flowables(points or {}, aspects, styles))
+    # O título é composto DEPOIS de construir a página, do que ela de fato
+    # emitiu — ver titulo_referencia. Por isso o flow vem primeiro.
+    _ref_flow = _positions_page_flowables(points or {}, aspects, styles,
+                                          emitido_out=_emitido_ref)
+    _titulo_ref = titulo_referencia(_emitido_ref)
+    if _titulo_ref:
+        _p_ref = Paragraph("", styles["section_subtitle"])
+        _p_ref._toc = (0, _titulo_ref)
+        _p_ref.height = 0
+        story.append(_p_ref)
+    story.extend(_ref_flow)
 
 
     # Section flow with periodic pull-quote breather pages. Every fourth

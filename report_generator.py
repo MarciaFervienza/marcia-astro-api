@@ -409,17 +409,39 @@ def fmt_filtered_aspects(filtered_aspects: list, section_name: str = None) -> st
                 f"orbe {a['orb']:.1f}°, T{a['_combined_tier']})")
 
     if filtered_aspects:
-        novos = [a for a in filtered_aspects if not a.get("_ja_descrito")]
-        velhos = [a for a in filtered_aspects if a.get("_ja_descrito")]
+        # DONO DECLARADO (11/08). Antes o critério era "quem chega primeiro
+        # descreve" — e como adiar é sempre a saída mais barata para o
+        # modelo, TODA seção adiava e nenhuma entregava. Os 7 aspectos do
+        # Sol da Helena não eram desenvolvidos em lugar nenhum: a tríade
+        # listava, a p.12 dizia "já foram descritas", e a p.15, a p.22 e a
+        # p.24 adiavam de novo. O círculo fechava vazio, e só quem
+        # CONFERIU descobriu.
+        #
+        # Agora a dona é dita explicitamente, por aspecto, e a instrução
+        # muda de "primeira vez" para "você é a dona disto".
+        import remissao as _rem
+        meus = [a for a in filtered_aspects
+                if _rem.dono_do_aspecto(a) == section_name]
+        alheios = [a for a in filtered_aspects
+                   if _rem.dono_do_aspecto(a) != section_name]
         blocos = []
-        if novos:
-            blocos.append("DESCREVA POR INTEIRO (primeira vez no relatório): "
-                          + "; ".join(_rot(a) for a in novos))
-        if velhos:
+        if meus:
             blocos.append(
-                "JÁ DESCRITOS noutra seção — aqui só REFERENCIE em no máximo "
-                "uma frase, sem redesenvolver o significado: "
-                + "; ".join(_rot(a) for a in velhos)
+                "VOCÊ É A SEÇÃO DONA destes aspectos — desenvolva CADA UM por "
+                "inteiro, aqui, agora. É a única seção do relatório que os "
+                "explica; nenhuma outra vai. NÃO adie, NÃO diga que serão "
+                "vistos adiante, NÃO diga que já foram vistos: "
+                + "; ".join(_rot(a) for a in meus))
+        if alheios:
+            _donas = sorted({_rem.dono_do_aspecto(a) for a in alheios
+                             if _rem.dono_do_aspecto(a)})
+            blocos.append(
+                "DE OUTRA SEÇÃO — só REFERENCIE, em no máximo uma frase, sem "
+                "redesenvolver: " + "; ".join(_rot(a) for a in alheios)
+                + ". Para remeter, escreva o marcador [[ref:nome_da_secao]] "
+                  "e NUNCA 'já vimos' ou 'veremos adiante' — quem sabe a "
+                  "ordem das seções é o renderizador, não você. Seções "
+                  "donas destes: " + ", ".join(_donas)
                 + ". ATENÇÃO: eles EXISTEM neste mapa — nunca diga que este "
                   "corpo não tem aspectos.")
         return "\n".join(blocos)
@@ -3284,6 +3306,25 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
     # ---- ASSEMBLE IN CANONICAL ORDER ----
     # Output ordering follows the `sections` list, not the parallel
     # completion order, so the report reads identically to a sequential run.
+    #
+    # RESOLUÇÃO DAS REMISSÕES (11/08). Só aqui a ordem de impressão é
+    # conhecida — as seções são geradas EM PARALELO, então nenhuma delas
+    # pode saber se a outra vem antes ou depois. Era essa a origem do "já
+    # foi explorada" apontando para seção posterior: o tempo verbal era
+    # escolhido por quem não tinha como saber a direção.
+    import remissao as _rem
+    _ordem_sec = {s["name"]: i for i, s in enumerate(sections)}
+    _titulos_sec = {s["name"]: s["title"] for s in sections}
+    if not skip_fio:
+        _ordem_sec["fio_condutor"] = len(sections)
+        _titulos_sec["fio_condutor"] = "Fio Condutor"
+    _remissoes_log = []
+    for sec in sections:
+        _txt, _oc = _rem.resolver(section_texts[sec["name"]], sec["name"],
+                                  _ordem_sec, _titulos_sec)
+        section_texts[sec["name"]] = _txt
+        for o in _oc:
+            _remissoes_log.append({"secao": sec["name"], **o})
     for sec in sections:
         full_report += f"\n## {sec['title']}\n\n{section_texts[sec['name']]}\n"
 
@@ -3598,6 +3639,32 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
     if _cap:
         _estagios["3_final"] = full_report
 
+    # ==================================================================
+    # LINT DA REMISSÃO (11/08). Confere a máquina inteira sobre o
+    # relatório MONTADO, que é o único lugar onde a ordem existe.
+    #
+    # Três perguntas, e a leitura da Marcelle é a razão de cada uma:
+    #   · algum aspecto ficou sem dona?  (o círculo que fecha vazio)
+    #   · alguma remissão aponta para fora, para si, ou para quem não
+    #     desenvolve nada?                (a promessa que não resolve)
+    #   · alguém passou do teto, ou escreveu remissão à mão?
+    #                                      (13 remissões em 23 páginas)
+    _donos_por_secao = {}
+    for _a in (chart.get("aspects") or []):
+        _d = _rem.dono_do_aspecto(_a)
+        if _d:
+            _donos_por_secao.setdefault(_d, set()).add(_rem.chave_do_aspecto(_a))
+    _por_secao = [(s["name"], section_texts.get(s["name"], "")) for s in sections]
+    if not skip_fio:
+        _por_secao.append(("fio_condutor", fio if not skip_fio else ""))
+    remissao_lint = _rem.lint_remissoes(_por_secao, _ordem_sec, _titulos_sec,
+                                        donos=_donos_por_secao)
+    aspectos_orfaos = _rem.aspectos_sem_dono(chart.get("aspects") or [],
+                                             set(_ordem_sec))
+    if remissao_lint or aspectos_orfaos:
+        logger.warning("REMISSÃO: %d achado(s), %d aspecto(s) sem dona",
+                       len(remissao_lint), len(aspectos_orfaos))
+
     return {
         "report": full_report,
         "name": name,
@@ -3618,6 +3685,10 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
         "sign_divergences": sign_divergences,
         "correction_rewrites": correction_rewrites,
         "verifier_log": verifier_log,
+        # Máquina de remissão: dono, direção e teto. Ver remissao.py.
+        "remissao_lint": remissao_lint,
+        "remissoes": _remissoes_log,
+        "aspectos_sem_dono": aspectos_orfaos,
         # Prova de execução, não de presença no código (smoke test do passo 1
         # pré-testers): ran=True só depois do run_verifier retornar; error
         # carrega a exceção se ele morreu. Contagens explícitas para o meta.

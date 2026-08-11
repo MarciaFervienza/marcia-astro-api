@@ -952,6 +952,50 @@ def _detect_graus_sem_preposicao(text):
     return out
 
 
+# ---- CASA SEM A PALAVRA "CASA" (11/08, leitura da Marcelle) -----------
+#
+# "Vênus em 12" onde se quer dizer "Vênus na casa 12". A leitora não é
+# astróloga: para ela "em 12" não quer dizer nada, ou pior, parece grau.
+#
+# FLAG-ONLY por decisão da Márcia, e o motivo é a AMBIGUIDADE do formato:
+# grau ("Sol em 12 graus"), idade ("aos 12 anos", "em 12 anos") e data
+# ("em 12 de setembro") usam a mesma forma. Um corretor que reescrevesse
+# "em 12" para "na casa 12" quebraria as três — e a camada de correção já
+# me custou uma rodada inteira criando defeito onde não havia (R12).
+#
+# O detector é ESTREITO de propósito: exige um CORPO nomeado antes, e
+# recusa quando o número é seguido de unidade (graus, anos, minutos) ou
+# de nome de mês. Fora disso não acusa: perder uma ocorrência custa uma
+# frase esquisita; acusar errado custa confiança no detector inteiro.
+_MESES_RE = (r"janeiro|fevereiro|mar[çc]o|abril|maio|junho|julho|agosto|"
+             r"setembro|outubro|novembro|dezembro")
+
+
+def _detect_casa_sem_palavra(text):
+    out = []
+    for m in re.finditer(
+            rf"\b({_CORPO_RE})\s+(?:est[áa]\s+)?em\s+(\d{{1,2}})\b",
+            text, flags=re.IGNORECASE):
+        num = int(m.group(2))
+        if not 1 <= num <= 12:
+            continue                      # fora do intervalo de casas
+        depois = text[m.end():m.end() + 26].lower()
+        # unidade explícita → é grau, idade ou tempo, não casa
+        if re.match(r"\s*(graus?|°|anos?|meses|mes\b|minutos?|dias?|"
+                    rf"de\s+(?:{_MESES_RE}))", depois):
+            continue
+        out.append({
+            "kind": "jargao:casa_sem_palavra",
+            "match": m.group(0)[:70], "offset": m.start(),
+            "suggestion": (f"'{m.group(0)}' → '{m.group(1)} na casa {num}'. "
+                           f"Para quem não é astróloga, 'em {num}' não diz "
+                           f"nada — ou parece grau."),
+            # NÃO reescreve: grau, idade e data compartilham o formato.
+            "no_rewrite": True,
+        })
+    return out
+
+
 def _detect_bare_ic(text):
     """Item 11: IC nunca aparece sozinho — precisa de tradução."""
     out = []
@@ -1987,6 +2031,7 @@ def _detectar_tudo(text, chart):
                   + _detect_ainda_sem_negacao(scan_text)
                   + _detect_primeira_pessoa_predicativa(scan_text)
                   + _detect_graus_sem_preposicao(scan_text)
+                  + _detect_casa_sem_palavra(scan_text)
                   + _detect_convergir_transitivo(scan_text)):
             _add(v["kind"], v["match"], v["offset"], v["suggestion"])
         for v in _detect_angle_rulership(scan_text, chart):

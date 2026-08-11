@@ -3155,6 +3155,10 @@ def executar_geracao(body, ctx=None):
             "correction_rewrites": result.get("correction_rewrites", []),
             "partial_coverage": result.get("partial_coverage", []),
             "verifier_log": result.get("verifier_log", []),
+            # Remissão: dono do aspecto, direção temporal e teto (11/08).
+            "remissao_lint": result.get("remissao_lint", []),
+            "remissoes": result.get("remissoes", []),
+            "aspectos_sem_dono": result.get("aspectos_sem_dono", []),
             # Prova de EXECUÇÃO do verificador (ran/error/contagens) — um
             # verifier_log vazio é ambíguo entre "0 violações" e "crashou".
             "verifier": result.get("verifier"),

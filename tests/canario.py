@@ -202,6 +202,11 @@ CANARIOS = [
     ("graus sem preposição ('poucos graus de Ceres')",
      lambda t: tv._detect_graus_sem_preposicao(t),
      "Vesta também está em Libra, poucos graus de Ceres, na casa 3"),
+    # 11/08 (Marcelle): "em 12" onde se quer dizer "na casa 12". Para quem
+    # não é astróloga isso não diz nada — ou parece grau.
+    ("casa sem a palavra 'casa' ('Vênus em 12')",
+     lambda t: tv._detect_casa_sem_palavra(t),
+     "Vênus em 12 mostra onde você se entrega sem medir"),
     ("gênero do determinante ('um inquietação')",
      lambda t: __import__("word_lint").word_lint(t),
      "quando o outro se torna previsível, acende um inquietação"),
@@ -453,6 +458,17 @@ NEGATIVOS = [
     ("'a poucos graus de' está correto",
      lambda t: tv._detect_graus_sem_preposicao(t),
      "Vesta está a poucos graus de Ceres, na mesma casa"),
+    # Grau, idade e data compartilham a forma "em <número>" — foi por isso
+    # que a Márcia pediu flag-only. As três NÃO podem acender.
+    ("'em 12 graus' é grau, não casa",
+     lambda t: tv._detect_casa_sem_palavra(t),
+     "o Sol em 12 graus de Aquário pede atenção"),
+    ("'em 12 de setembro' é data, não casa",
+     lambda t: tv._detect_casa_sem_palavra(t),
+     "Vênus em 12 de setembro ainda estava em Leão"),
+    ("'em 12 anos' é tempo, não casa",
+     lambda t: tv._detect_casa_sem_palavra(t),
+     "Saturno em 12 anos completa meio ciclo"),
     ("'o coração' não é erro de gênero",
      lambda t: __import__("word_lint").word_lint(t),
      "o coração dela sabe disso antes da cabeça"),
