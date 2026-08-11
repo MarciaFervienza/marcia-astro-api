@@ -212,6 +212,93 @@ checa("9b. tenta a consulta INTEIRA primeiro",
       _pedidos and _pedidos[0] == "Atlanta, Georgia, USA",
       f"primeira consulta foi {_pedidos[0]!r}" if _pedidos else "não consultou")
 
+# ==================================================================
+# CACHE DE CIDADES (11/08, decisão da Márcia). A queda de provedor é
+# solução de dia — o bloqueio de hoje passou sozinho, logo volta. O que
+# derruba o volume é não perguntar duas vezes.
+# ==================================================================
+print()
+print("--- cache de cidades ---")
+import geo_cache as GC
+
+_c = GC.CacheCidades(":memory:")
+_c.criar_tabelas()
+_BH = [{"lat": -19.9227, "lng": -43.9451,
+        "rotulo": "Belo Horizonte, Minas Gerais, Brasil"}]
+
+checa("cache vazio devolve None", _c.buscar("Belo Horizonte, MG") is None)
+_c.guardar("Belo Horizonte, MG", _BH, "nominatim")
+checa("guarda e devolve igual", _c.buscar("Belo Horizonte, MG") == _BH)
+
+# Normalização: quem digita no formulário raramente acentua.
+checa("acerto sem acento acha o mesmo",
+    _c.buscar("belo horizonte, mg") == _BH)
+checa("espaço sobrando não impede o acerto",
+    _c.buscar("  Belo   Horizonte,  MG  ") == _BH)
+
+# O que o cache NÃO pode fazer: passar por cima da desambiguação. "Santa
+# Rosa" e "Santa Rosa, RS" são consultas DIFERENTES — se colapsassem, o
+# cache entregaria a Califórnia para quem escreveu o estado.
+_c.guardar("Santa Rosa, RS, Brasil",
+           [{"lat": -27.87, "lng": -54.48, "rotulo": "Santa Rosa, RS, Brasil"}],
+           "photon")
+checa("'Santa Rosa' NÃO é servida pela entrada de 'Santa Rosa, RS'",
+    _c.buscar("Santa Rosa") is None)
+
+# Resposta vazia não vira verdade permanente.
+checa("NÃO guarda resposta vazia", _c.guardar("Xyzabc", [], "photon") is False)
+checa("e a consulta vazia segue sem entrada", _c.buscar("Xyzabc") is None)
+
+# Contador — é o número que diz se o cache vale.
+_c.marcar_uso("Belo Horizonte, MG")
+_c.marcar_uso("belo horizonte, mg")
+_e = _c.estatisticas()
+checa("conta os acertos (2 usos, 2 cidades)",
+    _e["consultas_evitadas"] == 2 and _e["cidades_guardadas"] == 2, str(_e))
+
+# CACHE ANTES DO PROVEDOR: com acerto, NENHUM provedor é consultado.
+import geocode_util as GU
+_bateu = {"n": 0}
+
+
+def _nunca(q, limit):
+    _bateu["n"] += 1
+    return [{"lat": 0.0, "lng": 0.0, "rotulo": "NÃO DEVIA TER SIDO CHAMADO"}]
+
+
+_orig_impl, _orig_cache, _orig_tentou = dict(GU._IMPL), GC._CACHE, GC._TENTOU
+try:
+    GU._IMPL["nominatim"] = _nunca
+    GU._IMPL["photon"] = _nunca
+    GC._CACHE, GC._TENTOU = _c, True
+    _res, _prov, _err = GU.buscar_bruto("Belo Horizonte, MG")
+    checa("acerto de cache resolve sem tocar em provedor",
+        _prov == "cache" and _res == _BH and _bateu["n"] == 0,
+        f"provedor={_prov!r} chamadas a provedor={_bateu['n']}")
+
+    # Falha do cache NÃO pode derrubar a geocodificação: é economia, não
+    # correção. Um Postgres fora do ar não pode parar o produto.
+    class _CacheQuebrado:
+        def buscar(self, q):
+            raise RuntimeError("banco fora")
+
+        def guardar(self, *a, **k):
+            raise RuntimeError("banco fora")
+
+        def marcar_uso(self, q):
+            raise RuntimeError("banco fora")
+
+    GC._CACHE = _CacheQuebrado()
+    _bateu["n"] = 0
+    _res2, _prov2, _err2 = GU.buscar_bruto("Curitiba, PR")
+    checa("cache quebrado NÃO derruba: cai no provedor",
+        _prov2 == "nominatim" and not _err2 and _bateu["n"] == 1,
+        f"provedor={_prov2!r} erro={_err2!r}")
+finally:
+    GU._IMPL.clear()
+    GU._IMPL.update(_orig_impl)
+    GC._CACHE, GC._TENTOU = _orig_cache, _orig_tentou
+
 # ------------------------------------------------------------------ rede
 if "--rede" in sys.argv:
     import math

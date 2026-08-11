@@ -1282,8 +1282,17 @@ def diag_fila_endpoint():
 
     res, criados = [], []
 
-    def ok(nome, cond, det=""):
-        res.append({"asserção": nome, "passou": bool(cond), "detalhe": det})
+    def ok(nome, cond, det="", exercitada=True):
+        """`exercitada=False` marca asserção que passou por VACUIDADE.
+
+        Pedido da Márcia (11/08): a asserção 12 passou com `tocados=0` —
+        nenhum trabalho de cliente estava pendente durante o diagnóstico,
+        então ela ficou verde sem ter testado nada. Verde por vacuidade é
+        a mesma classe da salvaguarda morta e da concorrência com uma
+        thread só: o relatório afirma cobertura que não houve. Aqui ela
+        passa a se declarar."""
+        res.append({"asserção": nome, "passou": bool(cond), "detalhe": det,
+                    "exercitada": bool(exercitada)})
 
     try:
         import fila as _f
@@ -1373,7 +1382,11 @@ def diag_fila_endpoint():
                               f"(esperado pendente/{_tent_antes})")
         ok("trabalho de cliente tocado por engano foi DEVOLVIDO intacto",
            not _sujos,
-           f"tocados={len(dict(alheios))} sujos={_sujos or 'nenhum'}")
+           f"tocados={len(dict(alheios))} sujos={_sujos or 'nenhum'}"
+           + ("" if alheios else " — NENHUM pendente de cliente durante o "
+                                "diagnóstico; quem exercita o devolver é "
+                                "prove_fila, offline"),
+           exercitada=bool(alheios))
 
         contagem = f.contagem_por_estado()
     except Exception as exc:
@@ -1392,8 +1405,13 @@ def diag_fila_endpoint():
             pass
 
     falharam = [r for r in res if not r["passou"]]
+    vazias = [r["asserção"] for r in res if r["passou"] and not r["exercitada"]]
     return jsonify({"status": "ok" if not falharam else "error",
                     "passaram": len(res) - len(falharam), "de": len(res),
+                    # Contadas SEPARADAMENTE de propósito. Somar asserção
+                    # vazia ao número de aprovadas é como o relatório passa
+                    # a mentir sobre a própria cobertura.
+                    "nao_exercitadas": vazias,
                     "assercoes": res, "contagem_antes_da_limpeza": contagem}), \
         (200 if not falharam else 500)
 

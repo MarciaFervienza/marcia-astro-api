@@ -69,22 +69,19 @@ _ESQUEMA = [
 ]
 
 
-class Fila:
-    """Fila sobre Postgres (produção) ou SQLite (testes).
+class _Banco:
+    """Conexão por thread + tradução de dialeto, sobre Postgres ou SQLite.
 
-    `dsn` vindo de DATABASE_URL escolhe Postgres; um caminho de arquivo ou
-    ":memory:" escolhe SQLite.
+    Base compartilhada pela Fila e pelo cache de cidades (geo_cache). É
+    uma peça só de propósito: duas implementações de conexão seria a R3, a
+    classe de defeito em que dois caminhos divergem em silêncio — e a
+    conexão por thread abaixo nasceu de um defeito EXATAMENTE desses.
     """
 
     def __init__(self, dsn=None):
         self.dsn = dsn or os.environ.get("DATABASE_URL")
-        if not self.dsn:
-            raise RuntimeError(
-                "DATABASE_URL ausente — a fila persistida não pode abrir. "
-                "NÃO há fallback para memória: uma fila em processo perde o "
-                "trabalho no restart, que é o evento contra o qual ela existe."
-            )
-        self.postgres = self.dsn.startswith(("postgres://", "postgresql://"))
+        self.postgres = bool(self.dsn) and self.dsn.startswith(
+            ("postgres://", "postgresql://"))
         # CONEXÃO POR THREAD (19/07). Uma conexão compartilhada quebra em
         # concorrência — "cannot start a transaction within a transaction".
         # E não é só teste: o gunicorn roda com --threads 4, então o app
@@ -120,6 +117,35 @@ class Fila:
 
     def _q(self, sql):
         return sql if self.postgres else sql.replace("%s", "?")
+
+    def criar(self, esquema):
+        """Aplica um esquema DDL, traduzindo o tipo que o SQLite não tem."""
+        con = self.con()
+        cur = con.cursor()
+        for ddl in esquema:
+            if not self.postgres:
+                ddl = ddl.replace("DOUBLE PRECISION", "REAL")
+            cur.execute(ddl)
+        if self.postgres:
+            con.commit()
+        return True
+
+
+class Fila(_Banco):
+    """Fila sobre Postgres (produção) ou SQLite (testes).
+
+    `dsn` vindo de DATABASE_URL escolhe Postgres; um caminho de arquivo ou
+    ":memory:" escolhe SQLite.
+    """
+
+    def __init__(self, dsn=None):
+        super().__init__(dsn)
+        if not self.dsn:
+            raise RuntimeError(
+                "DATABASE_URL ausente — a fila persistida não pode abrir. "
+                "NÃO há fallback para memória: uma fila em processo perde o "
+                "trabalho no restart, que é o evento contra o qual ela existe."
+            )
 
     def criar_tabelas(self):
         con = self.con()

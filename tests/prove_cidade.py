@@ -104,6 +104,33 @@ chk("devolve rótulo completo", '"rotulo": rotulo' in _sb)
 chk("devolve id, lat, lng e tz", all(k in _sb for k in ('"id"', '"lat"', '"lng"', '"tz"')))
 chk("busca com menos de 3 letras devolve vazio", app.buscar_cidades("ab")[0] == [])
 
+# ------------------------------------------------------------------
+# OS RÓTULOS PUBLICADOS. Estes três são o texto EXATO que a cliente lê
+# no formulário do Wix (Márcia, 11/08). Depois de publicado, o rótulo é
+# contrato: o formulário não separa rótulo de valor, então o que ela lê é
+# o que chega na API. Uma mudança no casador que quebre um destes trocaria
+# a VOZ do relatório em silêncio — e voz errada não tem detector, porque
+# o texto sai gramaticalmente perfeito.
+#
+# Se você precisar mudar um rótulo no formulário, mude AQUI junto.
+# ------------------------------------------------------------------
+print()
+print("F) RÓTULOS PUBLICADOS NO FORMULÁRIO")
+for _rot, _esp in [
+    ("Este mapa é meu, para mim",            "a"),
+    ("É um presente — outra pessoa vai ler", "b"),
+    ("É sobre outra pessoa, e eu vou ler",   "c"),
+]:
+    _m, _inc = app._resolver_report_for(_rot)
+    chk(f"{_rot!r} → {_esp}", _m == _esp and not _inc,
+        f"deu {_m!r} incerto={_inc}")
+
+# O travessão do rótulo (b) é U+2014, não hífen. Se o Wix normalizar
+# para hífen simples, o casamento tem de continuar valendo.
+_m, _inc = app._resolver_report_for("É um presente - outra pessoa vai ler")
+chk("rótulo (b) com hífen simples também casa", _m == "b" and not _inc,
+    f"deu {_m!r}")
+
 print()
 if falhas:
     print(f">>> {falhas} FALHOU")

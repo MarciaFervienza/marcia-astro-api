@@ -173,6 +173,24 @@ def buscar_bruto(q, limit=6):
     q = (q or "").strip()
     if not q:
         return [], None, "Consulta vazia."
+
+    # CACHE PRIMEIRO. Ver geo_cache: a queda de provedor é solução de dia
+    # — o bloqueio de hoje passou sozinho, o que significa que volta. O
+    # que realmente derruba o volume é não perguntar duas vezes. Falha do
+    # cache NUNCA derruba a geocodificação: é economia, não correção.
+    _c = None
+    try:
+        import geo_cache
+        _c = geo_cache.cache()
+        if _c is not None:
+            guardado = _c.buscar(q)
+            if guardado:
+                _c.marcar_uso(q)
+                return guardado, "cache", None
+    except Exception as exc:                           # noqa: BLE001
+        logger.warning("cache de cidades falhou na leitura (%s) — seguindo", exc)
+        _c = None
+
     erros = []
     for nome in PROVEDORES:
         try:
@@ -187,6 +205,11 @@ def buscar_bruto(q, limit=6):
             # vinda da queda tem de ser rastreável meses depois.
             logger.warning("geocoding: %r resolvido por %s após falha de %s",
                            q[:60], nome, "; ".join(erros)[:200])
+        if _c is not None and res:
+            try:
+                _c.guardar(q, res, nome)
+            except Exception as exc:                   # noqa: BLE001
+                logger.warning("cache de cidades falhou ao guardar (%s)", exc)
         return res, nome, None
     return [], None, ("Erro ao consultar geolocalização: "
                       + " | ".join(erros)[:300])
