@@ -187,7 +187,8 @@ finally:
     _rl.detectar_sem_sentido = _orig_det
 
 # A falha fechada tem de vir ANTES de qualquer artefato ou envio.
-_src = _insp.getsource(_app.generate_report_endpoint)
+import fonte_geracao as _fg
+_src = _fg.fonte(_app)
 _i = _src.index("FALHA FECHADA DE LÍNGUA")
 for _marca, _rot in (("_apply_moon_note", "nota da Lua"),
                      ("_generate_chart_svg", "SVG da mandala"),

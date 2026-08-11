@@ -155,7 +155,8 @@ salvaguarda("pós-aplicação: re-roda _detectar_tudo sobre o texto CORRIGIDO",
 # result["meta"]["falha_lingua"] e a função devolve a chave no TOPO.
 _src_gr = inspect.getsource(rg._generate_report_locked)
 _devolvidas = set(re.findall(r'"([a-z_]+)":', _src_gr[_src_gr.rindex("return {"):]))
-_src_ep = inspect.getsource(app.generate_report_endpoint)
+import fonte_geracao as _fg
+_src_ep = _fg.fonte(app)
 
 salvaguarda("fiação: generate_report NÃO devolve chave 'meta'",
             "meta" not in _devolvidas,
@@ -319,6 +320,110 @@ for _rota, _fn in _ROTAS_ESPERADAS.items():
     salvaguarda(f"rota {_rota} aponta para {_fn}()",
                 _mapa.get(_rota) == _fn,
                 f"aponta para {_mapa.get(_rota)!r}")
+
+# ------------------------------------------------------------------ N
+# FALHA FECHADA — COMPORTAMENTO, não presença de texto.
+#
+# Por que esta existe (19/07): eu reinjetei o defeito (`_falha_lingua =
+# None`, proteção desligada) e as 65 salvaguardas continuaram VERDES. A
+# de fiação procura a substring `result.get("falha_lingua")` na fonte —
+# e ela aparece DUAS vezes no caminho; a segunda, dentro do dicionário
+# `meta`, sobrevive à morte da primeira. Salvaguarda que não morde é pior
+# que salvaguarda ausente: o log diz que está protegido.
+#
+# Só ficou possível depois da extração do núcleo: `executar_geracao` roda
+# fora de contexto HTTP, então dá para exercitar o caminho inteiro sem
+# subir servidor. Asserção sobre EFEITO: 422, e-mail NÃO enviado, e o
+# markdown preservado para o degrau 3.
+import _fixture  # noqa: E402
+
+_ch = _fixture.build_chart()
+_payload = dict(_ch)
+_payload.update({"name": "Helena Penteado", "gender": "feminino",
+                 "email": "marcia.fervienza@gmail.com",
+                 "birth_date": "1992-09-18", "birth_time": "09:50",
+                 "birth_city": "Belo Horizonte, MG, Brasil"})
+
+_enviados = []
+_orig = (app._geocode_birth_city, app.buscar_cidades,
+         app.rg.generate_report, app.send_report_email)
+try:
+    app._geocode_birth_city = lambda c: (-19.92, -43.94, "America/Sao_Paulo", None)
+    app.buscar_cidades = lambda *a, **k: ([], None)
+    app.send_report_email = lambda **kw: _enviados.append(kw) or True
+    app.rg.generate_report = lambda body, **kw: {
+        "report": "# Relatório\n\nTexto com o defeito que não limpou.",
+        "name": "Helena Penteado", "gender": "feminino", "sections": [],
+        "elapsed_seconds": 1.0, "aspect_audit": {}, "cleanup_changes": [],
+        # A chave que dispara a recusa, no TOPO — como generate_report
+        # de fato devolve.
+        "falha_lingua": "frase não limpou em 3 rodadas",
+        "revisao_lingua": {"rodadas": [{"achados": [
+            {"frase": "Ela responcer ao que sente.", "motivo": "palavra inexistente"}]}],
+            "regeneracoes": 3},
+    }
+    _corpo, _http = app.executar_geracao(dict(_payload),
+                                         {"ip": "canario", "ua": "canario"})
+except Exception as _exc:            # noqa: BLE001
+    _corpo, _http = {"erro_do_canario": repr(_exc)}, -1
+finally:
+    (app._geocode_birth_city, app.buscar_cidades,
+     app.rg.generate_report, app.send_report_email) = _orig
+
+salvaguarda("falha fechada EXERCITADA: responde 422", _http == 422,
+            f"http={_http} corpo={str(_corpo)[:160]}")
+salvaguarda("falha fechada EXERCITADA: e-mail NÃO sai",
+            not _enviados, f"{len(_enviados)} envio(s)")
+salvaguarda("falha fechada EXERCITADA: código nomeia a causa",
+            _corpo.get("code") == "lingua_falha_fechada",
+            f"code={_corpo.get('code')!r}")
+salvaguarda("falha fechada EXERCITADA: markdown preservado p/ degrau 3",
+            bool(_corpo.get("report")), "sem markdown o degrau 3 não remonta")
+salvaguarda("falha fechada EXERCITADA: aponta a frase pendente",
+            any("responcer" in str(p.get("frase", ""))
+                for p in ((_corpo.get("meta") or {}).get("pendencias") or [])),
+            f"pendencias={(_corpo.get('meta') or {}).get('pendencias')}")
+
+# CAMINHO LIMPO: o mesmo exercício SEM falha_lingua tem de chegar a 200 e
+# enviar. Sem este par, a salvaguarda acima passaria com um endpoint que
+# recusa TUDO — recusar sempre não é proteger.
+_enviados2 = []
+_orig2 = (app._geocode_birth_city, app.buscar_cidades, app.rg.generate_report,
+          app.send_report_email, app.pg.generate_pdf, app._generate_chart_svg,
+          app.SENDGRID_API_KEY, app.EMAIL_FROM_ADDRESS)
+try:
+    # Sem estes dois o envio é cortado ANTES de `send_report_email` por uma
+    # guarda de configuração — e a salvaguarda acusaria o meu ambiente
+    # local, não o produto. Foi o que aconteceu na primeira execução.
+    app.SENDGRID_API_KEY = "sg-falso-para-canario"
+    app.EMAIL_FROM_ADDRESS = "relatorios@marciafervienza.com"
+    app._geocode_birth_city = lambda c: (-19.92, -43.94, "America/Sao_Paulo", None)
+    app.buscar_cidades = lambda *a, **k: ([], None)
+    app.send_report_email = lambda **kw: _enviados2.append(kw) or True
+    app._generate_chart_svg = lambda b: (None, None)
+    app.pg.generate_pdf = lambda **kw: b"%PDF-falso"
+    app.rg.generate_report = lambda body, **kw: {
+        "report": "# Relatório\n\nTexto limpo.", "name": "Helena Penteado",
+        "gender": "feminino", "sections": [], "elapsed_seconds": 1.0,
+        "aspect_audit": {}, "cleanup_changes": [], "falha_lingua": None,
+    }
+    _corpo2, _http2 = app.executar_geracao(dict(_payload),
+                                           {"ip": "canario", "ua": "canario"})
+except Exception as _exc:            # noqa: BLE001
+    _corpo2, _http2 = {"erro_do_canario": repr(_exc)}, -1
+finally:
+    (app._geocode_birth_city, app.buscar_cidades, app.rg.generate_report,
+     app.send_report_email, app.pg.generate_pdf, app._generate_chart_svg,
+     app.SENDGRID_API_KEY, app.EMAIL_FROM_ADDRESS) = _orig2
+
+salvaguarda("caminho limpo EXERCITADO: responde 200", _http2 == 200,
+            f"http={_http2} corpo={str(_corpo2)[:160]}")
+salvaguarda("caminho limpo EXERCITADO: e-mail SAI", len(_enviados2) == 1,
+            f"{len(_enviados2)} envio(s); "
+            f"email_error={(_corpo2.get('meta') or {}).get('email_error')!r}")
+salvaguarda("caminho limpo EXERCITADO: e-mail sem erro silencioso",
+            (_corpo2.get("meta") or {}).get("email_error") is None,
+            "um envio bloqueado tem de dizer POR QUE, não sumir")
 
 print()
 print("=" * 70)

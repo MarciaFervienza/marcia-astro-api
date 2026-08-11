@@ -80,6 +80,14 @@ ASPECT_COLORS = [
 ]
 CHART_STYLE = os.environ.get("CHART_STYLE", "modern")  # 'modern' or 'classic'
 
+# INTERRUPTOR DO CAMINHO ASSÍNCRONO. Desligado por padrão de propósito:
+# enquanto o worker não estiver de pé, enfileirar seria aceitar pedidos
+# que ninguém vai processar — pior que demorar. Ligar com FILA_ASSINCRONA=1
+# depois que o serviço worker subir; desligar volta ao comportamento de
+# hoje sem push.
+FILA_ASSINCRONA = os.environ.get("FILA_ASSINCRONA", "").strip().lower() in (
+    "1", "true", "sim", "yes", "on")
+
 # SendGrid Web API (HTTPS) for emailing the PDF to the client. Railway
 # blocks outbound SMTP submission ports (both 587 and 465 time out at the
 # TCP layer, confirmed on this project), so any smtplib path — Gmail,
@@ -2188,6 +2196,136 @@ def generate_report_endpoint():
             "message": "Request body must be valid JSON object with chart data.",
         }), 400
 
+    # AUDITORIA DE CHAMADA — registra origem e identidade da requisição para
+    # rastrear payloads misteriosos (ex.: dois "Cliente Teste → executivo@"
+    # em 2026-07-10). NUNCA loga a api_key (já foi extraída de body/header
+    # e não aparece aqui). NUNCA loga o body inteiro (contém pontos do
+    # mapa, potencialmente sensíveis). Só metadados de identidade + origem.
+    _client_ip = request.headers.get("X-Forwarded-For", request.remote_addr or "?").split(",")[0].strip()
+    _ua = (request.headers.get("User-Agent", "?") or "?")[:120]
+    _key_via = "header" if request.headers.get("X-API-Key") else ("body" if key_from_body else "?")
+    logger.info(
+        "REQ /generate-report name=%r email=%r birth_date=%r city=%r ip=%s ua=%s key_via=%s",
+        (body.get("name") or "")[:80],
+        (body.get("email") or "")[:80],
+        str(body.get("birth_date") or "")[:20],
+        (body.get("birth_city") or "")[:80],
+        _client_ip, _ua, _key_via,
+    )
+
+    # Rate-limit por e-mail e IP (janela deslizante de 24h). Aplicado ANTES
+    # de geocoding/kerykeion/geração/e-mail — se estourou, nada de trabalho
+    # nem de disparo. E-mails de teste (Marcia/executivo) são isentos.
+    _email_norm = (body.get("email") or "").strip().lower()
+    _rate_reason = _rate_check(_email_norm, _client_ip)
+    if _rate_reason:
+        logger.warning("RATE 429 %s ua=%s", _rate_reason, _ua)
+        return jsonify({
+            "status": "error",
+            "message": _RATE_LIMIT_MESSAGE_PT,
+        }), 429
+
+    # ==================================================================
+    # CAMINHO ASSÍNCRONO — 202 + fila, em vez de segurar a conexão.
+    #
+    # Por que existe: a geração mediu 129s mínimo, 216s mediana, 272s
+    # máximo. O proxy do Railway corta em 300s. A mediana já está a um
+    # terço do teto e a máxima a 28s dele — não é margem, é sorte. (O
+    # e-mail SAI mesmo com a conexão cortada, isso está provado; o que se
+    # perde é a resposta, e com ela a única forma de o formulário saber
+    # o que aconteceu.)
+    #
+    # LIGADO POR VARIÁVEL, não por deploy: `FILA_ASSINCRONA=1`. Enquanto
+    # estiver desligada, o caminho da cliente é EXATAMENTE o de hoje —
+    # geração na própria requisição. Assim o assíncrono só entra quando o
+    # worker estiver de pé, e volta atrás mudando uma variável, sem push.
+    # `assincrono` no corpo força um dos dois lados para teste.
+    _async = body.pop("assincrono", None)
+    if _async is None:
+        _async = FILA_ASSINCRONA
+    if _async:
+        f, err = _fila_ou_erro()
+        if err:
+            # NÃO cai para o síncrono em silêncio: se a fila está fora,
+            # a Márcia precisa saber, e não descobrir por um relatório
+            # que demorou 4 minutos quando devia ter voltado em 1s.
+            return err
+        body["_ctx"] = {"ip": _client_ip, "ua": _ua}
+        tid = f.enfileirar(body, nome=body.get("name"), email=body.get("email"))
+        logger.info("ENFILEIRADO %s name=%r email=%r", tid,
+                    (body.get("name") or "")[:60], _email_norm[:60])
+        return jsonify({
+            "status": "accepted",
+            "id": tid,
+            "status_url": f"/status/{tid}",
+            "message": ("Recebemos o seu pedido. O relatório leva alguns "
+                        "minutos e chega por e-mail quando ficar pronto."),
+        }), 202
+
+    _corpo, _http = executar_geracao(body, {"ip": _client_ip, "ua": _ua})
+    return jsonify(_corpo), _http
+
+
+@app.route("/status/<tid>", methods=["GET"])
+def status_trabalho_endpoint(tid):
+    """Estado de um trabalho da fila.
+
+    Autenticado: o markdown e o mapa da pessoa saem por aqui, e um id de
+    16 hex não é credencial. Sem a chave, devolve só o estado — o
+    bastante para um formulário mostrar 'ficou pronto' sem expor o texto.
+    """
+    import hmac
+    presented = request.headers.get("X-API-Key") or request.args.get("api_key") or ""
+    autorizado = bool(API_SECRET_KEY and presented
+                      and hmac.compare_digest(presented, API_SECRET_KEY))
+    f, err = _fila_ou_erro()
+    if err:
+        return err
+    t = f.buscar((tid or "").strip())
+    if not t:
+        return jsonify({"status": "error",
+                        "message": f"Trabalho {tid!r} não encontrado."}), 404
+    corpo = {"status": "ok", "id": t["id"], "estado": t["estado"],
+             "tentativas": t["tentativas"], "criado_em": t["criado_em"],
+             "atualizado_em": t["atualizado_em"]}
+    if autorizado:
+        corpo.update({
+            "motivo_falha": t.get("motivo_falha"),
+            "markdown": t.get("markdown"),
+            "meta": t.get("meta"),
+            "tem_chart": bool((t.get("chart") or {}).get("points")),
+            "nome": t.get("nome"), "email": t.get("email"),
+        })
+    return jsonify(corpo), 200
+
+
+def executar_geracao(body, ctx=None):
+    """NÚCLEO DA GERAÇÃO — a ÚNICA implementação, chamada por dois caminhos.
+
+    Extraído do endpoint em 19/07. Motivo: o worker da fila e o
+    /generate-report precisam gerar EXATAMENTE o mesmo relatório. Duas
+    implementações seria a R3 — a classe de defeito em que o teste e o
+    produto divergem em silêncio e o teste passa enquanto o produto erra.
+
+    O corte é ADMISSÃO × GERAÇÃO. Fica de fora, no endpoint, tudo que
+    depende do `request` HTTP e que a fila já resolveu no enfileiramento:
+    autenticação, variáveis de ambiente, forma do corpo e limite de taxa.
+    Se o limite entrasse aqui, o worker contaria a mesma pessoa duas vezes
+    — uma ao enfileirar e outra ao gerar.
+
+    `body` é MUTADO no lugar: ao voltar, carrega points/ascendant/aspects/
+    cusps já calculados. É desse dicionário que a fila guarda o `chart`.
+
+    ctx: {"ip", "ua"} — só para log e alerta. O worker passa o que foi
+    registrado no enfileiramento, não o IP de quem chamou o worker.
+
+    Devolve `(corpo, http)` — o mesmo par que o Flask espera. Quem chama
+    decide se serializa (endpoint) ou traduz para a fila (worker, via
+    executar_geracao_para_fila).
+    """
+    ctx = ctx or {}
+    _client_ip = ctx.get("ip", "?")
+    _ua = ctx.get("ua", "?")
     # Pull out optional control fields without polluting the chart
     sections_only = body.pop("sections_only", None)
     limit = body.pop("limit", None)
@@ -2207,7 +2345,7 @@ def generate_report_endpoint():
 
     parsed_birth = _parse_birth_inputs(birth_date_raw, birth_time_raw, unknown_birth_time)
     if "error" in parsed_birth:
-        return jsonify({
+        return ({
             "status": "error",
             "message": parsed_birth["error"],
         }), parsed_birth["code"]
@@ -2216,35 +2354,6 @@ def generate_report_endpoint():
     birth_date_display = parsed_birth["display"]
     time_estimated = parsed_birth["time_estimated"]
     unknown_time_note = parsed_birth.get("unknown_time_note", "")
-
-    # AUDITORIA DE CHAMADA — registra origem e identidade da requisição para
-    # rastrear payloads misteriosos (ex.: dois "Cliente Teste → executivo@"
-    # em 2026-07-10). NUNCA loga a api_key (já foi extraída de body/header
-    # e não aparece aqui). NUNCA loga o body inteiro (contém pontos do
-    # mapa, potencialmente sensíveis). Só metadados de identidade + origem.
-    _client_ip = request.headers.get("X-Forwarded-For", request.remote_addr or "?").split(",")[0].strip()
-    _ua = (request.headers.get("User-Agent", "?") or "?")[:120]
-    _key_via = "header" if request.headers.get("X-API-Key") else ("body" if key_from_body else "?")
-    logger.info(
-        "REQ /generate-report name=%r email=%r birth_date=%r city=%r ip=%s ua=%s key_via=%s",
-        (body.get("name") or "")[:80],
-        (body.get("email") or "")[:80],
-        birth_date_raw[:20] if birth_date_raw else "",
-        (body.get("birth_city") or "")[:80],
-        _client_ip, _ua, _key_via,
-    )
-
-    # Rate-limit por e-mail e IP (janela deslizante de 24h). Aplicado ANTES
-    # de geocoding/kerykeion/geração/e-mail — se estourou, nada de trabalho
-    # nem de disparo. E-mails de teste (Marcia/executivo) são isentos.
-    _email_norm = (body.get("email") or "").strip().lower()
-    _rate_reason = _rate_check(_email_norm, _client_ip)
-    if _rate_reason:
-        logger.warning("RATE 429 %s ua=%s", _rate_reason, _ua)
-        return jsonify({
-            "status": "error",
-            "message": _RATE_LIMIT_MESSAGE_PT,
-        }), 429
 
     # Geocode birth_city → (lat, lng, IANA tz name). Always geocoded fresh
     # from the city string; any latitude/longitude/timezone the caller may
@@ -2261,7 +2370,7 @@ def generate_report_endpoint():
     _escolhida = _desempacota_cidade(_city_id) if _city_id else None
     if _city_id and not _escolhida:
         logger.warning("city_id inválido ou adulterado")
-        return jsonify({"status": "error",
+        return ({"status": "error",
                         "message": "Identificador de cidade inválido. "
                                    "Selecione a cidade novamente."}), 400
     if _escolhida:
@@ -2281,7 +2390,7 @@ def generate_report_endpoint():
                              "birth_date": birth_date_raw,
                              "birth_city": birth_city,
                              "ip": _client_ip, "ua": _ua})
-        return jsonify({"status": "error", "message": geo_error}), 400
+        return ({"status": "error", "message": geo_error}), 400
 
     # AMBIGUIDADE REAL — recusa em vez de escolher em silêncio.
     # "Santa Rosa" resolve para a Califórnia; Santa Rosa (RS) é a terceira
@@ -2298,7 +2407,7 @@ def generate_report_endpoint():
                  "birth_date": birth_date_raw, "birth_city": birth_city,
                  "ip": _client_ip, "ua": _ua,
                  "opcoes": [o["rotulo"] for o in _ops[:6]]})
-            return jsonify({
+            return ({
                 "status": "error", "code": "cidade_ambigua",
                 "message": ("Encontramos mais de uma cidade com esse nome. "
                             "Responda este e-mail informando o estado e o "
@@ -2432,7 +2541,7 @@ def generate_report_endpoint():
             )
         except Exception as e:
             logger.exception("chart auto-computation failed")
-            return jsonify({
+            return ({
                 "status": "error",
                 "message": f"Failed to compute chart from birth data: {e}",
             }), 400
@@ -2440,7 +2549,7 @@ def generate_report_endpoint():
     # Validate required fields up front (clearer 400 than a deep stack later)
     for required in ("gender", "points", "ascendant", "aspects"):
         if required not in body:
-            return jsonify({
+            return ({
                 "status": "error",
                 "message": f"Chart JSON missing required field: '{required}'",
             }), 400
@@ -2517,7 +2626,7 @@ def generate_report_endpoint():
                 "birth_city": body.get("birth_city"),
                 "ip": _client_ip, "ua": _ua,
             })
-            return jsonify({
+            return ({
                 "status": "refused",
                 "reason": "underage_subject",
                 "message": (
@@ -2692,7 +2801,7 @@ def generate_report_endpoint():
             verbose=False,
         )
     except ValueError as e:
-        return jsonify({"status": "error", "message": str(e)}), 400
+        return ({"status": "error", "message": str(e)}), 400
     except Exception as e:
         logger.exception("generate_report failed")
         _send_failure_alert("generate_report", e, {
@@ -2700,7 +2809,7 @@ def generate_report_endpoint():
             "birth_date": birth_date_raw, "birth_city": body.get("birth_city"),
             "ip": _client_ip, "ua": _ua,
         })
-        return jsonify({
+        return ({
             "status": "error",
             "message": f"Generation failed: {e}",
             "trace": traceback.format_exc() if app.debug else None,
@@ -2759,12 +2868,18 @@ def generate_report_endpoint():
                           por_rodada=[len(r.get("achados", []))
                                       for r in (_rl_log.get("rodadas") or [])],
                           pendencias=[p.get("frase", "")[:110] for p in _pend])
-        return jsonify({
+        return ({
             "status": "error",
             "code": "lingua_falha_fechada",
             "message": ("O relatório não passou na verificação de língua e "
                         "não foi enviado. A Márcia foi avisada e vai gerar "
                         "este mapa manualmente."),
+            # O MARKDOWN VAI JUNTO, mesmo recusado. É dele que o degrau 3
+            # (POST /remontar-pdf) vive: a Márcia corrige a frase apontada
+            # em `pendencias` e remonta o PDF sem regerar o texto. Sem esta
+            # chave a fila guardaria markdown=None e a recusa custaria uma
+            # geração inteira em vez de uma edição de uma frase.
+            "report": result.get("report"),
             "meta": {"falha_lingua": _falha_lingua,
                      "pendencias": _pend,
                      "regeneracoes": _rl_log.get("regeneracoes"),
@@ -2886,7 +3001,7 @@ def generate_report_endpoint():
                 email_error = send_result
                 logger.warning("email to %s failed: %s", recipient, send_result)
 
-    return jsonify({
+    return ({
         "status": "success",
         "report": result["report"],
         "pdf_base64": pdf_b64,
@@ -2974,6 +3089,176 @@ def generate_report_endpoint():
             "email_error": email_error,
         },
     }), 200
+
+
+# ======================================================================
+# PONTE PARA A FILA — o que o worker chama.
+#
+# Nada aqui reimplementa geração: `executar_geracao_para_fila` só TRADUZ
+# o par (corpo, http) do núcleo para o vocabulário da fila. Se um dia
+# alguém for tentado a "ajustar só um detalhe para o worker", o ajuste
+# tem de entrar no núcleo — é a única implementação, por decisão.
+# ======================================================================
+
+def _enviar_email_bruto(assunto, texto, destino=None):
+    """Envio direto, SEM a dedupe de `_send_failure_alert`.
+
+    A dedupe é certa no endpoint (uma exceção repetida em rajada não
+    merece 40 e-mails) e ERRADA no worker: lá o alerta é o único canal, e
+    dois trabalhos DIFERENTES que falham do mesmo jeito têm a mesma
+    assinatura — a dedupe engoliria o segundo, que é justamente o cliente
+    que ninguém mais veria. Devolve True/False; nunca levanta."""
+    destino = destino or _ALERT_RECIPIENT
+    if not SENDGRID_API_KEY or not EMAIL_FROM_ADDRESS:
+        logger.warning("alerta não enviado: SendGrid/from não configurados")
+        return False
+    try:
+        resp = requests.post(
+            "https://api.sendgrid.com/v3/mail/send",
+            json={
+                "personalizations": [{"to": [{"email": destino}]}],
+                "from": {"email": EMAIL_FROM_ADDRESS,
+                         "name": EMAIL_FROM_NAME or EMAIL_FROM_ADDRESS},
+                "subject": assunto,
+                "content": [{"type": "text/plain", "value": texto}],
+            },
+            headers={"Authorization": f"Bearer {SENDGRID_API_KEY}",
+                     "Content-Type": "application/json"},
+            timeout=15,
+        )
+        if 200 <= resp.status_code < 300:
+            return True
+        logger.warning("alerta falhou: HTTP %d %s", resp.status_code,
+                       (resp.text or "")[:200])
+        return False
+    except Exception as exc:
+        logger.warning("alerta levantou: %s", exc)
+        return False
+
+
+def _alerta_com_retry(assunto, texto, tentativas=4):
+    """Alerta com backoff. No worker não há resposta HTTP para reportar
+    erro — se o SendGrid estiver instável, uma tentativa só perde o aviso
+    em silêncio, que é o modo de falha exato que a fila existe para
+    fechar. O resumo diário é a rede DEPOIS desta."""
+    espera = 2.0
+    for i in range(tentativas):
+        if _enviar_email_bruto(assunto, texto):
+            if i:
+                logger.info("alerta enviado na tentativa %d", i + 1)
+            return True
+        if i < tentativas - 1:
+            _time.sleep(espera)
+            espera *= 2
+    logger.error("ALERTA PERDIDO após %d tentativas: %s", tentativas, assunto)
+    return False
+
+
+def alertar_falha_de_trabalho(tid, payload, resultado):
+    """Um trabalho da fila falhou. Manda o que a Márcia precisa para
+    decidir entre remontar (degrau 3) e gerar à mão."""
+    payload = payload or {}
+    resultado = resultado or {}
+    _motivo = (resultado.get("erro") or resultado.get("falha_lingua")
+               or "motivo não informado")
+    _pend = ((resultado.get("meta") or {}).get("pendencias")) or []
+    _linhas = [
+        f"Trabalho {tid} FALHOU.",
+        "",
+        f"nome:       {payload.get('name', '?')}",
+        f"email:      {payload.get('email', '?')}",
+        f"nascimento: {payload.get('birth_date', '?')} {payload.get('birth_time', '')}",
+        f"cidade:     {payload.get('birth_city', '?')}",
+        f"http:       {resultado.get('http', '?')}",
+        f"código:     {resultado.get('codigo') or '—'}",
+        "",
+        f"--- Motivo ---\n{str(_motivo)[:1200]}",
+    ]
+    if _pend:
+        _linhas.append("\n--- Frases apontadas ---")
+        for p in _pend[:12]:
+            _linhas.append(f"  [{p.get('secao') or '?'}] {str(p.get('frase',''))[:180]}")
+            if p.get("motivo"):
+                _linhas.append(f"      motivo: {str(p['motivo'])[:140]}")
+    if resultado.get("markdown"):
+        _linhas.append(
+            "\n--- Recuperação ---\n"
+            "O texto FOI gerado e está guardado na fila. Para remontar o PDF "
+            "depois de corrigir a frase, sem regerar nada:\n"
+            f"  POST /remontar-pdf  {{\"id\": \"{tid}\", \"markdown\": \"<texto corrigido>\"}}\n"
+            f"O markdown atual sai em GET /status/{tid}.")
+    else:
+        _linhas.append("\n--- Recuperação ---\n"
+                       "NÃO há texto guardado (a falha veio antes da geração). "
+                       "Este mapa precisa ser gerado do zero.")
+    return _alerta_com_retry(
+        f"[Mapa Natal] Trabalho {tid} falhou — {payload.get('name') or 'sem nome'}",
+        "\n".join(_linhas))
+
+
+RESUMO_INTERVALO_SEGS = 24 * 3600
+
+
+def talvez_resumo_diario(fila, estado):
+    """Resumo diário das falhas. É a rede DEPOIS do alerta: se um alerta
+    se perdeu (SendGrid fora do ar durante as 4 tentativas), a falha
+    reaparece aqui. Silêncio total nos dois canais é o que não pode
+    acontecer — por isso o resumo sai MESMO com zero falhas: um resumo
+    que só chega quando há problema é indistinguível de um resumo que
+    parou de funcionar."""
+    agora = _time.time()
+    ultimo = estado.get("ultimo_resumo") or 0.0
+    if ultimo and agora - ultimo < RESUMO_INTERVALO_SEGS:
+        return False
+    if not ultimo:
+        # Primeira volta depois de subir: marca o relógio e NÃO manda,
+        # senão todo redeploy do worker dispara um resumo.
+        estado["ultimo_resumo"] = agora
+        return False
+    desde = agora - RESUMO_INTERVALO_SEGS
+    try:
+        falhas = fila.falhados_desde(desde)
+        contagem = fila.contagem_por_estado()
+    except Exception as exc:
+        logger.warning("resumo diário não conseguiu ler a fila: %s", exc)
+        return False
+    _linhas = [f"Resumo das últimas 24h.", "",
+               f"Fila agora: {contagem or '(vazia)'}", "",
+               f"Falhas no período: {len(falhas)}"]
+    for f in falhas[:40]:
+        _linhas.append(f"  {f['id']}  {f.get('nome') or '?'}  "
+                       f"<{f.get('email') or '?'}>  {str(f.get('motivo') or '')[:120]}")
+    if not falhas:
+        _linhas.append("  nenhuma.")
+    estado["ultimo_resumo"] = agora
+    return _alerta_com_retry(
+        f"[Mapa Natal] Resumo 24h — {len(falhas)} falha(s)", "\n".join(_linhas))
+
+
+def executar_geracao_para_fila(payload, ctx=None):
+    """Adaptador do worker. Chama o MESMO núcleo e traduz o resultado.
+
+    `chart` sai daqui porque `executar_geracao` muta o dicionário no
+    lugar: ao voltar, ele carrega points/ascendant/aspects/cusps. É esse
+    dicionário que a fila guarda, e é dele que o degrau 3 remonta o PDF
+    (a tabela de aspectos e a mandala precisam do mapa, não só do texto).
+    """
+    chart = dict(payload or {})
+    corpo, http = executar_geracao(chart, ctx or {})
+    meta = corpo.get("meta") or {}
+    return {
+        "ok": http == 200,
+        "http": http,
+        "codigo": corpo.get("code"),
+        "erro": None if http == 200 else (corpo.get("message") or f"HTTP {http}"),
+        # Presente inclusive na recusa por língua — ver o comentário na
+        # falha fechada. Sem isto o degrau 3 não teria o que remontar.
+        "markdown": corpo.get("report"),
+        "chart": chart,
+        "meta": meta,
+        "falha_lingua": meta.get("falha_lingua"),
+        "email_enviado": bool(meta.get("email_sent")),
+    }
 
 
 @app.route("/", methods=["GET"])

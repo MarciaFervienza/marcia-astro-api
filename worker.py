@@ -49,16 +49,24 @@ def processar_um(fila, trabalho, wid):
     falha, porque é deles que o degrau 3 (edição manual) vive."""
     import app as _app
     tid = trabalho["id"]
+    payload = dict(trabalho["payload"] or {})
+    # Origem registrada no ENFILEIRAMENTO — o IP de quem chamou o worker
+    # não diz nada; quem interessa é quem submeteu o formulário.
+    ctx = payload.pop("_ctx", None) or {"ip": "fila", "ua": f"worker/{wid}"}
     parar = threading.Event()
     bat = threading.Thread(target=_bate_heartbeat,
                            args=(fila, tid, wid, parar), daemon=True)
     bat.start()
     try:
-        r = _app.executar_geracao(trabalho["payload"])
-        if r.get("falha_lingua"):
-            fila.falhar(tid, r["falha_lingua"], markdown=r.get("markdown"),
+        r = _app.executar_geracao_para_fila(payload, ctx)
+        # O critério é `ok`, NÃO `falha_lingua`. A primeira versão olhava
+        # só a língua e teria marcado como CONCLUÍDO um trabalho recusado
+        # por cidade ambígua, idade ou geocoding — falhas visíveis no
+        # endpoint (têm 4xx) e invisíveis na fila, que é o pior lugar.
+        if not r["ok"]:
+            fila.falhar(tid, r["erro"], markdown=r.get("markdown"),
                         chart=r.get("chart"), meta=r.get("meta"))
-            _app.alertar_falha_de_trabalho(tid, trabalho["payload"], r)
+            _app.alertar_falha_de_trabalho(tid, payload, r)
             return "falhou"
         fila.concluir(tid, markdown=r.get("markdown"), chart=r.get("chart"),
                       meta=r.get("meta"))
@@ -67,8 +75,8 @@ def processar_um(fila, trabalho, wid):
         logger.exception("trabalho %s levantou", tid)
         fila.falhar(tid, f"exceção no worker: {exc}")
         try:
-            _app.alertar_falha_de_trabalho(tid, trabalho["payload"],
-                                           {"falha_lingua": str(exc)[:400]})
+            _app.alertar_falha_de_trabalho(tid, payload,
+                                           {"erro": str(exc)[:400]})
         except Exception:
             pass
         return "erro"

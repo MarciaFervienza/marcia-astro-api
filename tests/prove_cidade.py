@@ -65,7 +65,8 @@ print()
 print("=" * 66)
 print("C) O ENDPOINT: recusa, alerta e não geocodifica de novo")
 print("=" * 66)
-_src = inspect.getsource(app.generate_report_endpoint)
+import fonte_geracao as _fg
+_src = _fg.fonte(app)
 chk("aceita city_id", "city_id" in _src)
 chk("com city_id NÃO geocodifica de novo",
     "_escolhida = _desempacota_cidade" in _src
@@ -138,7 +139,7 @@ for _txt in ("banana", "xpto qualquer", "12345"):
     _m, _inc = app._resolver_report_for(_txt)
     chk(f"não reconhecido {_txt!r} marca INCERTO", _inc)
 
-_src_ep2 = inspect.getsource(app.generate_report_endpoint)
+_src_ep2 = _fg.fonte(app)
 chk("valor incerto ALERTA em vez de ficar em silêncio",
     "report_for_nao_reconhecido" in _src_ep2)
 chk("valor incerto NÃO recusa a geração",
