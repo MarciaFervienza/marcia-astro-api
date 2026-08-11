@@ -110,10 +110,33 @@ for msg, quer in [
 # --- o geocode REAL usa o retry ----------------------------------------
 print()
 import inspect
+# O retry DESCEU um nível em 19/07: a chamada de rede saiu do endpoint e
+# foi para geocode_util, onde vive a cadeia de provedores. A asserção
+# continua sendo a mesma — nenhuma chamada de rede sem retry — mas agora
+# tem de olhar onde a chamada realmente está. Amarrá-la ao nome antigo
+# faria dela um teste que reprova refatoração e passa defeito.
+import geocode_util as _gu
+
 src = inspect.getsource(app._geocode_birth_city)
-chk("_geocode_birth_city passa pelo _com_retry", "_com_retry" in src)
-chk("não sobrou chamada direta a geolocator.geocode fora do retry",
-    src.count("geolocator.geocode") == 1 and "lambda" in src)
+chk("_geocode_birth_city não faz rede direto: passa por geocode_util",
+    "geocode_util.buscar_bruto" in src and "geolocator" not in src)
+
+for _nome, _fn in (("Nominatim", _gu._via_nominatim),
+                   ("Photon", _gu._photon_cru)):
+    _s = inspect.getsource(_fn)
+    chk(f"provedor {_nome} passa pelo _com_retry", "_com_retry" in _s)
+
+# NENHUMA chamada de rede fora do retry, em todo o módulo. É a asserção
+# de classe: uma terceira porta acrescentada sem retry seria pega aqui.
+_smod = inspect.getsource(_gu)
+_diretas = [ln.strip() for ln in _smod.splitlines()
+            if ("urlopen(" in ln or ".geocode(" in ln)
+            and "_com_retry" not in ln and "def " not in ln]
+# As duas legítimas são os corpos dos lambdas/closures que o _com_retry
+# executa — ficam dentro de `_bate`/`lambda`, não soltas.
+chk(f"toda chamada de rede do módulo está sob retry ({len(_diretas)} vista(s))",
+    all(("_bate" in _smod and "urlopen" in d) or "lambda" in d or "with " in d
+        for d in _diretas))
 
 print()
 if falhas:

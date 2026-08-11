@@ -653,17 +653,13 @@ def buscar_cidades(q, limit=6):
     q = (q or "").strip()
     if len(q) < 3:
         return [], None
-    try:
-        from geopy.geocoders import Nominatim
-    except ImportError as e:
-        return [], f"geopy não instalado ({e})"
-    geo = Nominatim(user_agent="marcia-astro-api/1.0", timeout=15)
-    res, exc = _com_retry(
-        lambda: geo.geocode(q, language="pt", exactly_one=False,
-                            limit=limit, addressdetails=True),
-        rotulo="busca de cidade (Nominatim)")
-    if exc is not None:
-        return [], f"Erro ao consultar geolocalização: {exc}"
+    # CADEIA DE PROVEDORES (19/07) — ver geocode_util. O Nominatim bloqueia
+    # o IP do Railway por política de datacenter; sem queda, isto aqui
+    # devolvia 429 para toda cliente nova.
+    import geocode_util
+    res, _prov, erro = geocode_util.buscar_bruto(q, limit=limit)
+    if erro:
+        return [], erro
     if not res:
         return [], None
     try:
@@ -673,11 +669,11 @@ def buscar_cidades(q, limit=6):
     tf = TimezoneFinder()
     out = []
     for loc in res:
-        lat, lng = float(loc.latitude), float(loc.longitude)
+        lat, lng = loc["lat"], loc["lng"]
         tz = tf.timezone_at(lat=lat, lng=lng)
         if not tz:
             continue
-        rotulo = loc.address
+        rotulo = loc["rotulo"]
         out.append({"id": _empacota_cidade(lat, lng, tz, rotulo),
                     "rotulo": rotulo, "lat": lat, "lng": lng, "tz": tz})
     return out, None
@@ -715,27 +711,23 @@ def _geocode_birth_city(city):
     if not city:
         return None, None, None, "Campo 'birth_city' obrigatório."
 
-    try:
-        from geopy.geocoders import Nominatim
-    except ImportError as e:
-        return None, None, None, f"Erro de configuração do servidor: geopy não instalado ({e})."
+    # CADEIA DE PROVEDORES (19/07) — Nominatim primeiro, Photon quando ele
+    # bloqueia o IP. Mesma base OSM; ver geocode_util para a medição.
+    # A busca e a geocodificação passam pela MESMA rotina de propósito: se
+    # o autocomplete e a geração consultassem provedores diferentes, o
+    # city_id escolhido pela cliente poderia não ser onde o mapa é feito.
+    import geocode_util
+    res, _prov, geo_erro = geocode_util.buscar_bruto(city, limit=1)
+    if geo_erro:
+        return None, None, None, geo_erro
 
-    # Nominatim usage policy requires a distinctive User-Agent.
-    geolocator = Nominatim(user_agent="marcia-astro-api/1.0", timeout=15)
-    location, geo_exc = _com_retry(
-        lambda: geolocator.geocode(city, language="pt", addressdetails=False),
-        rotulo="geolocalização (Nominatim)",
-    )
-    if geo_exc is not None:
-        return None, None, None, f"Erro ao consultar geolocalização: {geo_exc}"
-
-    if location is None:
+    if not res:
         return None, None, None, (
             f"Cidade de nascimento não encontrada: {city}. Verifique a grafia."
         )
 
-    lat = float(location.latitude)
-    lng = float(location.longitude)
+    lat = res[0]["lat"]
+    lng = res[0]["lng"]
 
     try:
         from timezonefinder import TimezoneFinder
