@@ -194,6 +194,50 @@ chk("devolver de outro worker NÃO tem efeito",
     _f2.buscar(_real)["estado"] == F.PROCESSANDO)
 
 print()
+# ==================================================================
+# FILA PARADA — ninguém consumindo (11/08, episódio real).
+#
+# O serviço worker subiu com o comando herdado do railway.json da raiz
+# (`gunicorn app:app`) e virou uma SEGUNDA CÓPIA DA API: verde no painel,
+# healthcheck passando, e nunca tocou na fila. Dois trabalhos ficaram
+# presos 2,8 dias e um novo esperou 140s sem ninguém pegar.
+#
+# `retomar_orfaos` NÃO cobre este caso — ele conserta worker que morreu no
+# MEIO do trabalho. Worker que nunca existiu deixa tudo em PENDENTE, sem
+# heartbeat, invisível para ele por definição.
+# ==================================================================
+print()
+print("--- fila parada (ninguém consumindo) ---")
+_f3 = F.Fila(":memory:")
+_f3.criar_tabelas()
+chk("fila vazia não acusa espera", _f3.espera_do_mais_antigo() is None)
+
+_t3 = _f3.enfileirar({"cliente": True}, nome="Helena")
+chk("pedido recém-enfileirado tem espera ~0",
+    0 <= (_f3.espera_do_mais_antigo() or -1) < 5)
+
+_f3.con().cursor().execute("UPDATE trabalhos SET criado_em=?",
+                           (time.time() - 3600,))
+_esp = _f3.espera_do_mais_antigo()
+chk("pedido de 1h é reportado como 3600s", 3595 < _esp < 3605, f"{_esp:.0f}s")
+
+# Reivindicado deixa de ser pendente: a espera mede quem AINDA não foi
+# pego, não quem está sendo processado. Um worker lento não é fila parada.
+_f3.reivindicar("w-vivo")
+chk("trabalho já reivindicado NÃO conta como fila parada",
+    _f3.espera_do_mais_antigo() is None)
+
+# E o par com retomar_orfaos: os dois cobrem casos DIFERENTES.
+_f4 = F.Fila(":memory:")
+_f4.criar_tabelas()
+_t4 = _f4.enfileirar({"x": 1})
+_f4.con().cursor().execute("UPDATE trabalhos SET criado_em=?",
+                           (time.time() - 99999,))
+chk("PENDENTE velho: retomar_orfaos NÃO vê (não é o caso dele)",
+    _f4.retomar_orfaos() == ([], []))
+chk("mas espera_do_mais_antigo VÊ",
+    (_f4.espera_do_mais_antigo() or 0) > 99000)
+
 if falhas:
     print(f">>> {falhas} FALHOU")
     raise SystemExit(1)

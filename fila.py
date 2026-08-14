@@ -341,6 +341,29 @@ class Fila(_Banco):
         return [{"id": a, "nome": b, "email": c, "motivo": d, "quando": e}
                 for a, b, c, d, e in cur.fetchall()]
 
+    def espera_do_mais_antigo(self, agora=None):
+        """Há quantos segundos o pedido PENDENTE mais velho está esperando?
+        None se a fila está vazia.
+
+        Existe por um episódio real (11/08): o serviço worker subiu com o
+        comando errado — `gunicorn app:app` herdado do railway.json da raiz
+        — e virou uma segunda cópia da API. Passava no healthcheck, ficava
+        VERDE no painel, e nunca consumia a fila. Dois trabalhos ficaram
+        presos 2,8 dias e um novo esperou sem que nada reclamasse.
+
+        `retomar_orfaos` não cobre este caso: ele conserta worker que MORREU
+        no meio do trabalho, não worker que nunca existiu. Trabalho PENDENTE
+        com heartbeat nenhum é invisível para ele, por definição.
+        """
+        agora = agora if agora is not None else time.time()
+        cur = self.con().cursor()
+        cur.execute(self._q("SELECT MIN(criado_em) FROM trabalhos "
+                            "WHERE estado=%s"), (PENDENTE,))
+        r = cur.fetchone()
+        if not r or r[0] is None:
+            return None
+        return agora - float(r[0])
+
     def contagem_por_estado(self):
         cur = self.con().cursor()
         cur.execute("SELECT estado, COUNT(*) FROM trabalhos GROUP BY estado")

@@ -1,0 +1,37 @@
+{
+  "$schema": "https://railway.app/railway.schema.json",
+  "_comentario": [
+    "CONFIGURAÇÃO DO SERVIÇO WORKER (11/08).",
+    "",
+    "POR QUE ESTE ARQUIVO EXISTE. O railway.json da raiz vale para TODO",
+    "serviço construído a partir deste repositório, e ele fixa",
+    "'gunicorn app:app'. O serviço worker subiu com esse comando — ou",
+    "seja, subiu uma SEGUNDA CÓPIA DA API, não um worker. Ele passava no",
+    "healthcheck /health, ficava verde no painel, e nunca tocava na fila.",
+    "Dois trabalhos ficaram presos em PROCESSANDO por 2,8 dias e um",
+    "trabalho novo ficou 140s em PENDENTE sem ninguém pegar.",
+    "",
+    "'Subiu' estava certo. O que subiu é que não era um worker — e esse é",
+    "o pior modo de falha: o painel diz saudável.",
+    "",
+    "COMO USAR: nas Settings do serviço worker, campo",
+    "'Config as code' / 'Railway Config File', apontar para",
+    "  api/railway.worker.json",
+    "",
+    "SEM healthcheckPath, de propósito: o worker não escuta porta",
+    "nenhuma. Se ficasse o /health herdado, o Railway mataria o serviço em",
+    "laço por healthcheck que nunca responde — e o sintoma seria",
+    "'reiniciando', não 'parado', que é diagnóstico diferente.",
+    "",
+    "restartPolicy ALWAYS, não ON_FAILURE: se o worker sair por qualquer",
+    "motivo, inclusive código 0, ninguém está consumindo a fila. Parar em",
+    "silêncio é exatamente o que acabou de acontecer."
+  ],
+  "build": {
+    "builder": "nixpacks"
+  },
+  "deploy": {
+    "startCommand": "python worker.py",
+    "restartPolicyType": "ALWAYS"
+  }
+}

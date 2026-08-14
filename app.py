@@ -88,6 +88,12 @@ CHART_STYLE = os.environ.get("CHART_STYLE", "modern")  # 'modern' or 'classic'
 FILA_ASSINCRONA = os.environ.get("FILA_ASSINCRONA", "").strip().lower() in (
     "1", "true", "sim", "yes", "on")
 
+# Espera máxima tolerada na fila antes de alertar que ninguém está
+# consumindo. 15 min é folgado de propósito: a geração leva 2 a 5 minutos
+# e uma rajada de pedidos pode enfileirar legitimamente. Abaixo disso o
+# alerta viraria ruído, e alerta que vira ruído é alerta que se ignora.
+FILA_PARADA_SEGS = int(os.environ.get("FILA_PARADA_SEGS", "900"))
+
 # SendGrid Web API (HTTPS) for emailing the PDF to the client. Railway
 # blocks outbound SMTP submission ports (both 587 and 465 time out at the
 # TCP layer, confirmed on this project), so any smtplib path — Gmail,
@@ -2339,6 +2345,41 @@ def generate_report_endpoint():
         tid = f.enfileirar(body, nome=body.get("name"), email=body.get("email"))
         logger.info("ENFILEIRADO %s name=%r email=%r", tid,
                     (body.get("name") or "")[:60], _email_norm[:60])
+        # FILA PARADA — ninguém está consumindo (11/08).
+        #
+        # Aconteceu de verdade: o serviço worker subiu com o comando
+        # herdado do railway.json da raiz (`gunicorn app:app`) e virou uma
+        # SEGUNDA CÓPIA DA API. Verde no painel, healthcheck passando, e
+        # nunca tocou na fila. Dois trabalhos presos 2,8 dias.
+        #
+        # `retomar_orfaos` não cobre isto: ele conserta worker que morreu
+        # NO MEIO do trabalho. Worker que nunca existiu deixa os pedidos em
+        # PENDENTE, sem heartbeat, invisíveis para ele por definição.
+        #
+        # A checagem mora aqui, no caminho web, porque o worker é
+        # justamente quem não está de pé — um vigia hospedado no vigiado
+        # não vigia nada. A dedupe do _send_failure_alert é desejável aqui:
+        # uma rajada de pedidos não merece uma rajada de e-mails.
+        try:
+            _espera = f.espera_do_mais_antigo()
+            if _espera is not None and _espera > FILA_PARADA_SEGS:
+                logger.error("FILA PARADA: o pedido mais antigo espera há "
+                             "%.0f min", _espera / 60)
+                _send_failure_alert(
+                    "fila_parada",
+                    RuntimeError(
+                        f"o pedido PENDENTE mais antigo está esperando há "
+                        f"{_espera / 60:.0f} minutos — nenhum worker está "
+                        f"consumindo. Confira se o serviço worker está com o "
+                        f"comando 'python worker.py' (ver api/railway.worker.json): "
+                        f"com o comando herdado da raiz ele sobe como uma "
+                        f"segunda cópia da API e fica VERDE sem consumir nada."),
+                    {"name": body.get("name"), "email": body.get("email"),
+                     "birth_date": birth_date_raw,
+                     "birth_city": body.get("birth_city"),
+                     "ip": _client_ip, "ua": _ua})
+        except Exception as _exc:                      # noqa: BLE001
+            logger.warning("checagem de fila parada falhou: %s", _exc)
         return jsonify({
             "status": "accepted",
             "id": tid,
