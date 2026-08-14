@@ -394,8 +394,31 @@ finally:
 # O worker RECUSA subir; a API recusa a requisição. Nos dois casos com o
 # nome da variável, em vez de morrer 16 chamadas depois dentro do SDK.
 _srcw2 = open(os.path.join(_RAIZ, "worker.py"), encoding="utf-8").read()
-chk("o worker recusa subir com segredo malformado",
-    "chaves_malformadas()" in _srcw2 and "SystemExit" in _srcw2)
+chk("o worker detecta segredo malformado no arranque",
+    "chaves_malformadas()" in _srcw2)
+# NÃO pode sair: SystemExit + restartPolicy ALWAYS = laço de reinício, e
+# cada volta seria mais um e-mail. Trocar um modo de falha por outro.
+#
+# Por AST, não por grep: a primeira versão procurava a string "SystemExit"
+# na fonte e reprovava por causa do COMENTÁRIO que explica a decisão.
+# Asserção que confunde comentário com código é a mesma classe da
+# salvaguarda que procurava substring — texto não é comportamento.
+import ast as _ast
+
+_arv_w = _ast.parse(_srcw2)
+_main_w = next(n for n in _arv_w.body
+               if isinstance(n, _ast.FunctionDef) and n.name == "main")
+_saidas = [n for n in _ast.walk(_main_w)
+           if isinstance(n, _ast.Raise) and (
+               (isinstance(n.exc, _ast.Name) and n.exc.id == "SystemExit")
+               or (isinstance(n.exc, _ast.Call)
+                   and isinstance(n.exc.func, _ast.Name)
+                   and n.exc.func.id == "SystemExit"))]
+chk("o worker NÃO sai (evita laço de reinício com restartPolicy ALWAYS)",
+    not _saidas, f"{len(_saidas)} raise SystemExit no main()")
+chk("manda UM alerta nomeando a variável", "_alerta_com_retry(" in _srcw2)
+chk("e fica acordado sem reivindicar — pedidos ficam PENDENTE",
+    "Sem consumir a" in _srcw2)
 chk("a API recusa a requisição com código nomeado",
     "chave_malformada" in open(os.path.join(_RAIZ, "app.py"),
                                encoding="utf-8").read())

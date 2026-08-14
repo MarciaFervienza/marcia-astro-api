@@ -125,17 +125,39 @@ def main():
     # uma thread, dentro do SDK. O worker subia "saudável" e falhava
     # trabalho a trabalho.
     #
-    # Sair aqui é melhor que seguir: com restartPolicy ALWAYS o serviço
-    # reinicia em laço com a mensagem no log, e um laço visível é muito
-    # mais fácil de achar que uma falha silenciosa por trabalho.
     import app as _appmod
     _malf = _appmod.chaves_malformadas()
     if _malf:
+        # NÃO consome a fila, e NÃO sai (11/08). A primeira versão levantava
+        # SystemExit — e com restartPolicy ALWAYS isso vira LAÇO DE
+        # REINÍCIO: o Railway reporta "crashed" de minuto em minuto e cada
+        # volta seria mais um e-mail. Troquei um modo de falha por outro.
+        #
+        # Aqui: um e-mail SÓ (nomeando a variável e a correção), depois
+        # espera acordado sem reivindicar nada. Os pedidos ficam em
+        # PENDENTE em vez de queimarem tentativas contra uma chave que não
+        # pode funcionar — e o alerta `fila_parada` da API é a vigia
+        # independente, que não mora no processo defeituoso.
+        #
+        # Corrigir a variável no Railway força um redeploy, e o processo
+        # novo nasce com a chave limpa. Não há o que reiniciar aqui.
         for m in _malf:
             logger.error("CHAVE MALFORMADA: %s", m["detalhe"])
-        raise SystemExit(
-            "worker não sobe com segredo malformado: "
-            + ", ".join(m["variavel"] for m in _malf))
+        try:
+            _appmod._alerta_com_retry(
+                "[Mapa Natal] Worker PARADO — segredo malformado",
+                "O worker subiu mas NÃO vai consumir a fila.\n\n"
+                + "\n\n".join(m["detalhe"] for m in _malf)
+                + "\n\nOs pedidos ficam em PENDENTE (não queimam tentativa). "
+                  "Corrija a variável no serviço worker do Railway — a "
+                  "correção força um redeploy e o worker volta sozinho.")
+        except Exception as _e:                        # noqa: BLE001
+            logger.warning("alerta de chave malformada falhou: %s", _e)
+        while True:
+            logger.error("worker PARADO: %s malformada(s). Sem consumir a "
+                         "fila até a variável ser corrigida.",
+                         ", ".join(m["variavel"] for m in _malf))
+            time.sleep(300)
 
     import fila as _fila
     f = _fila.Fila()
