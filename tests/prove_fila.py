@@ -325,6 +325,32 @@ _srcw = open(os.path.join(_RAIZ, "worker.py"), encoding="utf-8").read()
 chk("o worker loga a codificação no arranque", "utf8_mode" in _srcw)
 chk("e ALERTA se subir sem UTF-8", "WORKER SEM UTF-8" in _srcw)
 
+# ==================================================================
+# REENFILEIRAR (11/08). O teto de retomadas é 2 por desenho — trabalho
+# que falha em laço não pode tentar para sempre. Mas quando a causa foi
+# AMBIENTE e não o pedido (locale ASCII no contêiner do worker), os
+# trabalhos que esgotaram o teto estão corretos e só precisam rodar de
+# novo, A PARTIR DO PAYLOAD GUARDADO — reconstruir à mão é como a fixture
+# mentiu quatro vezes num dia só.
+# ==================================================================
+print()
+print("--- reenfileirar ---")
+import app as _appmod
+_src_re = inspect.getsource(_appmod.reenfileirar_endpoint)
+chk("existe a rota /reenfileirar",
+    "/reenfileirar" in {r.rule for r in _appmod.app.url_map.iter_rules()})
+chk("exige chave de API", "compare_digest" in _src_re)
+chk("usa o PAYLOAD GUARDADO, não um reconstruído",
+    'f.enfileirar(t["payload"]' in _src_re)
+chk("recusa se não houver payload guardado", '"não tem payload guardado"' in _src_re
+    or "não tem payload guardado" in _src_re)
+# A guarda que importa: duplicar trabalho em curso = dois relatórios para
+# a mesma cliente, que é contra o que o heartbeat existe.
+chk("RECUSA duplicar trabalho ainda em curso", "ainda_em_curso" in _src_re)
+chk("mas a Márcia pode forçar", '"forcar"' in _src_re)
+chk("devolve 202 com o id novo e a origem",
+    '"origem": tid' in _src_re and "202" in _src_re)
+
 if falhas:
     print(f">>> {falhas} FALHOU")
     raise SystemExit(1)

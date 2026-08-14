@@ -1422,6 +1422,66 @@ def diag_fila_endpoint():
         (200 if not falharam else 500)
 
 
+@app.route("/reenfileirar", methods=["POST"])
+def reenfileirar_endpoint():
+    """Cria um trabalho NOVO a partir do payload guardado de outro.
+
+    Existe porque o teto de retomadas é 2, por desenho: trabalho que falha
+    em laço não pode ficar tentando para sempre. Mas quando a causa foi
+    ambiente — e não o pedido —, os trabalhos que esgotaram o teto estão
+    corretos e só precisam rodar de novo. Foi o caso de 11/08: os três
+    primeiros morreram por locale ASCII no contêiner do worker, não por
+    nada que a cliente tenha enviado.
+
+    Reenfileira a partir do PAYLOAD GUARDADO, nunca de um payload
+    reconstruído à mão: reconstruir é como a fixture mentiu quatro vezes
+    num dia só. O pedido que roda tem de ser byte a byte o que a pessoa
+    enviou.
+
+    Corpo: {id}. Devolve o id novo.
+    """
+    import hmac
+    body = request.get_json(silent=True) or {}
+    presented = request.headers.get("X-API-Key") or body.pop("api_key", "")
+    if not API_SECRET_KEY or not presented \
+            or not hmac.compare_digest(presented, API_SECRET_KEY):
+        return jsonify({"status": "error", "message": "unauthorized"}), 401
+
+    tid = (body.get("id") or "").strip()
+    if not tid:
+        return jsonify({"status": "error", "message": "Informe 'id'."}), 400
+    f, err = _fila_ou_erro()
+    if err:
+        return err
+    t = f.buscar(tid)
+    if not t:
+        return jsonify({"status": "error",
+                        "message": f"Trabalho {tid!r} não encontrado."}), 404
+    if not t.get("payload"):
+        return jsonify({"status": "error",
+                        "message": "O trabalho não tem payload guardado — "
+                                   "não dá para reenfileirar sem ele."}), 409
+    # Um trabalho ainda em curso não pode ser duplicado: seriam dois
+    # relatórios para a mesma cliente, que é o modo de falha contra o qual
+    # o heartbeat existe.
+    if t["estado"] in ("pendente", "processando") and not body.get("forcar"):
+        return jsonify({
+            "status": "error", "code": "ainda_em_curso",
+            "message": f"O trabalho está em {t['estado']!r}. Reenfileirar "
+                       f"agora produziria DOIS relatórios para a mesma "
+                       f"pessoa. Use 'forcar': true se for mesmo isso.",
+        }), 409
+
+    novo = f.enfileirar(t["payload"], nome=t.get("nome"), email=t.get("email"))
+    logger.info("REENFILEIRADO %s → %s (estado anterior: %s, tentativas %s)",
+                tid, novo, t["estado"], t["tentativas"])
+    return jsonify({
+        "status": "accepted", "id": novo, "origem": tid,
+        "estado_da_origem": t["estado"],
+        "status_url": f"/status/{novo}",
+    }), 202
+
+
 @app.route("/diag-geocache", methods=["GET"])
 def diag_geocache_endpoint():
     """Estado do cache de cidades. Existe porque o tempo NÃO prova nada.
