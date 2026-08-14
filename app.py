@@ -10,6 +10,7 @@ Endpoints:
 import base64
 import logging
 import os
+import unicodedata
 import traceback
 
 import requests
@@ -297,10 +298,76 @@ def _send_failure_alert(stage, exc, request_ctx):
         logger.warning("_send_failure_alert internal error: %s", _alert_err)
 
 
+_CHAVES_OBRIGATORIAS = ("PINECONE_API_KEY", "OPENAI_API_KEY",
+                        "ANTHROPIC_API_KEY")
+# Segredos que viajam como CABEÇALHO HTTP. Cabeçalho é ASCII por
+# especificação — não é preferência do httpx nem coisa que `-X utf8`
+# resolva.
+_CHAVES_DE_CABECALHO = ("ANTHROPIC_API_KEY", "OPENAI_API_KEY",
+                        "PINECONE_API_KEY", "SENDGRID_API_KEY",
+                        "API_SECRET_KEY")
+
+
+def chaves_malformadas():
+    """Segredos com caractere que NÃO cabe num cabeçalho HTTP.
+
+    POR QUE EXISTE (11/08). A ANTHROPIC_API_KEY do serviço worker foi
+    colada com uma ASPA CURVA no fim — o editor converteu a aspa reta ao
+    copiar. O httpx codifica cabeçalho em ASCII, então toda chamada ao
+    Claude morria com:
+
+        'ascii' codec can't encode character '”' in position 109
+
+    A posição é o TAMANHO DA CHAVE, e por isso era idêntica em todos os
+    trabalhos. O erro nascia a 16 chamadas de profundidade, dentro de uma
+    thread, dentro do SDK — longe da causa. Custou uma hora e uma hipótese
+    errada minha (locale ASCII do contêiner; testei, `-X utf8` NÃO
+    conserta isto, cabeçalho é ASCII por especificação).
+
+    Agora falha no ARRANQUE, com o nome da variável e o caractere.
+    Segredo malformado é a classe de defeito que mais se disfarça: a
+    variável está definida, o painel mostra o valor, e só quebra na
+    primeira chamada de verdade.
+    """
+    ruins = []
+    for k in _CHAVES_DE_CABECALHO:
+        v = os.environ.get(k) or ""
+        if not v:
+            continue
+        try:
+            v.encode("ascii")
+        except UnicodeEncodeError as e:
+            mau = v[e.start]
+            ruins.append({
+                "variavel": k,
+                "posicao": e.start,
+                "caractere": repr(mau),
+                "nome_unicode": unicodedata.name(mau, "?"),
+                "detalhe": (f"{k} tem {mau!r} na posição {e.start} de "
+                            f"{len(v)}. Cabeçalho HTTP é ASCII: esta chave "
+                            f"NUNCA vai funcionar. Aspa curva no começo ou "
+                            f"no fim quase sempre é cópia de um editor que "
+                            f"converteu a aspa reta — recole sem aspas."),
+            })
+            continue
+        # Aspas RETAS sobrando também são erro de cópia, e essas passam no
+        # ASCII: a chave viaja com aspas e a API devolve 401, que manda a
+        # Márcia procurar chave errada em vez de chave mal colada.
+        if len(v) > 1 and v[0] == v[-1] and v[0] in "\"'":
+            ruins.append({
+                "variavel": k, "posicao": 0, "caractere": repr(v[0]),
+                "nome_unicode": "QUOTATION MARK",
+                "detalhe": (f"{k} está entre aspas ({v[0]!r}). O valor da "
+                            f"variável não leva aspas — elas viajam junto e "
+                            f"a API devolve 401."),
+            })
+    return ruins
+
+
 def _missing_required_keys():
     """Return a list of required env vars that are missing or empty."""
     missing = []
-    for k in ("PINECONE_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY"):
+    for k in _CHAVES_OBRIGATORIAS:
         if not os.environ.get(k):
             missing.append(k)
     return missing
@@ -2332,6 +2399,17 @@ def generate_report_endpoint():
             "status": "error",
             "message": "Unauthorized",
         }), 401
+
+    # Segredo com caractere impossível em cabeçalho: recusa AQUI, com o
+    # nome da variável, em vez de morrer 16 chamadas depois dentro do SDK.
+    _malf = chaves_malformadas()
+    if _malf:
+        logger.error("CHAVE MALFORMADA: %s", [m["detalhe"] for m in _malf])
+        return jsonify({
+            "status": "error", "code": "chave_malformada",
+            "message": "Variável de ambiente malformada no servidor.",
+            "detalhes": _malf,
+        }), 500
 
     missing = _missing_required_keys()
     if missing:

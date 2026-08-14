@@ -117,6 +117,26 @@ def main():
         logger.error("WORKER SEM UTF-8 (%s) — o comando de início deveria "
                      "ser `python -X utf8 worker.py`. Aspas curvas e "
                      "acentos vão quebrar a geração.", _enc)
+    # SEGREDO MALFORMADO — recusa no ARRANQUE (11/08).
+    #
+    # A ANTHROPIC_API_KEY deste serviço foi colada com uma aspa curva no
+    # fim. Cabeçalho HTTP é ASCII, então TODA chamada ao Claude morria —
+    # mas só na primeira geração, a 16 chamadas de profundidade, dentro de
+    # uma thread, dentro do SDK. O worker subia "saudável" e falhava
+    # trabalho a trabalho.
+    #
+    # Sair aqui é melhor que seguir: com restartPolicy ALWAYS o serviço
+    # reinicia em laço com a mensagem no log, e um laço visível é muito
+    # mais fácil de achar que uma falha silenciosa por trabalho.
+    import app as _appmod
+    _malf = _appmod.chaves_malformadas()
+    if _malf:
+        for m in _malf:
+            logger.error("CHAVE MALFORMADA: %s", m["detalhe"])
+        raise SystemExit(
+            "worker não sobe com segredo malformado: "
+            + ", ".join(m["variavel"] for m in _malf))
+
     import fila as _fila
     f = _fila.Fila()
     f.criar_tabelas()

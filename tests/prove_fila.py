@@ -351,6 +351,55 @@ chk("mas a Márcia pode forçar", '"forcar"' in _src_re)
 chk("devolve 202 com o id novo e a origem",
     '"origem": tid' in _src_re and "202" in _src_re)
 
+# ==================================================================
+# SEGREDO MALFORMADO (11/08). A ANTHROPIC_API_KEY do worker foi colada
+# com uma ASPA CURVA no fim. Cabeçalho HTTP é ASCII por especificação —
+# `-X utf8` NÃO conserta, testado com e sem a flag. Toda chamada ao Claude
+# morria com "'ascii' codec can't encode character '”' in position 109", a
+# 16 chamadas de profundidade, dentro de uma thread, dentro do SDK.
+#
+# A posição é o TAMANHO DA CHAVE, e por isso era idêntica em todo trabalho.
+# ==================================================================
+print()
+print("--- segredo malformado ---")
+_orig_env = dict(os.environ)
+try:
+    _K = "sk-ant-api03-" + "A" * 95
+    for _rot, _val, _deve in (
+            ("chave limpa",             _K,              False),
+            ("aspa curva no fim",       _K + "\u201d",   True),
+            ("aspa curva no começo",    "\u201c" + _K,   True),
+            ("entre aspas RETAS",       '"' + _K + '"',  True),
+            ("com acento no meio",      _K[:50] + "ã" + _K[50:], True),
+    ):
+        os.environ["ANTHROPIC_API_KEY"] = _val
+        _r = _appmod.chaves_malformadas()
+        _achou = any(m["variavel"] == "ANTHROPIC_API_KEY" for m in _r)
+        chk(f"{_rot}: {'acusa' if _deve else 'passa'}", _achou == _deve,
+            str([m["nome_unicode"] for m in _r])[:70])
+
+    # A mensagem tem de NOMEAR a variável e o caractere. Erro que não diz
+    # onde procurar custou uma hora de diagnóstico por eliminação.
+    os.environ["ANTHROPIC_API_KEY"] = _K + "\u201d"
+    _m = _appmod.chaves_malformadas()[0]
+    chk("a mensagem nomeia a variável", "ANTHROPIC_API_KEY" in _m["detalhe"])
+    chk("e nomeia o caractere pelo nome Unicode",
+        _m["nome_unicode"] == "RIGHT DOUBLE QUOTATION MARK", _m["nome_unicode"])
+    chk("e diz a posição e o tamanho",
+        str(_m["posicao"]) in _m["detalhe"] and str(len(_K) + 1) in _m["detalhe"])
+finally:
+    os.environ.clear()
+    os.environ.update(_orig_env)
+
+# O worker RECUSA subir; a API recusa a requisição. Nos dois casos com o
+# nome da variável, em vez de morrer 16 chamadas depois dentro do SDK.
+_srcw2 = open(os.path.join(_RAIZ, "worker.py"), encoding="utf-8").read()
+chk("o worker recusa subir com segredo malformado",
+    "chaves_malformadas()" in _srcw2 and "SystemExit" in _srcw2)
+chk("a API recusa a requisição com código nomeado",
+    "chave_malformada" in open(os.path.join(_RAIZ, "app.py"),
+                               encoding="utf-8").read())
+
 if falhas:
     print(f">>> {falhas} FALHOU")
     raise SystemExit(1)
