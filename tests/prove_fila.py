@@ -238,6 +238,62 @@ chk("PENDENTE velho: retomar_orfaos NÃO vê (não é o caso dele)",
 chk("mas espera_do_mais_antigo VÊ",
     (_f4.espera_do_mais_antigo() or 0) > 99000)
 
+# ==================================================================
+# CONFIG DO RAILWAY (11/08). Duas causas de *failure to build*, as duas
+# minhas:
+#   · pus uma chave `_comentario` no JSON. JSON não tem comentário, e o
+#     schema do Railway declara "additionalProperties": false na raiz —
+#     conferido no schema real, não suposto. Chave desconhecida derruba.
+#   · mandei apontar para `api/railway.worker.json`. A raiz do
+#     repositório É a pasta api, então o caminho certo é
+#     `railway.worker.json`, sem prefixo.
+#
+# Chaves conforme https://backboard.railway.app/railway.schema.json.
+# ==================================================================
+print()
+print("--- config do Railway ---")
+import json as _json
+
+_RAIZ = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_TOPO_OK = {"$schema", "build", "deploy", "environments"}
+_BUILD_OK = {"builder", "watchPatterns", "buildCommand", "dockerfilePath",
+             "nixpacksConfigPath", "nixpacksPlan", "nixpacksVersion",
+             "railpackVersion"}
+_DEPLOY_OK = {"startCommand", "preDeployCommand", "numReplicas",
+              "healthcheckPath", "healthcheckTimeout", "sleepApplication",
+              "runtime", "registryCredentials", "restartPolicyType",
+              "restartPolicyMaxRetries", "cronSchedule", "region",
+              "multiRegionConfig", "limitOverride", "requiredMountPath",
+              "overlapSeconds", "drainingSeconds", "ipv6EgressEnabled"}
+
+for _nome in ("railway.json", "railway.worker.json"):
+    _cam = os.path.join(_RAIZ, _nome)
+    chk(f"{_nome} existe na RAIZ do repo (sem prefixo api/)",
+        os.path.isfile(_cam))
+    with open(_cam, encoding="utf-8") as _fh:
+        _cfg = _json.load(_fh)
+    _extra = set(_cfg) - _TOPO_OK
+    chk(f"{_nome}: nenhuma chave desconhecida na raiz", not _extra, str(_extra))
+    _extra_b = set(_cfg.get("build", {})) - _BUILD_OK
+    chk(f"{_nome}: nenhuma chave desconhecida em build", not _extra_b, str(_extra_b))
+    _extra_d = set(_cfg.get("deploy", {})) - _DEPLOY_OK
+    chk(f"{_nome}: nenhuma chave desconhecida em deploy", not _extra_d, str(_extra_d))
+
+_w = _json.load(open(os.path.join(_RAIZ, "railway.worker.json"), encoding="utf-8"))
+chk("worker: startCommand é `python worker.py`",
+    _w["deploy"]["startCommand"] == "python worker.py",
+    _w["deploy"].get("startCommand"))
+# O worker não escuta porta: healthcheck herdado o mataria em laço, e o
+# sintoma seria "reiniciando" em vez de "parado".
+chk("worker: SEM healthcheckPath", "healthcheckPath" not in _w["deploy"])
+# Sair com código 0 também deixa a fila sem ninguém.
+chk("worker: restartPolicy ALWAYS, não ON_FAILURE",
+    _w["deploy"]["restartPolicyType"] == "ALWAYS")
+
+_r = _json.load(open(os.path.join(_RAIZ, "railway.json"), encoding="utf-8"))
+chk("a raiz continua subindo a API (o worker não pode herdar isto)",
+    "gunicorn" in _r["deploy"]["startCommand"])
+
 if falhas:
     print(f">>> {falhas} FALHOU")
     raise SystemExit(1)
