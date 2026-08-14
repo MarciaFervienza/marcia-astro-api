@@ -1,7 +1,7 @@
 """WORKER — consome a fila e gera os relatórios (19/07).
 
 Roda como serviço SEPARADO no Railway, mesmo repositório, comando
-diferente:  `python worker.py`
+diferente:  `python -X utf8 worker.py`
 
 Por que separado do web: o processo web tem de responder em 1s (o 202). O
 trabalho leva 2 a 5 minutos. No mesmo processo, uma geração longa ocuparia
@@ -98,6 +98,25 @@ def manutencao(fila, estado):
 
 
 def main():
+    # CODIFICAÇÃO (11/08). Os três primeiros trabalhos falharam com
+    # "'ascii' codec can't encode character '”'". A API nunca falhou assim
+    # — a diferença é o ambiente: sem LANG definido, o contêiner cai em
+    # locale C e toda escrita dependente de locale vira ASCII.
+    #
+    # O comando de início usa `python -X utf8` (railway.worker.json), que
+    # força UTF-8 no interpretador inteiro. Este log existe para o dia em
+    # que alguém mudar o comando e o sintoma voltar: sem ele, o defeito
+    # reaparece como erro de texto e ninguém liga ao locale.
+    import locale
+    import sys as _sys
+    _enc = locale.getpreferredencoding(False)
+    logger.info("codificação: preferida=%s stdout=%s utf8_mode=%s",
+                _enc, _sys.stdout.encoding, _sys.flags.utf8_mode)
+    if not _sys.flags.utf8_mode and \
+            (_enc or "").lower().replace("-", "") != "utf8":
+        logger.error("WORKER SEM UTF-8 (%s) — o comando de início deveria "
+                     "ser `python -X utf8 worker.py`. Aspas curvas e "
+                     "acentos vão quebrar a geração.", _enc)
     import fila as _fila
     f = _fila.Fila()
     f.criar_tabelas()

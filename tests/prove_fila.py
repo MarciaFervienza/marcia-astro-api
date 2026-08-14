@@ -280,9 +280,17 @@ for _nome in ("railway.json", "railway.worker.json"):
     chk(f"{_nome}: nenhuma chave desconhecida em deploy", not _extra_d, str(_extra_d))
 
 _w = _json.load(open(os.path.join(_RAIZ, "railway.worker.json"), encoding="utf-8"))
-chk("worker: startCommand é `python worker.py`",
-    _w["deploy"]["startCommand"] == "python worker.py",
+# `-X utf8` NÃO é enfeite (11/08). Sem LANG definido o contêiner cai em
+# locale C, e toda escrita dependente de locale vira ASCII. Os três
+# primeiros trabalhos morreram com "'ascii' codec can't encode character
+# '”'". Reproduzido com LC_ALL=C PYTHONCOERCECLOCALE=0: sem a flag, a
+# escrita de uma aspa curva levanta; com ela, passa.
+chk("worker: startCommand é `python -X utf8 worker.py`",
+    _w["deploy"]["startCommand"] == "python -X utf8 worker.py",
     _w["deploy"].get("startCommand"))
+chk("worker: a flag -X utf8 está no comando",
+    "-X utf8" in _w["deploy"]["startCommand"],
+    "sem ela, locale C quebra acento e aspa curva")
 # O worker não escuta porta: healthcheck herdado o mataria em laço, e o
 # sintoma seria "reiniciando" em vez de "parado".
 chk("worker: SEM healthcheckPath", "healthcheckPath" not in _w["deploy"])
@@ -293,6 +301,29 @@ chk("worker: restartPolicy ALWAYS, não ON_FAILURE",
 _r = _json.load(open(os.path.join(_RAIZ, "railway.json"), encoding="utf-8"))
 chk("a raiz continua subindo a API (o worker não pode herdar isto)",
     "gunicorn" in _r["deploy"]["startCommand"])
+
+# UnicodeEncodeError É subclasse de ValueError. O `except ValueError` do
+# núcleo existe para entrada inválida e devolve 400 com a mensagem crua —
+# engolia falha de CODIFICAÇÃO e a reportava como erro da cliente, sem
+# traceback e sem alerta. Uma hora diagnosticando o lugar errado.
+chk("UnicodeEncodeError é subclasse de ValueError (a armadilha)",
+    issubclass(UnicodeEncodeError, ValueError))
+import fonte_geracao as _fg2
+_src_nu = _fg2.fonte(__import__("app"))
+chk("o núcleo captura UnicodeError ANTES de ValueError",
+    _src_nu.index("except UnicodeError") < _src_nu.index("except ValueError as e"))
+chk("erro de codificação vira 500 com traceback, não 400",
+    "generate_report_unicode" in _src_nu
+    and "Erro de codificação no servidor" in _src_nu)
+chk("o traceback vai para o motivo de falha da fila",
+    "--- traceback ---" in open(
+        os.path.join(_RAIZ, "app.py"), encoding="utf-8").read())
+
+# O worker avisa se subir sem UTF-8 — para o dia em que alguém mudar o
+# comando e o sintoma voltar como "erro de texto".
+_srcw = open(os.path.join(_RAIZ, "worker.py"), encoding="utf-8").read()
+chk("o worker loga a codificação no arranque", "utf8_mode" in _srcw)
+chk("e ALERTA se subir sem UTF-8", "WORKER SEM UTF-8" in _srcw)
 
 if falhas:
     print(f">>> {falhas} FALHOU")

@@ -2943,6 +2943,29 @@ def executar_geracao(body, ctx=None):
             write_file=False,
             verbose=False,
         )
+    except UnicodeError as e:
+        # NÃO É ERRO DA CLIENTE (11/08). UnicodeEncodeError é subclasse de
+        # ValueError, então o `except ValueError` abaixo — que existe para
+        # entrada inválida e devolve 400 com a mensagem crua — engolia
+        # falhas de CODIFICAÇÃO e as reportava como se a cliente tivesse
+        # errado. Os três primeiros trabalhos do worker falharam assim:
+        # "'ascii' codec can't encode character '”'", registrado na
+        # fila como 400, sem traceback, sem alerta. Uma hora de diagnóstico
+        # olhando para o lugar errado.
+        #
+        # Cai no caminho de 500: traceback completo, alerta, e a Márcia
+        # sabe que é defeito do servidor e não da pessoa que preencheu.
+        logger.exception("erro de codificação na geração")
+        _send_failure_alert("generate_report_unicode", e, {
+            "name": body.get("name"), "email": body.get("email"),
+            "birth_date": birth_date_raw, "birth_city": body.get("birth_city"),
+            "ip": _client_ip, "ua": _ua,
+        })
+        return ({
+            "status": "error",
+            "message": f"Erro de codificação no servidor: {e}",
+            "trace": traceback.format_exc(),
+        }), 500
     except ValueError as e:
         return ({"status": "error", "message": str(e)}), 400
     except Exception as e:
@@ -3400,7 +3423,15 @@ def executar_geracao_para_fila(payload, ctx=None):
         "ok": http == 200,
         "http": http,
         "codigo": corpo.get("code"),
-        "erro": None if http == 200 else (corpo.get("message") or f"HTTP {http}"),
+        # O TRACEBACK VAI JUNTO quando existe (11/08). Os três primeiros
+        # trabalhos falharam com uma mensagem de uma linha e nenhum rastro:
+        # "'ascii' codec can't encode character '”' in position 109". Sem
+        # saber ONDE, a posição 109 não diz nada, e eu passei a diagnosticar
+        # por eliminação. Motivo de falha sem rastro é motivo pela metade.
+        "erro": None if http == 200 else (
+            (corpo.get("message") or f"HTTP {http}")
+            + (f"\n\n--- traceback ---\n{corpo['trace']}"
+               if corpo.get("trace") else "")),
         # Presente inclusive na recusa por língua — ver o comentário na
         # falha fechada. Sem isto o degrau 3 não teria o que remontar.
         "markdown": corpo.get("report"),
