@@ -2658,7 +2658,33 @@ def executar_geracao(body, ctx=None):
     # responsável — independente do que o formulário disser.
     # ==================================================================
     _raw_for = str(body.pop("report_for", "") or "").strip()
-    _relationship = str(body.pop("relationship", "") or "").strip().lower()[:40]
+    # PARENTESCO DESLIGADO (decisão da Márcia, 11/08): cortado do
+    # formulário porque complicava mais do que ajudava. O modo (c) usa
+    # SEMPRE só o nome do sujeito.
+    #
+    # O campo continua sendo ACEITO — um payload legado não pode virar 400
+    # —, mas o valor é DESCARTADO. Antes ele era honrado: um `relationship`
+    # sobrando num mapeamento velho do Wix faria o relatório dizer "sua
+    # filha Helena" e desfaria a decisão sem ninguém ver. É a mesma família
+    # do rótulo que dessincroniza quando o formulário muda e a tradução
+    # não. Decisão registrada em código vale mais que decisão registrada
+    # só na cabeça.
+    _rel_bruto = str(body.pop("relationship", "") or "").strip().lower()[:40]
+    _relationship = ""
+    if _rel_bruto:
+        # Não recusa: o relatório sai certo, só sem o parentesco. Mas
+        # avisa, porque significa que ALGO ainda está mandando o campo —
+        # e é isso que a Márcia precisa saber para ir consertar na origem.
+        logger.warning("relationship=%r recebido e DESCARTADO — o campo foi "
+                       "cortado do formulário em 11/08", _rel_bruto)
+        _send_failure_alert(
+            "relationship_descartado",
+            RuntimeError(f"relationship={_rel_bruto!r} chegou à API depois de "
+                         f"o campo ter sido cortado do formulário; o valor foi "
+                         f"ignorado e o relatório saiu só com o nome"),
+            {"name": body.get("name"), "email": body.get("email"),
+             "birth_date": birth_date_raw, "birth_city": body.get("birth_city"),
+             "ip": _client_ip, "ua": _ua})
     _mode, _mode_incerto = _resolver_report_for(_raw_for)
     if _mode_incerto:
         # NÃO recusa: voz errada é defeito visível e corrigível, não um
@@ -2722,20 +2748,11 @@ def executar_geracao(body, ctx=None):
                 ),
             }), 403
 
-    # Parentesco × gênero do sujeito: aviso (não bloqueio) se contradizem.
-    _REL_GENDER = {"filho": "masculino", "filha": "feminino", "neto": "masculino",
-                   "neta": "feminino", "esposo": "masculino", "esposa": "feminino",
-                   "marido": "masculino", "irmão": "masculino", "irmã": "feminino",
-                   "sobrinho": "masculino", "sobrinha": "feminino",
-                   "afilhado": "masculino", "afilhada": "feminino"}
-    _rel_gender_conflict = None
-    if _relationship in _REL_GENDER and body.get("gender") and \
-            _REL_GENDER[_relationship] != body.get("gender"):
-        _rel_gender_conflict = (f"parentesco '{_relationship}' é "
-                                f"{_REL_GENDER[_relationship]} mas gender="
-                                f"{body.get('gender')}")
-        logger.warning("VOZ: %s — parentesco ignorado", _rel_gender_conflict)
-        _relationship = ""
+    # A checagem parentesco × gênero do sujeito saiu junto (11/08). Com o
+    # parentesco desligado, `_relationship` é SEMPRE vazio e a condição
+    # nunca podia ser verdadeira: era salvaguarda morta, que é pior que
+    # salvaguarda ausente — o log diz que está protegido. O que sobrou no
+    # lugar é o rastro do valor descartado, em `relationship_descartado`.
 
     body["_voice"] = {
         "person": "terceira" if _mode == "c" else "segunda",
@@ -3131,7 +3148,10 @@ def executar_geracao(body, ctx=None):
             # Voz e idade (interruptores desacoplados): o que foi decidido
             # para esta geração, incluindo a trava de menor.
             "voice": {k: v for k, v in (body.get("_voice") or {}).items()},
-            "voice_rel_gender_conflict": _rel_gender_conflict,
+            # Rastro do campo cortado do formulário (11/08). Não-nulo
+            # significa que ALGO ainda está mandando `relationship` — o
+            # valor foi ignorado, mas a origem precisa ser consertada.
+            "relationship_descartado": _rel_bruto or None,
             "report_for_bruto": _raw_for,
             "report_for_reconhecido": not _mode_incerto,
             # Repetição quase-verbatim entre seções (janela de 12 palavras).

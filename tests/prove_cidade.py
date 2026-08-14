@@ -131,6 +131,42 @@ _m, _inc = app._resolver_report_for("É um presente - outra pessoa vai ler")
 chk("rótulo (b) com hífen simples também casa", _m == "b" and not _inc,
     f"deu {_m!r}")
 
+# ------------------------------------------------------------------
+# PARENTESCO DESLIGADO (Márcia, 11/08): cortado do formulário. O modo (c)
+# usa SEMPRE só o nome do sujeito.
+#
+# O campo continua ACEITO (payload legado não pode virar 400) mas o valor
+# é DESCARTADO. Antes ele era honrado — um `relationship` sobrando num
+# mapeamento velho do Wix faria o relatório dizer "sua filha Helena" e
+# desfaria a decisão sem ninguém ver.
+# ------------------------------------------------------------------
+print()
+print("G) PARENTESCO DESLIGADO")
+
+import inspect as _insp2
+_src_ep3 = _fg.fonte(app)
+chk("o valor de relationship é descartado, não honrado",
+    '_relationship = ""' in _src_ep3 and '_rel_bruto' in _src_ep3)
+chk("valor não vazio ALERTA em vez de ficar em silêncio",
+    "relationship_descartado" in _src_ep3
+    and "_send_failure_alert(" in _src_ep3[
+        _src_ep3.index("_rel_bruto"):_src_ep3.index("_rel_bruto") + 1400])
+chk("o meta registra o valor descartado",
+    '"relationship_descartado": _rel_bruto or None' in _src_ep3)
+chk("a checagem morta parentesco×gênero foi REMOVIDA",
+    "_REL_GENDER" not in _src_ep3 and "_rel_gender_conflict" not in _src_ep3)
+
+# O prompt do modo (c): sem parentesco, PROIBIDO assumir um.
+import report_generator as _rg2
+for _rel in ("", None):
+    _out = _rg2.voice_rules_block({"name": "Helena Penteado", "_voice": {
+        "person": "terceira", "mode": "c", "name": "Helena Penteado",
+        "relationship": _rel}})
+    chk(f"relationship={_rel!r} → prompt PROÍBE assumir parentesco",
+        "NENHUM parentesco foi informado" in _out and "NUNCA assuma" in _out)
+    chk(f"relationship={_rel!r} → e manda usar só o nome",
+        "use apenas o nome" in _out)
+
 print()
 if falhas:
     print(f">>> {falhas} FALHOU")

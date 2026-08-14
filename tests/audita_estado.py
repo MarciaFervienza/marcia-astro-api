@@ -148,8 +148,17 @@ confere("F", "forced_minor REMOVIDO (não existe mais)",
         "ainda há forced_minor no app.py")
 
 # ---------------------------------------------------------------- voz
-confere("voz", "report_for e relationship lidos do formulário",
-        "report_for" in APP and "relationship" in APP)
+confere("voz", "report_for é lido do formulário", "report_for" in APP)
+# 11/08: a Márcia cortou `relationship` do formulário. O campo continua
+# ACEITO (payload legado não vira 400) mas o valor é DESCARTADO — antes
+# ele era honrado, e um mapeamento velho do Wix desfaria a decisão em
+# silêncio. A asserção mudou de "é lido" para "é descartado e alerta".
+confere("voz", "relationship é DESCARTADO, não honrado",
+        '_relationship = ""' in APP and "_rel_bruto" in APP)
+confere("voz", "relationship não vazio ALERTA em vez de calar",
+        "relationship_descartado" in APP)
+confere("voz", "a checagem morta parentesco×gênero foi removida",
+        "_REL_GENDER" not in APP)
 confere("voz", "voice_rules_block SEMPRE emite (2ª ou 3ª pessoa)",
         'return (\n            "\\n\\nREGRAS DE VOZ' in RG
         or "REGRAS DE VOZ — SEGUNDA PESSOA" in RG)
