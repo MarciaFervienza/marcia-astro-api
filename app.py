@@ -1489,6 +1489,38 @@ def diag_fila_endpoint():
         (200 if not falharam else 500)
 
 
+@app.route("/fila", methods=["GET"])
+def fila_endpoint():
+    """Os últimos trabalhos da fila. Autenticado.
+
+    Sem isto não dá para operar: o id só existia na resposta do
+    enfileiramento, e se ela se perdesse o trabalho ficava inalcançável —
+    `/status` exige o id e `/diag-fila` só conta. Aconteceu em 11/08.
+
+    A `duracao_s` é o número que a Márcia pediu: quanto leva uma geração de
+    ponta a ponta pelo caminho assíncrono real.
+    """
+    import hmac
+    presented = request.headers.get("X-API-Key") or request.args.get("api_key") or ""
+    if not API_SECRET_KEY or not presented \
+            or not hmac.compare_digest(presented, API_SECRET_KEY):
+        return jsonify({"status": "error", "message": "unauthorized"}), 401
+    f, err = _fila_ou_erro()
+    if err:
+        return err
+    try:
+        _lim = max(1, min(100, int(request.args.get("limite") or 20)))
+    except Exception:
+        _lim = 20
+    _esp = f.espera_do_mais_antigo()
+    return jsonify({
+        "status": "ok",
+        "contagem": f.contagem_por_estado(),
+        "espera_do_mais_antigo_s": None if _esp is None else round(_esp, 1),
+        "trabalhos": f.recentes(_lim),
+    }), 200
+
+
 @app.route("/reenfileirar", methods=["POST"])
 def reenfileirar_endpoint():
     """Cria um trabalho NOVO a partir do payload guardado de outro.

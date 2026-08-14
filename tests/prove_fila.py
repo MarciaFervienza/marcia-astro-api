@@ -423,6 +423,32 @@ chk("a API recusa a requisição com código nomeado",
     "chave_malformada" in open(os.path.join(_RAIZ, "app.py"),
                                encoding="utf-8").read())
 
+# LISTAGEM (11/08). Operar a fila as cegas nao da: perdi o id de um
+# trabalho quando o comando que o criou foi interrompido, e nao havia como
+# reencontra-lo — `buscar` exige o id e `contagem_por_estado` so conta.
+print()
+print("--- listagem da fila ---")
+_f5 = F.Fila(":memory:")
+_f5.criar_tabelas()
+chk("fila vazia lista nada", _f5.recentes() == [])
+_ids = [_f5.enfileirar({"i": i}, nome=f"Cliente {i}") for i in range(3)]
+_r5 = _f5.recentes()
+chk("lista os 3", len(_r5) == 3, str(len(_r5)))
+chk("do mais NOVO para o mais velho",
+    [x["id"] for x in _r5] == list(reversed(_ids)))
+chk("respeita o limite", len(_f5.recentes(limite=2)) == 2)
+chk("traz nome e estado", _r5[0]["nome"] == "Cliente 2"
+    and _r5[0]["estado"] == F.PENDENTE)
+# markdown NAO vem junto: a listagem e para operar, e trazer o texto de
+# todo mundo seria caro e desnecessario.
+chk("NAO devolve o markdown, so se existe",
+    "markdown" not in _r5[0] and "tem_markdown" in _r5[0])
+_f5.reivindicar("w")
+_f5.concluir(_ids[0], markdown="# texto")
+_c5 = [x for x in _f5.recentes() if x["id"] == _ids[0]][0]
+chk("marca tem_markdown quando ha texto", _c5["tem_markdown"] is True)
+chk("e calcula a duracao", _c5["duracao_s"] is not None)
+
 if falhas:
     print(f">>> {falhas} FALHOU")
     raise SystemExit(1)

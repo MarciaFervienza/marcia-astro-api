@@ -341,6 +341,34 @@ class Fila(_Banco):
         return [{"id": a, "nome": b, "email": c, "motivo": d, "quando": e}
                 for a, b, c, d, e in cur.fetchall()]
 
+    def recentes(self, limite=20):
+        """Os últimos trabalhos, do mais novo para o mais velho.
+
+        Existe porque operar a fila às cegas não dá (11/08): eu perdi o id
+        de um trabalho quando o comando que o criou foi interrompido, e não
+        havia como reencontrá-lo — `buscar` exige o id, e `contagem_por_estado`
+        só conta. Sem listagem, o único jeito de saber o que aconteceu era
+        ter guardado o id na hora.
+
+        Não devolve markdown nem chart: a listagem é para operar, e trazer
+        o texto de todo mundo junto seria caro e desnecessário. Quem quer o
+        conteúdo pede /status/<id>.
+        """
+        cur = self.con().cursor()
+        cur.execute(self._q(
+            "SELECT id, estado, tentativas, criado_em, atualizado_em, "
+            "nome, email, motivo_falha, "
+            "CASE WHEN markdown IS NULL THEN 0 ELSE 1 END "
+            "FROM trabalhos ORDER BY criado_em DESC LIMIT %s"), (int(limite),))
+        return [{"id": r[0], "estado": r[1], "tentativas": r[2],
+                 "criado_em": r[3], "atualizado_em": r[4],
+                 "nome": r[5], "email": r[6],
+                 "motivo_falha": (r[7] or "")[:300] or None,
+                 "tem_markdown": bool(r[8]),
+                 "duracao_s": (round(float(r[4]) - float(r[3]), 1)
+                               if r[3] and r[4] else None)}
+                for r in cur.fetchall()]
+
     def espera_do_mais_antigo(self, agora=None):
         """Há quantos segundos o pedido PENDENTE mais velho está esperando?
         None se a fila está vazia.
