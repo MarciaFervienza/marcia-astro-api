@@ -435,13 +435,26 @@ def fmt_filtered_aspects(filtered_aspects: list, section_name: str = None) -> st
         if alheios:
             _donas = sorted({_rem.dono_do_aspecto(a) for a in alheios
                              if _rem.dono_do_aspecto(a)})
+            # A DECLARAÇÃO DE DONA fica SEMPRE — ela é o conserto do
+            # círculo vazio que a Marcelle achou, e não tem nada a ver com
+            # o marcador. O que o interruptor desliga é só a FORMA de
+            # remeter. Misturar as duas coisas faria o piso de segurança
+            # reabrir um defeito já consertado.
+            _como_remeter = (
+                " Para remeter, escreva o marcador [[ref:nome_da_secao]] "
+                "e NUNCA 'já vimos' ou 'veremos adiante' — quem sabe a "
+                "ordem das seções é o renderizador, não você."
+                if REMISSAO_ATIVA else
+                " Se precisar remeter, faça-o SEM dizer se a outra seção "
+                "vem antes ou depois (você não sabe a ordem): uma frase "
+                "como 'isto se liga ao que este mapa mostra sobre X' "
+                "basta. NÃO escreva marcador nenhum entre colchetes."
+            )
             blocos.append(
                 "DE OUTRA SEÇÃO — só REFERENCIE, em no máximo uma frase, sem "
                 "redesenvolver: " + "; ".join(_rot(a) for a in alheios)
-                + ". Para remeter, escreva o marcador [[ref:nome_da_secao]] "
-                  "e NUNCA 'já vimos' ou 'veremos adiante' — quem sabe a "
-                  "ordem das seções é o renderizador, não você. Seções "
-                  "donas destes: " + ", ".join(_donas)
+                + "." + _como_remeter + " Seções donas destes: "
+                + ", ".join(_donas)
                 + ". ATENÇÃO: eles EXISTEM neste mapa — nunca diga que este "
                   "corpo não tem aspectos.")
         return "\n".join(blocos)
@@ -3064,6 +3077,27 @@ SECTION_DEPENDENCIES = {
 # instead of 16 sequential calls). Override via env var if needed.
 PARALLEL_MAX_WORKERS = int(os.environ.get("PARALLEL_MAX_WORKERS", "6"))
 
+# ======================================================================
+# INTERRUPTOR DA MÁQUINA DE REMISSÃO (10/11) — DESLIGADA POR PADRÃO.
+#
+# Por que existe. A máquina entrou em 11/08 e NUNCA rodou uma geração
+# completa: a última entrega bem-sucedida é de 11/08, antes dela, e tudo
+# depois esbarrou no worker. A primeira geração real foi em 10/11 e
+# falhou fechada, com 7 marcadores `[[ref:…]]` CRUS no texto e 12
+# inserções do molde empilhadas ("como você já leu em «X» como você já
+# leu em «Y»", sem verbo).
+#
+# A causa é de ordem: `resolver()` roda ANTES do pipeline de língua, que
+# regenera seções; o modelo escreve marcadores novos no texto regenerado
+# e ninguém mais os resolve.
+#
+# DESLIGADA, o relatório volta ao comportamento de 11/08 — que entregava.
+# É o piso de segurança da Black Friday, e é reversível por variável sem
+# push. A correção da ordem é trabalho separado, para não misturar
+# "voltar a funcionar" com "funcionar melhor".
+REMISSAO_ATIVA = os.environ.get("REMISSAO_ATIVA", "").strip().lower() in (
+    "1", "true", "sim", "yes", "on")
+
 
 # ============================================================
 # PUBLIC API: generate_report(chart_dict, ...)
@@ -3319,12 +3353,19 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
         _ordem_sec["fio_condutor"] = len(sections)
         _titulos_sec["fio_condutor"] = "Fio Condutor"
     _remissoes_log = []
-    for sec in sections:
-        _txt, _oc = _rem.resolver(section_texts[sec["name"]], sec["name"],
-                                  _ordem_sec, _titulos_sec)
-        section_texts[sec["name"]] = _txt
-        for o in _oc:
-            _remissoes_log.append({"secao": sec["name"], **o})
+    _marcadores_removidos = 0
+    if REMISSAO_ATIVA:
+        for sec in sections:
+            _txt, _oc = _rem.resolver(section_texts[sec["name"]], sec["name"],
+                                      _ordem_sec, _titulos_sec)
+            section_texts[sec["name"]] = _txt
+            for o in _oc:
+                _remissoes_log.append({"secao": sec["name"], **o})
+    # DESLIGADA: nada a fazer aqui. A limpeza acontece DEPOIS do pipeline
+    # de língua — ver "VARREDURA FINAL DE MARCADOR" adiante. Fazê-la aqui
+    # repetiria o defeito que o interruptor existe para contornar: o
+    # pipeline regenera seções DEPOIS deste ponto, e um marcador escrito
+    # no texto regenerado sobreviveria à limpeza.
     for sec in sections:
         full_report += f"\n## {sec['title']}\n\n{section_texts[sec['name']]}\n"
 
@@ -3577,6 +3618,33 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
             log(f"encanamento de língua falhou: {e}")
             falha_lingua = f"erro no encanamento de língua: {str(e)[:200]}"
 
+    # ==================================================================
+    # VARREDURA FINAL DE MARCADOR (10/11).
+    #
+    # Aqui, e não antes: este é o primeiro ponto em que `full_report` não
+    # vai mais ser regenerado. Toda a dor de 10/11 foi de ORDEM — o
+    # `resolver()` rodava antes do pipeline de língua, que regenera, e os
+    # marcadores escritos no texto regenerado saíam crus no PDF.
+    #
+    # Com a máquina DESLIGADA, marcador no texto final é resíduo: sai, e
+    # vai CONTADO para o meta. Zero é o esperado; diferente de zero
+    # significa que o prompt ainda sugere a forma.
+    #
+    # Com ela LIGADA, esta varredura NÃO apaga nada — apenas conta, para
+    # que o lint e o gate vejam o resíduo em vez de o esconderem. Apagar
+    # com a máquina ligada mascararia exatamente o defeito que estamos
+    # consertando.
+    _marcadores_finais = len(_rem.MARCADOR.findall(full_report))
+    if _marcadores_finais:
+        if REMISSAO_ATIVA:
+            log(f"REMISSÃO LIGADA: {_marcadores_finais} marcador(es) CRUS "
+                f"no texto final — resolução fora de ordem")
+        else:
+            full_report = _rem.MARCADOR.sub("", full_report)
+            _marcadores_removidos = _marcadores_finais
+            log(f"remissão desligada: {_marcadores_finais} marcador(es) "
+                f"emitidos pelo modelo e removidos do texto final")
+
     spell_lint_out = []
     try:
         _t_lint = time.time()
@@ -3662,8 +3730,13 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
     aspectos_orfaos = _rem.aspectos_sem_dono(chart.get("aspects") or [],
                                              set(_ordem_sec))
     if remissao_lint or aspectos_orfaos:
-        logger.warning("REMISSÃO: %d achado(s), %d aspecto(s) sem dona",
-                       len(remissao_lint), len(aspectos_orfaos))
+        # `logger` NAO EXISTE neste modulo (10/11): esta linha veio de
+        # 11/08 e levantaria NameError exatamente quando houvesse achados,
+        # que e quando ela importa. Nunca executou porque nenhum teste
+        # montava um relatorio com achados — a mesma lacuna do gate, num
+        # segundo lugar. O modulo registra por `log()`.
+        log(f"REMISSÃO: {len(remissao_lint)} achado(s), "
+            f"{len(aspectos_orfaos)} aspecto(s) sem dona")
 
     return {
         "report": full_report,
@@ -3686,6 +3759,13 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
         "correction_rewrites": correction_rewrites,
         "verifier_log": verifier_log,
         # Máquina de remissão: dono, direção e teto. Ver remissao.py.
+        "remissao_ativa": REMISSAO_ATIVA,
+        # Zero e o esperado com a maquina desligada. Diferente de zero
+        # significa que o prompt ainda sugere a forma do marcador.
+        "remissao_marcadores_removidos": _marcadores_removidos,
+        # Marcadores encontrados no texto FINAL. Com a maquina ligada eles
+        # NAO sao apagados: ficam contados para o gate reprovar.
+        "remissao_marcadores_crus": _marcadores_finais,
         "remissao_lint": remissao_lint,
         "remissoes": _remissoes_log,
         "aspectos_sem_dono": aspectos_orfaos,

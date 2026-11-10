@@ -3410,6 +3410,11 @@ def executar_geracao(body, ctx=None):
             "partial_coverage": result.get("partial_coverage", []),
             "verifier_log": result.get("verifier_log", []),
             # Remissão: dono do aspecto, direção temporal e teto (11/08).
+            "remissao_ativa": result.get("remissao_ativa"),
+            "remissao_marcadores_removidos": result.get(
+                "remissao_marcadores_removidos", 0),
+            "remissao_marcadores_crus": result.get(
+                "remissao_marcadores_crus", 0),
             "remissao_lint": result.get("remissao_lint", []),
             "remissoes": result.get("remissoes", []),
             "aspectos_sem_dono": result.get("aspectos_sem_dono", []),
