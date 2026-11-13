@@ -799,7 +799,16 @@ def _detect_person_instantiation(text, voice):
             vistos.add(m.start())
             out.append({
                 "kind": "voz:sujeito_em_terceira_pessoa",
-                "match": text[m.start():m.start() + 70].strip(),
+                # COSMÉTICO, mas custou um diagnóstico errado (13/11): a
+                # fatia fixa de 70 caracteres engolia a frase SEGUINTE, e
+                # o match exibido saía como 'a pessoa que está à sua
+                # frente. A cilada não é a sensibilidade.' — duas orações
+                # coladas. Eu li isso como match atravessando ponto final
+                # e reportei à Márcia como defeito mecânico. Não era: a
+                # detecção é só da primeira oração. O corte agora para no
+                # fim da frase, para a evidência não mentir sobre si.
+                "match": re.split(r"(?<=[.!?])\s",
+                                  text[m.start():m.start() + 70])[0].strip(),
                 "offset": m.start(),
                 "suggestion": (
                     f"'{m.group(0)}' {motivo}, mas este relatório é dirigido "
@@ -879,7 +888,24 @@ _NAO_INFINITIVO = {"partir", "júpiter", "jupiter", "mulher", "prazer", "poder",
 # justifica recusar o relatório de uma cliente pagante. Foi o caso do
 # gerundial — 4 das 7 falhas fechadas em 10 mapas, todas adjudicadas como
 # rigor excessivo.
-KINDS_FLAG_ONLY = frozenset({"lingua:gerundial_portuguesa"})
+# FLAG-ONLY: sinaliza no meta, NUNCA segura o relatório.
+#
+# Cada entrada aqui custou uma medição, não um palpite.
+#
+# · gerundial_portuguesa (13/11) — 3.769 acusações em 414,7 M de
+#   caracteres das transcrições da Márcia, português correto dela.
+#
+# · graus_sem_preposicao (13/11) — 51 acusações na mesma medição, e
+#   recusou TRÊS dos cinco mapas da corrida das 16h42, sendo o ÚNICO
+#   motivo de um deles. A regra quer transformar "dois graus" em "a dois
+#   graus", e a lookbehind só exclui um "a" imediatamente antes. Ela não
+#   distingue a DISTÂNCIA ("Saturno está a dois graus de Vênus") da
+#   QUANTIDADE ("uma conjunção de dois graus de orbe") — e na segunda a
+#   preposição já está lá. Adjudicado pela Márcia (R14).
+KINDS_FLAG_ONLY = frozenset({
+    "lingua:gerundial_portuguesa",
+    "lingua:graus_sem_preposicao",
+})
 
 
 _GER_CORPOS = (r"(?:sol|lua|merc[úu]rio|v[êe]nus|marte|j[úu]piter|saturno|"

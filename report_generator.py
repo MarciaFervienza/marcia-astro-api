@@ -3640,8 +3640,16 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
             #   acento_faltando .... 1/1 depois de excluir nome de corpo
             #   colada ............. FALSOS (entretecida, autossacrifício…)
             #   corrompida ......... 19 falsos em 29 — fica FLAG-ONLY
+            #
+            # `contracao_faltando` SAIU em 13/11, adjudicado pela Márcia
+            # (R14). Ele recusou a Patrícia por "depois DE O contexto que
+            # a gerou ter mudado" — que é a forma CORRETA: antes de
+            # oração infinitiva com sujeito explícito a preposição não
+            # contrai. É "depois DO contexto ter mudado" que é a forma
+            # disputada. A regra foi medida contra "de o que" e "de ela",
+            # onde acerta, e nunca contra este caso, onde condena o certo.
             _WL_CONFIAVEIS = {
-                "palavra:partida", "palavra:contracao_faltando",
+                "palavra:partida",
                 "palavra:genero_determinante", "palavra:acento_faltando",
             }
 
