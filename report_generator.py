@@ -2115,29 +2115,52 @@ Escreva apenas o texto. Sem título.
 """
 
 
-def call_claude(prompt, max_tokens=SECTION_MAX_TOKENS):
+# MODELO DO DETECTOR, separado do da geração (11/11).
+#
+# Medido em 10/11: o detector semântico é 273 das 302 chamadas de um
+# relatório — 90% delas. E a tarefa dele é diferente da geração: ele só
+# LÊ, para dizer se uma frase está quebrada. A geração escreve.
+#
+# Esta variável existe para MEDIR se um modelo menor segura a detecção.
+# Padrão = CHAT_MODEL, então sem definir nada nada muda. O modelo da
+# GERAÇÃO não é tocado por aqui: decisão da Márcia, com medição na mesa.
+DETECTOR_MODEL = os.environ.get("DETECTOR_MODEL", "").strip() or CHAT_MODEL
+
+
+def call_claude(prompt, max_tokens=SECTION_MAX_TOKENS, model=None):
     """Uma seção do relatório. COM RETRY (19/07).
 
     Um relatório faz 16+ chamadas aqui, mais as reescritas do verificador.
     Sem retry, um único 429 ou 529 (overloaded) da API derrubava a geração
     inteira e o cliente recebia erro. Mesma classe do 429 da geolocalização:
     o retry existia no meu script de teste, não no produto.
+
+    `model` é ADITIVO: None usa CHAT_MODEL, exatamente como antes. Serve
+    para a medição do detector, não para trocar o modelo da geração.
     """
     init_clients()
     from retry_util import _com_retry
+    _modelo = model or CHAT_MODEL
 
     def _uma():
         resp = _anth.messages.create(
-            model=CHAT_MODEL,
+            model=_modelo,
             max_tokens=max_tokens,
             messages=[{"role": "user", "content": prompt}],
         )
         return resp.content[0].text.strip()
 
-    texto, exc = _com_retry(_uma, tentativas=4, rotulo="Claude (seção)")
+    texto, exc = _com_retry(_uma, tentativas=4,
+                            rotulo=f"Claude ({_modelo})")
     if exc is not None:
         raise exc
     return texto
+
+
+def call_claude_detector(prompt, max_tokens=SECTION_MAX_TOKENS):
+    """O detector, no DETECTOR_MODEL. Assinatura igual à de call_claude
+    porque `detectar_sem_sentido` recebe a função, não o modelo."""
+    return call_claude(prompt, max_tokens=max_tokens, model=DETECTOR_MODEL)
 
 
 
@@ -3599,6 +3622,13 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
                     # relatório inteiro por uma palavra.
                     if v["kind"].startswith(("lexico:", "glossario")):
                         continue
+                    # FLAG-ONLY (13/11): mesmo raciocínio do léxico acima,
+                    # mas por PRECISÃO e não por ferramenta errada. O
+                    # gerundial acusou 3769 vezes em 414,7 M de caracteres
+                    # das transcrições — português correto da Márcia. Sai
+                    # da falha fechada e é reportado na varredura final.
+                    if v["kind"] in _tv.KINDS_FLAG_ONLY:
+                        continue
                     if v.get("no_rewrite") and v["kind"] not in _WL_CONFIAVEIS:
                         continue
                     frase = _rl.frase_do_offset(txt, v.get("offset", 0))
@@ -3644,6 +3674,39 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
             _marcadores_removidos = _marcadores_finais
             log(f"remissão desligada: {_marcadores_finais} marcador(es) "
                 f"emitidos pelo modelo e removidos do texto final")
+
+    # VARREDURA DOS FLAG-ONLY (13/11) — aqui, pelo mesmo motivo que a
+    # varredura de marcador logo acima: este é o primeiro ponto em que
+    # `full_report` não vai mais ser regenerado.
+    #
+    # Sem ela, "flag-only" viraria "apagado": o `verifier_log` é da passada
+    # do verifier, que roda ANTES do pipeline, então um gerundial criado
+    # numa regeneração tardia ficaria invisível — que é exatamente o
+    # defeito de ordem de 10/11, repetido num lugar novo.
+    #
+    # IMPORTA AQUI, não reaproveita `_tv`/`_rl`/`_chart_for_verifier`: os
+    # três nascem dentro de blocos condicionais acima (`_rl` só existe se
+    # `_revisao_lingua` estiver ligada). Reaproveitar faria esta varredura
+    # morrer de NameError dentro do próprio `except` — salvaguarda morta,
+    # que é pior que salvaguarda ausente, porque o log diz que protegeu.
+    lingua_flags = []
+    try:
+        import text_verifier as _tvf
+        import revisao_lingua as _rlf
+        _ch_flags = dict(chart or {})
+        _ch_flags.setdefault("_client_name", name)
+        for _v in _tvf._detectar_tudo(full_report, _ch_flags):
+            if _v["kind"] in _tvf.KINDS_FLAG_ONLY:
+                lingua_flags.append({
+                    "kind": _v["kind"],
+                    "match": _v["match"],
+                    "frase": _rlf.frase_do_offset(full_report, _v.get("offset", 0)),
+                })
+        if lingua_flags:
+            log(f"FLAG-ONLY: {len(lingua_flags)} achado(s) no texto final "
+                f"(não seguram o relatório)")
+    except Exception as e:
+        log(f"varredura flag-only falhou: {e}")
 
     spell_lint_out = []
     try:
@@ -3758,6 +3821,7 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
         "sign_divergences": sign_divergences,
         "correction_rewrites": correction_rewrites,
         "verifier_log": verifier_log,
+        "lingua_flags": lingua_flags,
         # Máquina de remissão: dono, direção e teto. Ver remissao.py.
         "remissao_ativa": REMISSAO_ATIVA,
         # Zero e o esperado com a maquina desligada. Diferente de zero

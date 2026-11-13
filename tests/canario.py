@@ -446,6 +446,28 @@ NEGATIVOS = [
     ("'a partir de' não é gerundial portuguesa",
      lambda t: tv._detect_gerundial_portuguesa(t),
      "a ferida a partir da qual você construiu tudo isso"),
+    # AS QUATRO QUE A MÁRCIA ADJUDICOU EM 13/11 como rigor excessivo.
+    # Eram 4 das 7 frases que falharam fechadas em 10 mapas reais. Cada
+    # uma fica aqui para que o padrão não volte a acusá-las.
+    ("substantivo + a + infinitivo é português corrente ('um peso a carregar')",
+     lambda t: tv._detect_gerundial_portuguesa(t),
+     "a memória de Câncer guarda o que marcou, e isso pode ser tanto um "
+     "recurso quanto um peso a carregar."),
+    ("'um detalhe a ajustar' é português corrente",
+     lambda t: tv._detect_gerundial_portuguesa(t),
+     "o planejamento dura mais do que o necessário — há sempre um detalhe "
+     "a ajustar, uma imprecisão que ainda incomoda."),
+    ("'uma situação a resolver' é português corrente",
+     lambda t: tv._detect_gerundial_portuguesa(t),
+     "deixar que alguém cuide de você sem transformar isso em uma dívida "
+     "ou em uma situação a resolver."),
+    ("REGÊNCIA do verbo não é gerundial ('inclina a pessoa a transformar')",
+     lambda t: tv._detect_gerundial_portuguesa(t),
+     "esse signo já inclina a pessoa a transformar sentimento em função, "
+     "a demonstrar cuidado pela via prática."),
+    ("'prestes a entrar' é licenciado, mesmo com corpo celeste",
+     lambda t: tv._detect_gerundial_portuguesa(t),
+     "o sol prestes a entrar em Virgem muda o tom do mês"),
     ("'tem a dizer' não é gerundial portuguesa",
      lambda t: tv._detect_gerundial_portuguesa(t),
      "o que ele tem a dizer importa mais do que parece"),

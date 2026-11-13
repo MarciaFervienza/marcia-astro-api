@@ -66,7 +66,7 @@ _REGEN_COM_MARCADOR = (
 )
 
 
-def _monta(remissao_ativa, regenerar_com_marcador=True):
+def _monta(remissao_ativa, regenerar_com_marcador=True, texto_regen=None):
     """Monta um relatório pelo caminho DE PRODUÇÃO, dublando só o que fala
     com a rede. Devolve o dicionário de resultado."""
     orig = (rg.generate_section, rg.generate_fio_condutor,
@@ -96,6 +96,8 @@ def _monta(remissao_ativa, regenerar_com_marcador=True):
         def _pipe(full, chart, regenerar_secao_fn, **kw):
             def _regen(txt):
                 _n["regen"] += 1
+                if texto_regen is not None:
+                    return texto_regen
                 return (_REGEN_COM_MARCADOR if regenerar_com_marcador
                         else "Parágrafo regenerado, sem marcador nenhum.")
             return _orig_pipe(full, chart, _regen, **kw)
@@ -188,6 +190,43 @@ checa("6b. LIGADA: o resíduo NÃO é apagado em silêncio",
       "apagar com a máquina ligada esconderia o defeito")
 
 print()
+# ------------------------------------------------------------------ 7
+# FLAG-ONLY (13/11). Prova COMPORTAMENTAL, não asserção sobre a fonte:
+# em 11/08 uma salvaguarda ficou verde porque a asserção procurava uma
+# substring que aparecia duas vezes no caminho. Aqui o gerundial entra
+# numa REGENERAÇÃO — o único lugar onde o verifier já não olha mais — e
+# o teste exige as duas coisas ao mesmo tempo: aparece no flag, e não
+# derruba o relatório.
+_GER = ("Há nisso um Sol canceriano a alimentar e proteger quem está "
+        "por perto, e isso organiza o resto da leitura.")
+_r7 = _monta(False, texto_regen=_GER)
+_flags7 = _r7.get("lingua_flags") or []
+_kinds7 = [f.get("kind") for f in _flags7]
+
+checa("7a. gerundial REAL numa regeneração aparece em lingua_flags",
+      "lingua:gerundial_portuguesa" in _kinds7,
+      f"flags={_kinds7}")
+_falha7 = str(_r7.get("falha_lingua") or "")
+checa("7b. o gerundial NÃO está entre os motivos da falha fechada",
+      "gerundial" not in _falha7,
+      f"falha_lingua={_falha7[:90]!r}")
+_ult7 = ((_r7.get("revisao_lingua") or {}).get("rodadas") or [{}])[-1]
+checa("7b2. nem entre os achados da última rodada do pipeline",
+      not any("gerundial" in str(a.get("motivo", ""))
+              for a in (_ult7.get("achados") or [])),
+      f"achados={[str(a.get('motivo'))[:40] for a in (_ult7.get('achados') or [])]}")
+checa("7c. o texto do gerundial sobrevive no relatório (não foi apagado)",
+      "a alimentar" in (_r7.get("report") or ""))
+checa("7d. a frase do flag é localizada, não vem vazia",
+      bool(_flags7 and (_flags7[0].get("frase") or "").strip()),
+      f"frase={(_flags7[0].get('frase') if _flags7 else None)!r}")
+# A varredura tem que vir DEPOIS da ultima regeneracao, como a do marcador.
+_src = inspect.getsource(rg._generate_report_locked)
+checa("7e. varredura flag-only vem depois do pipeline de língua",
+      _src.index("lingua_flags = []") > _src.index("pipeline_lingua"),
+      "ancora: `lingua_flags = []` só existe na varredura; "
+      "KINDS_FLAG_ONLY aparece 2x (filtro antes, varredura depois)")
+
 if falhas:
     print(f">>> {len(falhas)} FALHOU: {falhas}")
     sys.exit(1)

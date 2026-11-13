@@ -840,25 +840,85 @@ _NAO_INFINITIVO = {"partir", "júpiter", "jupiter", "mulher", "prazer", "poder",
                    "lugar", "olhar", "pesar", "lar", "sentir"}
 
 
+# APERTADO EM 13/11, e REBAIXADO A FLAG-ONLY na mesma decisão.
+#
+# Em 10 mapas reais medidos em 11/11, este detector foi responsável por
+# 4 das 7 frases que falharam fechadas — e a Márcia adjudicou as quatro
+# como RIGOR EXCESSIVO:
+#   "um peso a carregar", "um detalhe a ajustar", "uma situação a
+#   resolver"  -> substantivo + a + infinitivo, português corrente;
+#   "inclina a pessoa a transformar" -> REGÊNCIA do verbo inclinar. O
+#   padrão antigo nem podia ver o verbo: ele fica FORA da janela do
+#   match, antes do determinante.
+#
+# A medição que decidiu o padrão (414,7 milhões de caracteres das
+# transcrições reais de consulta, 3710 arquivos):
+#     padrão antigo ........ 3769 acusações
+#     padrão novo ...........  14 acusações, 2 distintas
+# O antigo acusava português correto da própria Márcia 3769 vezes. Ele
+# nunca foi preciso — só nunca havia sido medido fora de relatório curto.
+#
+# O novo mira a CLASSE REAL do defeito do Lucca: corpo celeste como
+# AGENTE do infinitivo ("um Sol canceriano A ALIMENTAR", "uma Lua
+# leonina A BRILHAR"), onde pt-BR pede gerúndio. O que ficou de fora
+# é o caso em que o substantivo é OBJETO do infinitivo ("uma coisa a
+# analisar") — que é correto, e era a fonte do ruído.
+#
+# NÃO COBRE "estou a fazer" / "estava a monitorar" (perífrase
+# progressiva pt-PT). O comentário de 19/07 mais abaixo neste arquivo
+# afirma que esse defeito "eu tenho detector para pegar" — MEDIDO em
+# 13/11: as quatro formas devolvem ZERO. A afirmação era falsa. Classe
+# descoberta e NÃO coberta; proposta na mesa da Márcia, não adicionada
+# por conta própria.
+# FLAG-ONLY — acende no log, NÃO segura o relatório (decisão da Márcia,
+# 13/11). Um kind aqui é detectado e reportado, mas não entra na lista que
+# dispara regeneração nem falha fechada. Existe num lugar só para não haver
+# duas verdades sobre o que bloqueia.
+#
+# Critério para entrar: a regra tem valor de sinal mas a sua precisão não
+# justifica recusar o relatório de uma cliente pagante. Foi o caso do
+# gerundial — 4 das 7 falhas fechadas em 10 mapas, todas adjudicadas como
+# rigor excessivo.
+KINDS_FLAG_ONLY = frozenset({"lingua:gerundial_portuguesa"})
+
+
+_GER_CORPOS = (r"(?:sol|lua|merc[úu]rio|v[êe]nus|marte|j[úu]piter|saturno|"
+               r"urano|netuno|plut[ãa]o|ascendente|quiron|lilith|n[óo]do)")
+# `prestes a` licencia: "o sol prestes a entrar" apareceu na medição e é
+# correto. `\s` trocado por espaço/tab de propósito: nas transcrições a
+# frase quebra em linha e o match atravessava, fabricando acusação.
+_GER_SP = r"[ \t]+"
+_GER_LIC = (_LICENCIAM_A_INF
+            + r"|inclin|induz|estimul|motiv|autoriz|permit|destin|prestes")
+_GER_PAT = (r"(?:([a-zà-ÿ]{3,})" + _GER_SP + r")?"
+            r"\b(?:um|uma|o|a|seu|sua|esse|essa)" + _GER_SP + _GER_CORPOS
+            + r"(?:" + _GER_SP + r"([a-zà-ÿ]{3,}))?" + _GER_SP + r"a"
+            + _GER_SP + r"([a-zà-ÿ]{3,}(?:ar|er|ir))\b")
+
+
 def _detect_gerundial_portuguesa(text):
     out = []
-    pat = (r"\b(?:um|uma|o|a|os|as|seu|sua|esse|essa)\s+"
-           r"([a-zà-ÿ]{3,})(?:\s+([a-zà-ÿ]{3,}))?\s+a\s+([a-zà-ÿ]{3,}(?:ar|er|ir))\b")
-    for m in re.finditer(pat, text, flags=re.IGNORECASE):
-        antes = (m.group(2) or m.group(1) or "").lower()
-        if re.match(_LICENCIAM_A_INF, antes):
+    for m in re.finditer(_GER_PAT, text, flags=re.IGNORECASE):
+        antes = (m.group(1) or "").lower()      # palavra ANTES do determinante
+        adj = (m.group(2) or "").lower()
+        inf = m.group(3)
+        if antes and re.match(_GER_LIC, antes):
+            continue                            # regência verbal
+        if adj and re.match(_GER_LIC, adj):
             continue
-        if m.group(3).lower() in _NAO_INFINITIVO:
+        if inf.lower() in _NAO_INFINITIVO:
             continue
-        if _PT2KEY.get(m.group(3).lower()):
-            continue                      # nome de corpo, não verbo
+        if _PT2KEY.get(inf.lower()):
+            continue                            # nome de corpo, não verbo
         out.append({
             "kind": "lingua:gerundial_portuguesa",
-            "match": m.group(0)[:70], "offset": m.start(),
+            "match": re.sub(r"\s+", " ", m.group(0)).strip()[:70],
+            "offset": m.start(),
+            "no_rewrite": True,
             "suggestion": (
-                f"'a {m.group(3)}' é construção portuguesa de Portugal. Em "
-                f"pt-BR usa-se gerúndio: '{m.group(3)[:-2]}ando/endo/indo'. "
-                f"Reescrever a frase com o gerúndio."),
+                f"'a {inf}' com corpo celeste como agente é construção "
+                f"portuguesa de Portugal. Em pt-BR usa-se gerúndio: "
+                f"'{inf[:-2]}ando/endo/indo'."),
         })
     return out
 

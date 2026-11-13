@@ -2340,8 +2340,16 @@ def revisar_texto_endpoint():
         t0 = _t.time()
         if modo == "detectar":
             # FLAG-ONLY: aponta frases sem sentido, não altera nada.
+            # `modelo` serve a UMA pergunta (11/11): um modelo menor
+            # segura a detecção? O detector é 273 das 302 chamadas de um
+            # relatório, e só LÊ. Sem o campo, usa o DETECTOR_MODEL —
+            # que por padrão é o CHAT_MODEL, então nada muda.
+            _mod = (body.get("modelo") or "").strip() or rg.DETECTOR_MODEL
             achados = rl.detectar_sem_sentido(
-                texto, call_claude_fn=rg.call_claude, granularidade=gran)
+                texto,
+                call_claude_fn=lambda p, max_tokens=rg.SECTION_MAX_TOKENS:
+                    rg.call_claude(p, max_tokens=max_tokens, model=_mod),
+                granularidade=gran)
             _p, _i = rl._fatiar(texto, gran)
             return jsonify({
                 "status": "ok", "modo": "detectar", "granularidade": gran,
@@ -3409,6 +3417,7 @@ def executar_geracao(body, ctx=None):
             "correction_rewrites": result.get("correction_rewrites", []),
             "partial_coverage": result.get("partial_coverage", []),
             "verifier_log": result.get("verifier_log", []),
+            "lingua_flags": result.get("lingua_flags", []),
             # Remissão: dono do aspecto, direção temporal e teto (11/08).
             "remissao_ativa": result.get("remissao_ativa"),
             "remissao_marcadores_removidos": result.get(

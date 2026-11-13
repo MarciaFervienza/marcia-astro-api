@@ -1430,3 +1430,68 @@ silêncio. Só asserção sobre o **artefato** (`tests/prove_artefato.py`)
 alcança essa classe. Corolário: **título fixo é promessa que não sabe se
 foi cumprida** — o título da página de referência passa a ser composto do
 que é realmente emitido.
+
+### R14 — o modelo de referência não é a verdade sobre o texto (11/11)
+
+Ao comparar um detector novo (ou o mesmo detector num modelo mais barato)
+contra o que já está em produção, **divergência não é erro do novo**. O que
+o candidato aponta a mais vai para a **Márcia adjudicar, uma a uma**; o que
+ele deixa passar é o número que decide. Contar o extra como "falso
+positivo do Haiku" seria eleger o Sonnet como juiz do português dela — e o
+Sonnet não é dono do texto.
+
+> Decisão da Márcia, 11/11, ao autorizar a medição do detector em Haiku:
+> *"o que o Haiku apontar a mais que o Sonnet vem para mim julgar, não vira
+> falso positivo dele. O Sonnet não é a verdade sobre o meu texto — eu sou."*
+
+Vale para qualquer troca de juiz: modelo, biblioteca de gramática, regra
+nova. **A medição reporta duas colunas (pegou / deixou passar) e uma lista
+de divergências para adjudicação. Nunca uma taxa de acerto contra o
+incumbente.**
+
+## Gerundial portuguesa — APERTADA e rebaixada a flag-only (13/11)
+
+Em 10 mapas reais (11/11) a falha fechada bateu **4 em 10**. Sete frases
+sobreviveram às 3 rodadas, e **quatro eram deste detector** — todas
+adjudicadas pela Márcia como RIGOR EXCESSIVO:
+
+| frase | o que era |
+|---|---|
+| "um peso a carregar" | substantivo + a + infinitivo |
+| "um detalhe a ajustar" | idem |
+| "uma situação a resolver" | idem |
+| "inclina a pessoa a transformar" | **regência** do verbo *inclinar* |
+
+O padrão antigo nem podia ver o verbo da regência: ele fica FORA da janela
+do match, antes do determinante.
+
+**A medição que decidiu o padrão** — 414,7 milhões de caracteres das
+transcrições reais, 3710 arquivos:
+
+| padrão | acusações |
+|---|---|
+| antigo (em produção desde 19/07) | **3 769** |
+| novo | **14** (2 distintas) |
+
+O antigo acusava português correto da própria Márcia 3769 vezes. Nunca foi
+preciso — só nunca havia sido medido fora de relatório curto. O novo mira a
+classe real: **corpo celeste como AGENTE do infinitivo** ("um Sol canceriano
+a alimentar"). Ficou de fora o caso em que o substantivo é OBJETO ("uma
+coisa a analisar"), que é correto.
+
+**Rebaixado a flag-only** (`text_verifier.KINDS_FLAG_ONLY`): detecta e
+reporta em `meta.lingua_flags`, não dispara regeneração nem falha fechada.
+A varredura roda DEPOIS da última regeneração, pelo mesmo motivo que a do
+marcador — `verifier_log` é da passada do verifier, que roda antes do
+pipeline, então um gerundial criado numa regeneração tardia ficaria
+invisível. Era o defeito de ORDEM de 10/11 repetido num lugar novo.
+
+### Classe descoberta e NÃO coberta
+
+O comentário de 19/07 neste arquivo e em `text_verifier.py` afirma que
+"estava a monitorar" é "defeito que eu tenho detector para pegar".
+**MEDIDO em 13/11: as quatro formas de `estar/andar/ficar + a + infinitivo`
+devolvem ZERO.** A afirmação era falsa — crença registrada em comentário,
+nunca testada. Perífrase progressiva pt-PT segue sem detector. Medida no
+corpus: 1949 ocorrências, todas de clientes portuguesas falando. Proposta
+na mesa da Márcia; não adicionada por conta própria.
