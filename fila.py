@@ -392,6 +392,31 @@ class Fila(_Banco):
             return None
         return agora - float(r[0])
 
+    def remover(self, ids):
+        """Apaga trabalhos pelos ids DADOS. Devolve (apagados, nao_achados).
+
+        Explícito por desenho: sem curinga, sem "apaga tudo que é velho",
+        sem filtro por estado. Apagar é irreversível, e a única forma de
+        não apagar o errado é o chamador nomear cada um. Uma lista vazia
+        não apaga nada em vez de apagar tudo — a cláusula WHERE que some
+        é o acidente clássico aqui.
+        """
+        ids = [i for i in (ids or []) if i]
+        if not ids:
+            return [], []
+        con = self.con()
+        cur = con.cursor()
+        achados = []
+        for tid in ids:
+            cur.execute(self._q("SELECT id FROM trabalhos WHERE id=%s"), (tid,))
+            if cur.fetchone():
+                achados.append(tid)
+        for tid in achados:
+            cur.execute(self._q("DELETE FROM trabalhos WHERE id=%s"), (tid,))
+        if self.postgres:
+            con.commit()
+        return achados, [i for i in ids if i not in achados]
+
     def travados(self, agora=None):
         """SÓ LEITURA: o que `retomar_orfaos` consertaria se rodasse.
 

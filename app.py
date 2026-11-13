@@ -223,7 +223,16 @@ _RATE_LIMIT_MESSAGE_PT = (
 # (tipo + linha final da stack) em janela de 10 min evita rajada.
 # Fire-and-forget: falha no envio do alerta é só logada.
 # ============================================================
-_ALERT_RECIPIENT = "executivo@marciafervienza.com"
+# DESTINO DO ALERTA — configurável (13/11).
+#
+# Estava fixo em executivo@. Em 13/11 ficou provado que NENHUM alerta
+# deste sistema jamais apareceu na caixa que a Márcia lê de fato
+# (marcia.fervienza@gmail.com): busca pelo assunto em todo o histórico
+# devolveu um resultado, de 2023, sem relação. Os três meses de silêncio
+# tiveram DUAS causas somadas — o SendGrid sem crédito e o alerta
+# apontado para um endereço que ela não acompanha.
+_ALERT_RECIPIENT = (os.environ.get("ALERT_RECIPIENT", "").strip()
+                    or "executivo@marciafervienza.com")
 _ALERT_DEDUPE_WINDOW_SECS = 10 * 60
 _alert_last_sent = {}     # signature → timestamp
 _alert_dedupe_lock = _Lock()
@@ -1583,6 +1592,45 @@ def diag_telegram_endpoint():
     }), (200 if _ok else 503)
 
 
+@app.route("/arquivar", methods=["POST"])
+def arquivar_endpoint():
+    """Apaga trabalhos da fila pelos ids DADOS. Irreversível.
+
+    Existe porque vigia que toca sempre vira vigia ignorada: enquanto um
+    trabalho de 91 dias ficar em `processando`, o /vigia responde 503 para
+    sempre e o alarme perde o sentido.
+
+    Exige a lista explícita. Sem curinga e sem "apaga o que for velho":
+    o critério de quem sai é da Márcia, não meu, e um filtro que eu
+    escrevesse erraria exatamente no caso que importa.
+    """
+    import hmac
+    presented = (request.headers.get("X-API-Key")
+                 or request.args.get("api_key") or "")
+    if not API_SECRET_KEY or not presented \
+            or not hmac.compare_digest(presented, API_SECRET_KEY):
+        return jsonify({"status": "error", "message": "unauthorized"}), 401
+    body = request.get_json(silent=True) or {}
+    ids = body.get("ids")
+    if not isinstance(ids, list) or not ids:
+        return jsonify({
+            "status": "error",
+            "message": ("Informe 'ids' como lista não vazia. Este endpoint "
+                        "não tem modo 'apagar tudo' de propósito."),
+        }), 400
+    f, err = _fila_ou_erro()
+    if err:
+        return err
+    try:
+        apagados, nao_achados = f.remover(ids)
+    except Exception as exc:                                   # noqa: BLE001
+        logger.exception("arquivar falhou")
+        return jsonify({"status": "error", "message": str(exc)[:200]}), 500
+    logger.info("ARQUIVAR: %d apagado(s) %s", len(apagados), apagados)
+    return jsonify({"status": "ok", "apagados": apagados,
+                    "nao_encontrados": nao_achados}), 200
+
+
 @app.route("/vigia", methods=["GET"])
 def vigia_endpoint():
     try:
@@ -1961,6 +2009,14 @@ def env_check():
     return jsonify({
         "SENDGRID_API_KEY_set": bool(os.environ.get("SENDGRID_API_KEY")),
         "SENDGRID_API_KEY_length": len(os.environ.get("SENDGRID_API_KEY", "")),
+        "ALERT_RECIPIENT": _ALERT_RECIPIENT,
+        # NOMES, nunca valores. Existe para achar nome digitado errado:
+        # em 13/11 o Telegram foi configurado "nos dois serviços" e o
+        # endpoint seguia vendo token ausente — e sem ver os nomes que
+        # EXISTEM não dá para distinguir typo de serviço errado.
+        "TELEGRAM_vars_presentes": sorted(
+            k for k in os.environ if "TELEGRAM" in k.upper()),
+        "TELEGRAM_BOT_TOKEN_length": len(os.environ.get("TELEGRAM_BOT_TOKEN", "")),
         "EMAIL_FROM_ADDRESS": os.environ.get("EMAIL_FROM_ADDRESS", "(unset)"),
         "EMAIL_REPLY_TO": os.environ.get("EMAIL_REPLY_TO", "(unset)"),
         "EMAIL_FROM_NAME": os.environ.get("EMAIL_FROM_NAME", "(default)"),

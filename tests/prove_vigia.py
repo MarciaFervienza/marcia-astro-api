@@ -5,6 +5,7 @@ salvaguarda ficou verde porque procurava uma substring que aparecia duas
 vezes no caminho. Aqui tudo é exercitado de verdade — fila real em
 sqlite, cliente HTTP do Flask, e o Telegram dublado no ponto de saída.
 """
+import inspect
 import json
 import os
 import sys
@@ -163,6 +164,36 @@ try:
 finally:
     A.requests.post = _orig_post
     A.SENDGRID_API_KEY, A.EMAIL_FROM_ADDRESS = _bak
+
+# ------------------------------------------------------------------ 8
+# /arquivar: apagar é irreversível, então a prova é sobre o que ele se
+# RECUSA a fazer. A cláusula WHERE que some é o acidente clássico aqui.
+print("\n8) /arquivar só apaga o que foi nomeado")
+_k = {"X-API-Key": os.environ["API_SECRET_KEY"]}
+_a = f.enfileirar({"x": 1}, nome="Apagar Este")
+_b = f.enfileirar({"x": 2}, nome="Manter Este")
+
+chk("8a. sem autenticação, 401",
+    cli.post("/arquivar", json={"ids": [_a]}).status_code == 401)
+chk("8b. lista vazia é 400, NÃO 'apaga tudo'",
+    cli.post("/arquivar", json={"ids": []}, headers=_k).status_code == 400)
+chk("8c. sem a chave 'ids', 400",
+    cli.post("/arquivar", json={}, headers=_k).status_code == 400)
+chk("8d. os dois trabalhos seguem vivos depois das recusas",
+    {t["id"] for t in f.recentes(50)} >= {_a, _b})
+
+_r8 = cli.post("/arquivar", json={"ids": [_a, "nao-existe"]}, headers=_k)
+_b8 = _r8.get_json() or {}
+chk("8e. apaga o nomeado", _b8.get("apagados") == [_a], f"corpo={_b8}")
+chk("8f. e relata o que não achou", _b8.get("nao_encontrados") == ["nao-existe"])
+_vivos = {t["id"] for t in f.recentes(50)}
+chk("8g. o NÃO nomeado continua lá", _b in _vivos and _a not in _vivos)
+
+# ------------------------------------------------------------------ 9
+print("\n9) destino do alerta é configurável por variável")
+chk("9a. ALERT_RECIPIENT sai do ambiente, com o antigo como padrão",
+    "ALERT_RECIPIENT" in inspect.getsource(A).split("_ALERT_RECIPIENT =")[1][:200],
+    "sem isto, mudar o destino exige deploy de código")
 
 print()
 if falhas:
