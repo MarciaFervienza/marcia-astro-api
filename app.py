@@ -1522,6 +1522,41 @@ def diag_fila_endpoint():
 # chave obrigaria a guardá-la num terceiro, e o repositório é público. O
 # corpo tem contagens e idades — nenhum nome, e-mail, cidade ou data de
 # nascimento. Fila travada não é segredo; a chave da API é.
+@app.route("/diag-email", methods=["POST"])
+def diag_email_endpoint():
+    """Simétrico do /diag-telegram, e pela mesma razão (13/11).
+
+    O SendGrid ficou sem crédito em 11/08 e ninguém soube até 11/11,
+    porque o único jeito de exercitar o canal era um relatório de verdade
+    — US$ 1,50 e 200 segundos. Provar a entrega tem que ser barato, senão
+    não se prova nunca.
+
+    NÃO manda relatório nenhum: só uma mensagem curta para o endereço de
+    alerta, e devolve exatamente o que o SendGrid respondeu. Foi a
+    resposta crua ("Maximum credits exceeded") que distinguiu conta sem
+    saldo de chave errada — duas causas com conserto oposto.
+    """
+    import hmac
+    presented = (request.headers.get("X-API-Key")
+                 or request.args.get("api_key") or "")
+    if not API_SECRET_KEY or not presented \
+            or not hmac.compare_digest(presented, API_SECRET_KEY):
+        return jsonify({"status": "error", "message": "unauthorized"}), 401
+    _destino = (request.get_json(silent=True) or {}).get("para") or _ALERT_RECIPIENT
+    _det = []
+    _ok = _enviar_email_bruto(
+        "[Mapa Natal] teste de canal de e-mail",
+        "Mensagem de teste do /diag-email. Se você está lendo isto, o "
+        "SendGrid está entregando.", destino=_destino, detalhe_out=_det)
+    return jsonify({
+        "sendgrid_key_presente": bool(SENDGRID_API_KEY),
+        "remetente_configurado": bool(EMAIL_FROM_ADDRESS),
+        "destino": _destino,
+        "enviado": _ok,
+        "detalhe": _det[0] if _det else None,
+    }), (200 if _ok else 503)
+
+
 @app.route("/diag-telegram", methods=["POST"])
 def diag_telegram_endpoint():
     """Prova o canal SEM esperar um defeito real.
@@ -3549,7 +3584,7 @@ def executar_geracao(body, ctx=None):
 # tem de entrar no núcleo — é a única implementação, por decisão.
 # ======================================================================
 
-def _enviar_email_bruto(assunto, texto, destino=None):
+def _enviar_email_bruto(assunto, texto, destino=None, detalhe_out=None):
     """Envio direto, SEM a dedupe de `_send_failure_alert`.
 
     A dedupe é certa no endpoint (uma exceção repetida em rajada não
@@ -3557,9 +3592,18 @@ def _enviar_email_bruto(assunto, texto, destino=None):
     dois trabalhos DIFERENTES que falham do mesmo jeito têm a mesma
     assinatura — a dedupe engoliria o segundo, que é justamente o cliente
     que ninguém mais veria. Devolve True/False; nunca levanta."""
+    # `detalhe_out` é a mesma convenção do `lint_out` do pdf_generator: o
+    # retorno continua True/False para quem só decide, e o DETALHE sai por
+    # fora para quem precisa diagnosticar. Existe porque "Maximum credits
+    # exceeded" e "wrong credentials" têm conserto OPOSTO, e essa
+    # distinção morria num logger.warning que ninguém lê.
+    def _det(t):
+        if detalhe_out is not None:
+            detalhe_out.append(t)
     destino = destino or _ALERT_RECIPIENT
     if not SENDGRID_API_KEY or not EMAIL_FROM_ADDRESS:
         logger.warning("alerta não enviado: SendGrid/from não configurados")
+        _det("SendGrid/remetente não configurados no serviço")
         return False
     try:
         resp = requests.post(
@@ -3579,9 +3623,11 @@ def _enviar_email_bruto(assunto, texto, destino=None):
             return True
         logger.warning("alerta falhou: HTTP %d %s", resp.status_code,
                        (resp.text or "")[:200])
+        _det(f"SendGrid HTTP {resp.status_code}: {(resp.text or '')[:300]}")
         return False
     except Exception as exc:
         logger.warning("alerta levantou: %s", exc)
+        _det(f"{type(exc).__name__}: {str(exc)[:300]}")
         return False
 
 

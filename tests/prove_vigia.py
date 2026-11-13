@@ -132,6 +132,38 @@ try:
 finally:
     A.TELEGRAM_BOT_TOKEN, A.TELEGRAM_CHAT_ID = _bt, _ci
 
+# ------------------------------------------------------------------ 7
+# /diag-email: o detalhe do SendGrid tem que CHEGAR, não morrer no log.
+# Foi a resposta crua ("Maximum credits exceeded") que distinguiu conta
+# sem saldo de chave errada — duas causas com conserto oposto. Enquanto
+# ela só existia num logger.warning, a distinção não existia para
+# ninguém.
+print("\n7) /diag-email devolve o detalhe, não só o booleano")
+_orig_post = A.requests.post
+
+
+class _Resp:
+    status_code = 401
+    text = '{"errors":[{"message":"Maximum credits exceeded"}]}'
+
+
+_bak = (A.SENDGRID_API_KEY, A.EMAIL_FROM_ADDRESS)
+try:
+    A.SENDGRID_API_KEY = A.SENDGRID_API_KEY or "chave-de-teste"
+    A.EMAIL_FROM_ADDRESS = A.EMAIL_FROM_ADDRESS or "x@y.z"
+    A.requests.post = lambda *a, **k: _Resp()
+    r = cli.post("/diag-email", headers={"X-API-Key": os.environ["API_SECRET_KEY"]})
+    b = r.get_json() or {}
+    chk("7a. canal morto devolve 503", r.status_code == 503, f"http={r.status_code}")
+    chk("7b. e o MOTIVO vem no corpo, não só no log",
+        "Maximum credits exceeded" in str(b.get("detalhe")),
+        f"detalhe={b.get('detalhe')!r}")
+    chk("7c. sem a chave, exige autenticação",
+        cli.post("/diag-email").status_code == 401)
+finally:
+    A.requests.post = _orig_post
+    A.SENDGRID_API_KEY, A.EMAIL_FROM_ADDRESS = _bak
+
 print()
 if falhas:
     print(f">>> {len(falhas)} FALHOU: {falhas}")
