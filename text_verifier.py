@@ -1296,9 +1296,37 @@ _FIXED_TEMPLATE_WHITELIST = [
 ]
 
 
+_RE_CABECALHO = re.compile(r"(?m)^(#{1,6} )(.+)$")
+
+
+def _mascara_cabecalhos(text):
+    """Apaga o CONTEÚDO das linhas de cabeçalho, preservando comprimento.
+
+    CABEÇALHO NÃO É PROSA (13/11). Os títulos de seção são literais do
+    código, escritos pela Márcia — não saem do modelo e não podem ser
+    corrigidos por detector nenhum. Mas o texto montado traz `## Júpiter:
+    onde você acredita em si mesmo`, e num mapa FEMININO o
+    `voz:genero_do_sujeito` acende em "si mesmo", o verifier reescreve
+    para "si mesma", e a partir daí o título deixa de bater com
+    `sections`. O `_regenera` não encontra a seção, devolve None, e
+    AQUELA SEÇÃO NUNCA MAIS PODE SER REGENERADA — o encanamento gasta as
+    3 rodadas e falha fechado sem nunca ter tentado.
+
+    Medido no relatório da Helena de 13/11: o markdown entregue diz
+    "mesma" onde o código diz "mesmo", e a falha nomeia a seção como não
+    regenerável. Atinge QUALQUER mapa feminino.
+
+    Máscara por espaços, como `_mask_fixed_templates`: o comprimento não
+    muda, então todo offset de quem vier depois continua válido.
+    """
+    return _RE_CABECALHO.sub(
+        lambda m: m.group(1) + " " * len(m.group(2)), text)
+
+
 def _mask_fixed_templates(text):
     """Substitui os trechos whitelistados por espaços (mesmo comprimento —
     offsets preservados) antes de qualquer detecção."""
+    text = _mascara_cabecalhos(text)
     for frag in _FIXED_TEMPLATE_WHITELIST:
         i = 0
         low, fl = text.lower(), frag.lower()
