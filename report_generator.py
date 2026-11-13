@@ -2226,7 +2226,45 @@ def voice_rules_block(chart) -> str:
         "observar/apoiar — nunca instruções em segunda pessoa ao sujeito."
     )
 
-def generate_section(section, chart, name, gender, section_context=None, context_instruction=None):
+def bloco_correcao_dirigida(achados):
+    """Instrução de correção para uma REGENERAÇÃO de seção.
+
+    Sem isto, regenerar é re-rolagem: mesmo prompt, mesmos argumentos,
+    mesma chance de repetir o defeito. Com isto, o modelo sabe o que não
+    pode reaparecer.
+
+    Vai no FIM do prompt de propósito — é a última coisa lida, e é a
+    única parte que muda entre a primeira escrita e a reescrita.
+    """
+    if not achados:
+        return ""
+    linhas = []
+    for a in achados[:8]:
+        frase = (a.get("frase") or "").strip()
+        motivo = (a.get("motivo") or "").strip()
+        if not frase:
+            continue
+        linhas.append(f'- "{frase[:300]}"\n  (o que está errado: {motivo[:200]})')
+    if not linhas:
+        return ""
+    return (
+        "\n\n============================================================\n"
+        "CORREÇÃO DIRIGIDA — ESTA SEÇÃO JÁ FOI ESCRITA E FOI RECUSADA.\n\n"
+        "Os trechos abaixo saíram da versão anterior e estão quebrados:\n\n"
+        + "\n".join(linhas)
+        + "\n\nEscreva a seção INTEIRA de novo, com o mesmo conteúdo "
+        "astrológico e a mesma voz. Estes trechos não podem reaparecer — "
+        "nem iguais, nem numa variação da mesma construção. Conserte a "
+        "construção; não a troque por outra do mesmo tipo.\n\n"
+        "ESTA INSTRUÇÃO É ANDAIME E É INVISÍVEL PARA QUEM LÊ. Não a "
+        "mencione, não se desculpe, não comente que houve uma versão "
+        "anterior, não escreva nada sobre correção ou revisão. Devolva "
+        "apenas o texto da seção, como se fosse a primeira vez."
+    )
+
+
+def generate_section(section, chart, name, gender, section_context=None,
+                     context_instruction=None, evitar=None):
     """
     Generate a section's text. Optionally accepts the text of a previously-generated
     section plus an instruction for how to use it as additional context.
@@ -2298,6 +2336,7 @@ def generate_section(section, chart, name, gender, section_context=None, context
         style_rules=SECTION_STYLE_RULES,
         voice_rules=voice_rules_block(chart),
     )
+    prompt += bloco_correcao_dirigida(evitar)
 
     print(f"    calling Claude...", flush=True)
     text = call_claude(prompt, max_tokens=SECTION_MAX_TOKENS)
@@ -2461,7 +2500,7 @@ def _parental_dynamics_context(chart):
     return "\n".join(parts)
 
 
-def generate_fio_condutor(name, chart, full_report, gender):
+def generate_fio_condutor(name, chart, full_report, gender, evitar=None):
     init_clients()
     summary = build_full_chart_summary(chart)
     parental_ctx = _parental_dynamics_context(chart)
@@ -2473,6 +2512,9 @@ def generate_fio_condutor(name, chart, full_report, gender):
         gender=gender,
         voice_rules=voice_rules_block(chart),
     )
+    # O Fio também era regenerado às cegas, e as duas falhas fechadas dos
+    # 5 mapas de QA (19/07) foram nele. Agora recebe a mesma instrução.
+    prompt += bloco_correcao_dirigida(evitar)
     return call_claude(prompt, max_tokens=FIO_CONDUTOR_MAX_TOKENS)
 
 
@@ -3549,9 +3591,14 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
             _t_rev = time.time()
             import revisao_lingua as _rl
 
-            def _regenera(titulo):
-                """Regenera UMA seção pelo título. Texto novo não carrega o
-                defeito — e ninguém precisa adivinhar a intenção."""
+            def _regenera(titulo, achados=None):
+                """Regenera UMA seção pelo título, SABENDO o que deu errado.
+
+                `achados` são as frases apontadas naquela seção, com o
+                motivo. Sem elas a regeneração era re-rolagem do mesmo
+                prompt — e era essa a causa de 4 de 10 mapas falharem
+                fechados em 13/11, com o mesmo mapa passando numa geração
+                e falhando na seguinte."""
                 # O FIO CONDUTOR não é uma seção: sai de
                 # generate_fio_condutor, não de generate_section, e não está
                 # em `sections`. Sem este ramo, `alvo` era None, a
@@ -3563,7 +3610,8 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
                 # regenerado com o texto corrente — que já traz as seções
                 # consertadas nas rodadas anteriores.
                 if titulo.strip().lower().startswith("fio condutor"):
-                    return generate_fio_condutor(name, chart, full_report, gender)
+                    return generate_fio_condutor(name, chart, full_report,
+                                                 gender, evitar=achados)
                 alvo = next((s for s in sections if s["title"] == titulo), None)
                 if alvo is None:
                     _log_falta = f"seção {titulo!r} não é regenerável"
@@ -3575,7 +3623,8 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
                 # em 4 dos 5 mapas de QA (19/07). A falha fechada pegou e
                 # recusou o envio — funcionou —, mas a medição virou 4/5 de
                 # exceção, não de defeito de língua.
-                _res = generate_section(alvo, chart, name, gender)
+                _res = generate_section(alvo, chart, name, gender,
+                                        evitar=achados)
                 return _res[0] if isinstance(_res, tuple) else _res
 
             # REGRAS DO word_lint QUE PODEM PEDIR REGENERAÇÃO (19/07).

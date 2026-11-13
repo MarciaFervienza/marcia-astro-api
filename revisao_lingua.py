@@ -467,8 +467,10 @@ def pipeline_lingua(full_report, chart, regenerar_secao_fn,
                     detector_extra=None):
     """Detecta, regenera as seções apontadas, redetecta, falha fechado.
 
-    `regenerar_secao_fn(titulo) -> texto_novo_da_secao | None` é injetada
-    para este módulo não depender de report_generator (ciclo de import).
+    `regenerar_secao_fn(titulo, achados) -> texto_novo_da_secao | None` é
+    injetada para este módulo não depender de report_generator (ciclo de
+    import). A aridade 1 — `(titulo)` — segue aceita para os dublês dos
+    testes, mas aí a regeneração é CEGA (ver abaixo).
 
     Devolve (texto, log, motivo_falha). `motivo_falha` não-nulo significa
     FALHA FECHADA: o chamador NÃO pode enviar o relatório.
@@ -477,6 +479,18 @@ def pipeline_lingua(full_report, chart, regenerar_secao_fn,
     if call_claude_fn is None:
         from report_generator import call_claude as call_claude_fn
     log = {"rodadas": [], "chamadas_detector": 0, "regeneracoes": 0}
+
+    # A regeneração informada depende da aridade da função injetada.
+    # Resolvida UMA vez, por inspeção — não por `except TypeError` em volta
+    # da chamada, que engoliria um TypeError vindo de DENTRO da função real
+    # e silenciosamente degradaria para a versão cega.
+    import inspect as _insp
+    try:
+        _aceita_achados = len(
+            _insp.signature(regenerar_secao_fn).parameters) >= 2
+    except (TypeError, ValueError):
+        _aceita_achados = False
+    log["regeneracao_informada"] = _aceita_achados
     texto = full_report
 
     for rodada in range(1, max_tentativas + 1):
@@ -514,6 +528,23 @@ def pipeline_lingua(full_report, chart, regenerar_secao_fn,
             return texto, log, ("frase apontada não foi localizada em nenhuma "
                                 "seção — não há o que regenerar")
 
+        # ÓRFÃS NÃO SOMEM EM SILÊNCIO (13/11).
+        #
+        # `titulos` descarta o bucket None. Quando havia OUTRAS seções
+        # localizadas, as frases órfãs simplesmente não eram regeneradas —
+        # reapareciam em toda rodada, gastavam o teto e derrubavam o
+        # relatório na falha fechada sem que nada dissesse que nunca houve
+        # tentativa para elas. É o mesmo modo de falha do no-op do Fio
+        # Condutor (19/07): silêncio lido como tentativa.
+        if None in alvos:
+            log.setdefault("orfas", [])
+            for _a in alvos[None]:
+                log["orfas"].append({"frase": (_a.get("frase") or "")[:160],
+                                     "motivo": (_a.get("motivo") or "")[:120],
+                                     "rodada": rodada})
+            _log(f"ATENÇÃO: {len(alvos[None])} frase(s) apontada(s) sem seção "
+                 f"localizável — NÃO foram regeneradas")
+
         if rodada == max_tentativas:
             break                       # última rodada só detecta, não regenera
 
@@ -533,7 +564,23 @@ def pipeline_lingua(full_report, chart, regenerar_secao_fn,
 
             def _um(t):
                 try:
-                    _r = regenerar_secao_fn(t)
+                    # REGENERAÇÃO INFORMADA (13/11).
+                    #
+                    # Até aqui `regenerar_secao_fn` recebia só o TÍTULO: o
+                    # texto novo saía do mesmo prompt, com os mesmos
+                    # argumentos, sem nada que dissesse o que estava
+                    # errado. Isso não é correção, é RE-ROLAGEM — a chance
+                    # de repetir o defeito é a mesma da primeira vez. É a
+                    # explicação do que se mediu em 13/11: 4 de 10 mapas
+                    # falhando fechado, e o MESMO mapa passando numa
+                    # geração e falhando na seguinte.
+                    #
+                    # A lição é a do verifier (07/08): a instrução tem de
+                    # NOMEAR o texto real. "Há contradição, resolva" fez o
+                    # reescritor uniformizar para a casa ERRADA; a
+                    # instrução que cita a frase conserta.
+                    _r = (regenerar_secao_fn(t, alvos.get(t) or [])
+                          if _aceita_achados else regenerar_secao_fn(t))
                     if _r is None:
                         # Regeneração impossível para esta seção. Sem este
                         # aviso o no-op era SILENCIOSO: o ciclo gastava as
@@ -564,7 +611,19 @@ def pipeline_lingua(full_report, chart, regenerar_secao_fn,
 
     log["nao_regeneraveis"] = sorted(log.get("_nao_regen", set()))
     pendentes = log["rodadas"][-1]["achados"]
-    frases = "; ".join(f"{a.get('frase','')[:70]!r} ({a.get('motivo','')[:50]})"
+    # Frase e motivo INTEIROS no alerta. Os cortes em [:70]/[:50] produziam
+    # citações que terminavam no meio da palavra — "que sua geraçã",
+    # "que at'" — e nos prints de 13/11 isso foi lido como texto truncado
+    # no relatório, quando era a mensagem que cortava. Alerta que distorce
+    # a evidência custa o diagnóstico.
+    frases = "; ".join(f"{a.get('frase','')!r} ({a.get('motivo','')})"
                        for a in pendentes[:4])
+    extra = ""
+    if log.get("orfas"):
+        extra = (f" | {len(log['orfas'])} frase(s) nunca foram regeneradas "
+                 f"(seção não localizada)")
+    if log.get("nao_regeneraveis"):
+        extra += (f" | seções não regeneráveis: "
+                  f"{', '.join(log['nao_regeneraveis'])}")
     return texto, log, (f"{len(pendentes)} frase(s) seguem quebradas após "
-                        f"{max_tentativas} tentativas: {frases}")
+                        f"{max_tentativas} tentativas: {frases}{extra}")
