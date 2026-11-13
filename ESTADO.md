@@ -1495,3 +1495,54 @@ devolvem ZERO.** A afirmação era falsa — crença registrada em comentário,
 nunca testada. Perífrase progressiva pt-PT segue sem detector. Medida no
 corpus: 1949 ocorrências, todas de clientes portuguesas falando. Proposta
 na mesa da Márcia; não adicionada por conta própria.
+
+## Vigia externa + segundo canal de alerta (13/11)
+
+**O defeito que isto fecha:** o SendGrid ficou sem crédito em 11/08
+(`HTTP 401: Maximum credits exceeded`) e a partir daí nenhum relatório e
+**nenhum alerta** saiu. Último e-mail entregue: 11/08 16h25 UTC. O alerta
+de que o canal morreu ia para `logger.warning` e para nada mais — o
+sistema ficou mudo três meses e não tinha como dizer que estava mudo.
+
+**A inversão.** O desenho antigo só avisa quando está saudável o bastante
+para avisar. O novo é interruptor de homem morto: **o alarme é a ausência
+do sinal.**
+
+### `/vigia` — PUXADA, não empurrada
+
+A forma empurrada (thread pingando um serviço externo) daria a mesma
+propriedade e está **descartada por cicatriz**: o web roda `gunicorn
+--preload --threads 4`, e envio de e-mail em thread de fundo já derrubou
+o worker nessa exata configuração (estado SSL × fork do `--preload`).
+
+Então a API só EXPÕE o estado e um monitor externo puxa a cada 5 min.
+A propriedade fica intacta: API morta, deploy quebrado ou Railway fora
+não respondem → o monitor acusa a ausência. Fila travada → 503.
+
+Critérios de 503: `processando` com heartbeat além de `HEARTBEAT_MORTO_SEGS`,
+ou `pendente` esperando além de `FILA_PARADA_SEGS`.
+
+`fila.travados()` é SÓ LEITURA, de propósito: `retomar_orfaos` é a CURA e
+mora dentro do worker. Se a vigia tivesse de chamá-la para enxergar,
+consertaria o estado que está tentando reportar.
+
+**Sem autenticação e sem nenhum dado pessoal** — deliberado. Exigir a
+chave obrigaria a guardá-la num terceiro, e o repositório é público.
+`prove_vigia.py` asserta que nome, e-mail, cidade e id do trabalho não
+aparecem no corpo.
+
+### Telegram — segundo canal
+
+Independente por desenho: token, chat_id e fornecedor próprios, nunca no
+caminho do SendGrid. O token vai como variável no Railway — **nunca no
+repositório, que é público**.
+
+Duas correções de desenho, as duas provadas por reinjeção:
+1. `_alerta_com_retry` só devolvia True se o e-mail saísse. Agora é
+   `_tg or _mail`; "alerta perdido" só quando os DOIS falham.
+2. `_send_failure_alert` tinha `return` antes de qualquer outro canal
+   quando o SendGrid não estava configurado — o desenho exato que
+   produziu o silêncio. O Telegram agora vem ANTES dessa checagem.
+
+`POST /diag-telegram` prova o canal sem esperar um defeito real: canal só
+exercitado quando algo quebra é canal nunca exercitado.

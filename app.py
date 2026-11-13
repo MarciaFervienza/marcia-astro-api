@@ -248,9 +248,6 @@ def _send_failure_alert(stage, exc, request_ctx):
                 logger.info("failure alert deduped (sig sent %ds ago)", int(now - last))
                 return
             _alert_last_sent[_sig] = now
-        if not SENDGRID_API_KEY or not EMAIL_FROM_ADDRESS:
-            logger.warning("failure alert not sent: SendGrid/from not configured")
-            return
         from datetime import datetime as _dtu
         _when = _dtu.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC")
         # Últimas ~30 linhas de traceback (suficiente pra diagnóstico, não estoura)
@@ -268,6 +265,17 @@ def _send_failure_alert(stage, exc, request_ctx):
             f"ua:         {request_ctx.get('ua','?')}\n\n"
             f"--- Traceback (últimas 30 linhas) ---\n{_tb_tail}\n"
         )
+        # TELEGRAM ANTES DA CHECAGEM DO SENDGRID (13/11). A checagem
+        # ficava ACIMA, com `return` — então, sem SendGrid configurado,
+        # esta função saía antes de qualquer outro canal. Era o desenho
+        # que produziu três meses de silêncio: um único fornecedor
+        # decidindo se a notícia do defeito existe.
+        _telegram_enviar(f"[Mapa Natal] falha em {stage} — "
+                         f"{type(exc).__name__}\n\n{_text}")
+        if not SENDGRID_API_KEY or not EMAIL_FROM_ADDRESS:
+            logger.warning("failure alert: SendGrid/from não configurado — "
+                           "seguiu só pelo Telegram")
+            return
         payload = {
             "personalizations": [{"to": [{"email": _ALERT_RECIPIENT}]}],
             "from": {"email": EMAIL_FROM_ADDRESS, "name": EMAIL_FROM_NAME or EMAIL_FROM_ADDRESS},
@@ -1487,6 +1495,90 @@ def diag_fila_endpoint():
                     "nao_exercitadas": vazias,
                     "assercoes": res, "contagem_antes_da_limpeza": contagem}), \
         (200 if not falharam else 500)
+
+
+# =============================================================
+# VIGIA EXTERNA — /vigia (13/11)
+#
+# Por que PUXADA e não empurrada. A ideia que a Márcia aprovou é o
+# interruptor de homem morto: o alarme é a AUSÊNCIA do sinal, não a
+# chegada dele. Um alerta que só sai quando o sistema está saudável o
+# bastante para enviá-lo não cobre o caso em que o sistema morreu — e foi
+# exatamente o que aconteceu entre 11/08 e 13/11.
+#
+# A forma EMPURRADA (uma thread pingando lá fora a cada 5 min) daria a
+# mesma propriedade, e está DESCARTADA por cicatriz deste repositório: o
+# serviço web roda `gunicorn --preload --threads 4`, e o envio de e-mail
+# em thread de fundo já derrubou o worker nessa exata configuração
+# (interação de estado SSL com o fork do --preload). Trocar um modo de
+# falha silencioso por um que derruba a API seria péssimo negócio.
+#
+# Então a API só EXPÕE o estado, e quem puxa é um monitor externo a cada
+# 5 min. A propriedade do homem morto fica intacta: API morta, deploy
+# quebrado ou Railway fora do ar não respondem, e o monitor acusa a
+# ausência. Fila travada responde 503, e o monitor acusa o conteúdo.
+#
+# SEM AUTENTICAÇÃO, E SEM NENHUM DADO PESSOAL. É deliberado: exigir a
+# chave obrigaria a guardá-la num terceiro, e o repositório é público. O
+# corpo tem contagens e idades — nenhum nome, e-mail, cidade ou data de
+# nascimento. Fila travada não é segredo; a chave da API é.
+@app.route("/diag-telegram", methods=["POST"])
+def diag_telegram_endpoint():
+    """Prova o canal SEM esperar um defeito real.
+
+    Canal de alerta só exercitado quando algo quebra é canal nunca
+    exercitado — foi assim que o SendGrid morreu sem ninguém notar. Este
+    endpoint existe para que a prova seja barata e repetível.
+    """
+    import hmac
+    presented = (request.headers.get("X-API-Key")
+                 or request.args.get("api_key") or "")
+    if not API_SECRET_KEY or not presented \
+            or not hmac.compare_digest(presented, API_SECRET_KEY):
+        return jsonify({"status": "error", "message": "unauthorized"}), 401
+    _cfg = bool(TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID)
+    _ok = _telegram_enviar(
+        "[Mapa Natal] teste de canal — se você está lendo isto, o "
+        "Telegram funciona e não depende do SendGrid.")
+    return jsonify({
+        "configurado": _cfg,
+        "token_presente": bool(TELEGRAM_BOT_TOKEN),
+        "chat_id_presente": bool(TELEGRAM_CHAT_ID),
+        "enviado": _ok,
+    }), (200 if _ok else 503)
+
+
+@app.route("/vigia", methods=["GET"])
+def vigia_endpoint():
+    try:
+        f, err = _fila_ou_erro()
+        if err is not None:
+            # Banco inacessível é falha de verdade, e tem que acusar.
+            return jsonify({"ok": False, "motivo": "fila_inacessivel"}), 503
+        _travados, _idade = f.travados()
+        _espera = f.espera_do_mais_antigo()
+        _cont = f.contagem_por_estado() or {}
+    except Exception as exc:                                   # noqa: BLE001
+        logger.warning("vigia falhou: %s", exc)
+        return jsonify({"ok": False, "motivo": "vigia_excecao"}), 503
+
+    motivos = []
+    if _travados:
+        motivos.append(f"{_travados} em processando com heartbeat morto "
+                       f"(pior: {int(_idade or 0)}s)")
+    if _espera is not None and _espera > FILA_PARADA_SEGS:
+        motivos.append(f"pendente mais velho esperando {int(_espera)}s "
+                       f"(teto {FILA_PARADA_SEGS}s) — ninguém consome")
+
+    corpo = {
+        "ok": not motivos,
+        "motivos": motivos,
+        "travados": _travados,
+        "espera_do_mais_antigo_segs": int(_espera) if _espera is not None else None,
+        "contagem": {str(k): int(v) for k, v in _cont.items()},
+        "commit": os.environ.get("RAILWAY_GIT_COMMIT_SHA", "unknown")[:7],
+    }
+    return jsonify(corpo), (503 if motivos else 200)
 
 
 @app.route("/fila", methods=["GET"])
@@ -3493,22 +3585,79 @@ def _enviar_email_bruto(assunto, texto, destino=None):
         return False
 
 
+# =============================================================
+# TELEGRAM — segundo canal de alerta (13/11)
+#
+# Existe porque o PRIMEIRO canal morreu em silêncio por três meses. O
+# SendGrid ficou sem crédito em 11/08 e, a partir daí, nenhum relatório e
+# NENHUM ALERTA saiu — inclusive o alerta que diria que o canal morreu.
+# Um canal só é ponto único de falha para a própria notícia da falha.
+#
+# Independente por desenho: token e chat_id próprios, infraestrutura
+# própria, e NUNCA entra no caminho do SendGrid. Se as variáveis não
+# estiverem postas, degrada em silêncio — ausência de segundo canal não
+# pode derrubar o primeiro.
+#
+# O token vai como variável de ambiente no Railway. NUNCA no repositório:
+# ele é público, e um token de bot no histórico do git é um token
+# queimado mesmo depois de removido.
+TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "").strip()
+TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
+_TELEGRAM_LIMITE = 3800          # o limite da API é 4096; folga para a moldura
+
+
+def _telegram_enviar(texto):
+    """True se o Telegram aceitou. Nunca levanta."""
+    if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
+        return False
+    try:
+        corpo = str(texto or "")[:_TELEGRAM_LIMITE]
+        resp = requests.post(
+            f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage",
+            json={"chat_id": TELEGRAM_CHAT_ID, "text": corpo,
+                  "disable_web_page_preview": True},
+            timeout=15,
+        )
+        if 200 <= resp.status_code < 300:
+            return True
+        # O corpo do erro do Telegram é específico e útil ("chat not
+        # found", "bot was blocked"). Vai inteiro para o log: aqui não há
+        # ninguém para perguntar depois.
+        logger.warning("telegram HTTP %d: %s",
+                       resp.status_code, (resp.text or "")[:200])
+    except Exception as exc:                                   # noqa: BLE001
+        logger.warning("telegram levantou: %s", exc)
+    return False
+
+
 def _alerta_com_retry(assunto, texto, tentativas=4):
     """Alerta com backoff. No worker não há resposta HTTP para reportar
     erro — se o SendGrid estiver instável, uma tentativa só perde o aviso
     em silêncio, que é o modo de falha exato que a fila existe para
     fechar. O resumo diário é a rede DEPOIS desta."""
+    # TELEGRAM PRIMEIRO, e fora do laço de retry do e-mail (13/11). É
+    # instantâneo e não compartilha nada com o SendGrid — nem chave, nem
+    # cota, nem fornecedor. Se o e-mail estiver morto, este já saiu.
+    _tg = _telegram_enviar(f"{assunto}\n\n{texto}")
     espera = 2.0
+    _mail = False
     for i in range(tentativas):
         if _enviar_email_bruto(assunto, texto):
             if i:
                 logger.info("alerta enviado na tentativa %d", i + 1)
-            return True
+            _mail = True
+            break
         if i < tentativas - 1:
             _time.sleep(espera)
             espera *= 2
-    logger.error("ALERTA PERDIDO após %d tentativas: %s", tentativas, assunto)
-    return False
+    if not _mail:
+        logger.error("ALERTA por e-mail PERDIDO após %d tentativas: %s",
+                     tentativas, assunto)
+    # Perdido só quando os DOIS falharam. Antes, um e-mail recusado já
+    # contava como alerta perdido mesmo havendo outro caminho.
+    if not (_tg or _mail):
+        logger.error("ALERTA PERDIDO EM TODOS OS CANAIS: %s", assunto)
+    return _tg or _mail
 
 
 def alertar_falha_de_trabalho(tid, payload, resultado):

@@ -392,6 +392,30 @@ class Fila(_Banco):
             return None
         return agora - float(r[0])
 
+    def travados(self, agora=None):
+        """SÓ LEITURA: o que `retomar_orfaos` consertaria se rodasse.
+
+        Existe para a vigia externa (13/11). `retomar_orfaos` é a CURA e
+        mora dentro do worker — vigia hospedada no vigiado. Isto aqui é o
+        DIAGNÓSTICO, e precisa ser consultável de fora, por um processo que
+        não é o worker e sem efeito colateral nenhum: se a vigia tivesse de
+        chamar `retomar_orfaos` para enxergar, ela consertaria o estado que
+        está tentando reportar e nunca acusaria nada.
+
+        Devolve (quantos, idade_do_pior_em_segundos).
+        """
+        agora = agora if agora is not None else time.time()
+        corte = agora - HEARTBEAT_MORTO_SEGS
+        cur = self.con().cursor()
+        cur.execute(self._q(
+            "SELECT COUNT(*), MIN(COALESCE(heartbeat, atualizado_em)) "
+            "FROM trabalhos WHERE estado=%s "
+            "AND (heartbeat IS NULL OR heartbeat < %s)"), (PROCESSANDO, corte))
+        r = cur.fetchone()
+        if not r or not r[0]:
+            return 0, None
+        return int(r[0]), (agora - float(r[1]) if r[1] is not None else None)
+
     def contagem_por_estado(self):
         cur = self.con().cursor()
         cur.execute("SELECT estado, COUNT(*) FROM trabalhos GROUP BY estado")
