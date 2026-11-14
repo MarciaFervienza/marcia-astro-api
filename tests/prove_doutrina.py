@@ -129,5 +129,22 @@ _, _log = tv.run_verifier(
     lambda p, max_tokens=500: "quando você sente que há espaço para ser você mesma.")
 chk("'ser ela mesma' pego", [x for x in _log if "terceira" in x["kind"]])
 
+print("\n--- 14/11: a regra da perífrase está nos DOIS prompts ---")
+# "retrograu" saiu no relatório entregue da Marcelle. O defeito tem um
+# lugar sintático: a frase já havia aberto espaço de substantivo ("O ___
+# aprofunda esse processo") e não havia substantivo para aquele sentido,
+# então um foi fabricado de pedaços. Nenhum detector conserta isso na
+# raiz — eles pegam a palavra depois de pronta. A correção é a instrução
+# de REFAZER A FRASE, e ela tem de estar no prompt de seção E no do Fio,
+# senão o Fio continua fabricando.
+_src_rg = open(os.path.join(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))), "report_generator.py"), encoding="utf-8").read()
+chk("regra da perífrase presente nos 2 prompts",
+    [1] if _src_rg.count("PALAVRA INVENTADA") >= 2 else [])
+chk("ela manda EXPLICAR COM UMA ORAÇÃO, não só proíbe",
+    [1] if "EXPLIQUE COM UMA ORAÇÃO" in _src_rg else [])
+chk("e nomeia o caso real que a motivou",
+    [1] if "retrograu" in _src_rg else [])
+
 print()
 print("ACHADOS 18/07: TUDO PROVADO" if ok else ">>> ALGO FALHOU")
