@@ -3752,8 +3752,21 @@ def _generate_report_locked(chart, name, gender, sections_only, limit, no_fio,
         import revisao_lingua as _rlf
         _ch_flags = dict(chart or {})
         _ch_flags.setdefault("_client_name", name)
+        # DUAS LISTAS, UM CONCEITO (14/11). Esta varredura só registrava
+        # `KINDS_FLAG_ONLY` — os detectores de língua REBAIXADOS. Mas
+        # existe uma segunda família que também não segura o relatório e
+        # também precisa ser vista: o `word_lint`, marcado `no_rewrite`.
+        # São listas diferentes para a mesma ideia, e a família inteira
+        # ficava invisível aqui.
+        #
+        # Custou a palavra "retrograu" no relatório da Marcelle. O
+        # `palavra:colada` identifica certo ("retro" + "grau"), mas o
+        # verifier roda ANTES do pipeline e viu um texto que ainda não a
+        # tinha — a seção de Mercúrio foi regenerada depois. O log prova:
+        # colada disparou UMA vez, em "celebratório", e nunca em
+        # "retrograu". Palavra inventada entregue, com o sistema mudo.
         for _v in _tvf._detectar_tudo(full_report, _ch_flags):
-            if _v["kind"] in _tvf.KINDS_FLAG_ONLY:
+            if _v["kind"] in _tvf.KINDS_FLAG_ONLY or _v.get("no_rewrite"):
                 lingua_flags.append({
                     "kind": _v["kind"],
                     "match": _v["match"],
