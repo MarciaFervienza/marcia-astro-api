@@ -3449,7 +3449,19 @@ def executar_geracao(body, ctx=None):
                           # que o sistema já tentou de novo antes de ela
                           # decidir refazer à mão.
                           segunda_tentativa=_segunda_tentativa,
-                          pendencias=[p.get("frase", "")[:110] for p in _pend])
+                          # O MOTIVO VAI JUNTO. Guardar só a frase (como era
+                          # até 17/11) entrega à Márcia uma frase em português
+                          # aparentemente correto e nenhuma pista do que o
+                          # detector viu nela — ou seja, pede o julgamento
+                          # dela e sonega a evidência. Medido em 17/11: das
+                          # três recusas em dez mapas, só uma era legível sem
+                          # o motivo ("Figures de autoridade"); as outras duas
+                          # ficaram inadjudicáveis.
+                          pendencias=[
+                              {"frase": p.get("frase", "")[:140],
+                               "motivo": p.get("motivo", "")[:120],
+                               "secao": p.get("secao")}
+                              for p in _pend])
         return ({
             "status": "error",
             "code": "lingua_falha_fechada",

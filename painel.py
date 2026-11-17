@@ -110,7 +110,17 @@ if recusados:
     for g in recusados:
         seg = " (já na 2a tentativa)" if g.get("segunda_tentativa") else ""
         print(f"\n{g.get('nome')}{seg}:")
-        for p in (g.get("pendencias") or [])[:4]:
-            print(f"  · {p}")
+        for p in (g.get("pendencias") or [])[:6]:
+            # Formato novo (17/11): dicionário com frase, motivo e seção.
+            # Formato antigo: só a string da frase. Os dois são aceitos
+            # porque o registro vive na memória do servidor e, logo depois
+            # de um deploy, ainda pode conter linhas do formato velho.
+            if isinstance(p, dict):
+                print(f"  · {p.get('frase', '')}")
+                print(f"    POR QUE: {p.get('motivo') or '(motivo não registrado)'}"
+                      + (f"   [seção: {p['secao']}]" if p.get("secao") else ""))
+            else:
+                print(f"  · {p}")
+                print("    POR QUE: (motivo não registrado — versão antiga)")
 
 print()
