@@ -1,0 +1,116 @@
+#!/usr/bin/env python3
+"""PAINEL — o que saiu, o que foi recusado, e o que chegou sinalizado.
+
+    python3 painel.py
+
+Lê o registro do lado do SERVIDOR (as 25 últimas gerações). Esse registro
+sobrevive à desconexão do cliente: se o proxy cortar a resposta aos 300s,
+o relatório ainda sai e aparece aqui.
+
+Isto existe para a Márcia continuar sendo a editora do produto, e não a
+espectadora dele. O sistema decide o encanamento — tentar de novo,
+enfileirar, entregar. O julgamento continua dela, e julgamento precisa de
+informação na mão.
+
+O que cada coluna responde:
+
+  desfecho    saiu, foi recusado, ou nem respondeu
+  2a          o relatório só saiu porque houve segunda tentativa?
+  rodadas     quantas voltas o encanamento de língua precisou
+  sinaliz.    quantas sinalizações CHEGARAM ao cliente sem segurar o
+              relatório — é aqui que aparece uma palavra inventada como
+              o "retrograu"
+"""
+import json
+import os
+import sys
+import urllib.error
+import urllib.request
+
+
+def _le_env():
+    try:
+        for linha in open(".env", encoding="utf-8"):
+            linha = linha.strip()
+            if linha and not linha.startswith("#") and "=" in linha:
+                k, v = linha.split("=", 1)
+                os.environ.setdefault(k.strip(), v.strip().strip("'\""))
+    except FileNotFoundError:
+        pass
+
+
+_le_env()
+BASE = os.environ.get("API_BASE", "https://web-production-6c77f.up.railway.app")
+KEY = os.environ.get("API_SECRET_KEY", "")
+
+if not KEY:
+    sys.exit("API_SECRET_KEY não está no .env nem no ambiente.")
+
+req = urllib.request.Request(BASE + "/ultimas-geracoes",
+                             headers={"X-API-Key": KEY})
+try:
+    with urllib.request.urlopen(req, timeout=30) as r:
+        dados = json.load(r)
+except urllib.error.HTTPError as ex:
+    sys.exit(f"o servidor respondeu {ex.code}. Se for 401, a chave do .env "
+             f"não é a que está no Railway.")
+except Exception as ex:
+    sys.exit(f"não consegui falar com o servidor: {str(ex)[:160]}")
+
+gs = dados.get("geracoes") or []
+if not gs:
+    print("Nenhuma geração registrada ainda.")
+    print("(O registro vive na memória do servidor e zera a cada deploy.)")
+    sys.exit(0)
+
+print("=" * 78)
+print(f"ÚLTIMAS {len(gs)} GERAÇÕES")
+print("=" * 78)
+print(f"{'hora':<10}{'quem':<22}{'desfecho':<18}{'2a':<5}{'rod':<5}{'sinaliz.':<9}")
+print("-" * 78)
+
+recusados, recuperados, sinalizados = [], [], []
+for g in gs:
+    nome = str(g.get("nome") or "—")[:21]
+    desf = str(g.get("desfecho") or "—")
+    seg = "SIM" if g.get("segunda_tentativa") else ""
+    rod = g.get("rodadas")
+    sin = g.get("sinalizacoes")
+    print(f"{str(g.get('quando') or '')[:8]:<10}{nome:<22}"
+          f"{desf[:17]:<18}{seg:<5}{str(rod if rod is not None else '—'):<5}"
+          f"{str(sin if sin is not None else '—'):<9}")
+    if "falha" in desf:
+        recusados.append(g)
+    if g.get("segunda_tentativa"):
+        recuperados.append(g)
+    if g.get("sinalizado"):
+        sinalizados.append(g)
+
+print("-" * 78)
+ok = sum(1 for g in gs if g.get("desfecho") == "ok")
+print(f"entregues: {ok}    recusados: {len(recusados)}    "
+      f"recuperados pela 2a tentativa: {len(recuperados)}")
+
+# O QUE CHEGOU AO CLIENTE SINALIZADO. É a parte que mais merece o olho
+# dela: não segurou o relatório, mas foi entregue assim mesmo.
+if sinalizados:
+    print("\n" + "=" * 78)
+    print("CHEGOU AO CLIENTE COM SINALIZAÇÃO — vale o teu olho")
+    print("=" * 78)
+    for g in sinalizados:
+        print(f"\n{g.get('nome')}:")
+        for s in g.get("sinalizado") or []:
+            print(f"  · {s}")
+
+# E o que foi recusado, com a frase que segurou.
+if recusados:
+    print("\n" + "=" * 78)
+    print("RECUSADOS — o relatório não saiu")
+    print("=" * 78)
+    for g in recusados:
+        seg = " (já na 2a tentativa)" if g.get("segunda_tentativa") else ""
+        print(f"\n{g.get('nome')}{seg}:")
+        for p in (g.get("pendencias") or [])[:4]:
+            print(f"  · {p}")
+
+print()

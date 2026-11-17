@@ -808,7 +808,7 @@ _CLUSTER_1_ANCHOR = (
 _CLUSTER_2_ANCHOR = (
     "Há uma concentração significativa de indicadores ligados à função de cuidado e ao vínculo de "
     "segurança emocional da infância. Essa área do mapa está acentuada, e costuma corresponder a uma "
-    "experiência marcante com a principal figura de cuidado — pode ter sido ausência, instabilidade ou "
+    "experiência marcante com quem exerceu a função materna — pode ter sido ausência, instabilidade ou "
     "ruptura, ou uma presença que sufocava, invadia ou cobrava. Veja o que ressoa com a sua experiência."
 )
 
@@ -1549,7 +1549,7 @@ def build_sections(chart):
                 # plena. As branches (i)/(ii)/(iii) adicionam suas ressalvas.
                 (
                     "A Lua fala da função de cuidado e do vínculo primário de segurança emocional — "
-                    "a principal figura de cuidado da infância, o ambiente afetivo, as memórias e os "
+                    "quem exerceu a função materna na infância, o ambiente afetivo, as memórias e os "
                     "padrões que moldaram como você navega o mundo. Ela descreve suas necessidades "
                     "emocionais básicas, o modo como você se sente segura, o padrão de nutrição (o "
                     "que te alimenta emocionalmente e o que te esvazia), a sua resposta instintiva, o "
@@ -1629,9 +1629,22 @@ def build_sections(chart):
                 "espiritualidade familiar), apresente as manifestações possíveis sem impor uma única "
                 "leitura. Use linguagem como 'pode ter sido' ou 'alternativamente'.\n\n"
 
-                "LINGUAGEM: use 'a principal figura de cuidado', 'quem exerceu esse papel', 'o "
-                "vínculo primário', 'quem cuidou' — ou nomeando COM HIPÓTESE ('sua mãe, ou quem exerceu essa função, provavelmente…'). PROIBIDO afirmar biografia como fato. Regra "
-                "permanente que vale para esta seção."
+                "LINGUAGEM: use 'quem exerceu a função materna', 'quem ocupou esse lugar', "
+                "'o vínculo primário' — ou nomeando COM HIPÓTESE ('sua mãe, ou quem exerceu essa função, provavelmente…'). PROIBIDO afirmar biografia como fato. Regra "
+                "permanente que vale para esta seção.\n\n"
+
+                "A FUNÇÃO NOMEIA O PAPEL, NUNCA A QUALIDADE (doutrina da Márcia, 14/11). "
+                "NÃO escreva 'a figura de cuidado', 'quem cuidou de você', 'quem te "
+                "acolheu': essas expressões PRESSUPÕEM que houve cuidado. A maternidade "
+                "pode ser exercida de muitas formas, e muitas delas não são maternais — "
+                "houve alguém naquele lugar, e essa pessoa pode ter faltado, endurecido ou "
+                "ferido. Numa Lua tensa, 'a figura de cuidado' é uma contradição nos "
+                "termos: o relatório apaga justamente a pessoa de quem está falando. "
+                "Descreva COMO a função foi exercida, inclusive mal — a falha e a ausência "
+                "SÃO a leitura, e dizem da estrutura psíquica da pessoa; não são um buraco "
+                "nela. E não há obrigação de ser a mãe: pode ter sido a avó, a tia, a irmã "
+                "mais velha, o pai. Mantenha a DESCRIÇÃO afiada e o ENDEREÇO aberto — quem "
+                "lê encaixa a pessoa sozinha, e encaixa certo."
             
                 + "\n\nDONO DA LEITURA (anti-repetição, 17/07): os corpos que estiverem na casa 4 "
                 "têm seção própria no relatório. Aqui, cada um deles entra APENAS pelo que a sua "
@@ -1645,7 +1658,8 @@ def build_sections(chart):
                 "a pessoa lida HOJE com a própria família. NUNCA descreva aqui a FIGURA "
                 "DE CUIDADO: quem cuidou, como cuidou, se o afeto chegou ou faltou é "
                 "leitura da LUA, e pertence às Raízes Emocionais. Aqui não se diz 'quem "
-                "exerceu o papel de cuidado', 'a figura materna', 'quem criou você'. "
+                "exerceu o papel de cuidado', 'quem exerceu a função materna', 'a figura "
+                "materna', 'quem criou você'. "
                 "Descreva o TERRENO, não as pessoas que o habitavam.\n"
                 "PLANETA PRIMEIRO: se há planeta na casa 4 (exceto asteroides e nodos), "
                 "a descrição COMEÇA pelo planeta e o signo da cúspide COMPÕE — nunca o "
@@ -2092,7 +2106,7 @@ Esta seção deve:
 2. Mostrar como essas tensões não são falhas — são o motor desta pessoa
 3. Reunir as orientações práticas oferecidas em cada seção e mostrar o que elas têm em comum — não repetindo o que foi dito, mas sintetizando num único movimento. ATENÇÃO À REGÊNCIA: "convergir" é intransitivo. Coisas convergem PARA algo; um mapa não "converge" alguma coisa. Não escreva "a orientação que este mapa converge" nem "o que este mapa converge em apontar" — as duas são agramaticais e já saíram em relatórios. Prefira "as orientações apontam para", "o mapa aponta para", "tudo converge para"
 4. Mostrar como as tensões individuais são expressões de uma mesma dinâmica central
-5. Amarrar explicitamente a dinâmica parental / de apego à síntese. Isso é obrigatório porque o enquadramento de apego atravessa todo o relatório. A figura paterna é lida pelo Sol (identidade, direção vital) e por Saturno (autoridade, estrutura, limite). A figura materna é lida pela Lua (nutrição, segurança emocional, receptividade). Use a seção "DINÂMICA PARENTAL / DE APEGO" acima para decidir qual figura recebe mais peso NESTE mapa específico: pode ser predominantemente paterna, predominantemente materna, ambas com pesos comparáveis, ou marcada pela ausência de uma delas. Deixe os dados guiarem — se Sol e Saturno estão intensamente aspectados (especialmente por aspectos difíceis), a dimensão paterna tende a dominar; se a Lua carrega os aspectos mais tensos, é a dimensão materna; se ambos, ambas. REGRA CRÍTICA: você só pode afirmar posicionamento (signo, casa, retrogradação, aspecto) que esteja EXPLICITAMENTE listado na "DINÂMICA PARENTAL / DE APEGO" acima. NUNCA invente configurações. Se a hora é desconhecida (verá isso indicado na seção parental), não afirme casas. Se o signo da Lua está marcado como indeterminado, não afirme signo para a Lua — trabalhe só com aspectos dela.
+5. Amarrar explicitamente a dinâmica parental / de apego à síntese. Isso é obrigatório porque o enquadramento de apego atravessa todo o relatório. A função paterna — quem exerceu a figura paterna, ou a referência de autoridade — é lida pelo Sol (identidade, direção vital) e por Saturno (autoridade, estrutura, limite). A função materna é lida pela Lua (o eixo do vínculo e da nutrição). ATENÇÃO: esses eixos nomeiam o TERRITÓRIO, nunca o desfecho. Uma referência de autoridade frouxa, ausente ou difusa — um Saturno-Netuno, por exemplo — é leitura tão válida quanto uma rígida, e diz sobre como a pessoa vai navegar o mundo. NUNCA pressuponha que houve nutrição, acolhimento ou estrutura: diga como a função foi exercida NESTE mapa, inclusive quando foi exercida mal ou só em nome. Use a seção "DINÂMICA PARENTAL / DE APEGO" acima para decidir qual figura recebe mais peso NESTE mapa específico: pode ser predominantemente paterna, predominantemente materna, ambas com pesos comparáveis, ou marcada pela ausência de uma delas. Deixe os dados guiarem — se Sol e Saturno estão intensamente aspectados (especialmente por aspectos difíceis), a dimensão paterna tende a dominar; se a Lua carrega os aspectos mais tensos, é a dimensão materna; se ambos, ambas. REGRA CRÍTICA: você só pode afirmar posicionamento (signo, casa, retrogradação, aspecto) que esteja EXPLICITAMENTE listado na "DINÂMICA PARENTAL / DE APEGO" acima. NUNCA invente configurações. Se a hora é desconhecida (verá isso indicado na seção parental), não afirme casas. Se o signo da Lua está marcado como indeterminado, não afirme signo para a Lua — trabalhe só com aspectos dela.
 6. Terminar com algo concreto e singular que a pessoa possa carregar — não uma previsão, não uma lista, mas uma orientação central que emerge naturalmente de tudo que foi revelado neste mapa
 
 RECAPITULAÇÃO: o Fio Condutor tem licença para retomar o que as seções leram — é a função dele. Mas recapitular é COMPRIMIR com palavras novas, nunca colar: nenhuma frase deste texto pode ser quase-verbatim de uma frase que já apareceu no relatório acima. Se você precisa do eixo Saturno-autoridade de novo, sintetize-o em formulação nova e mais curta.

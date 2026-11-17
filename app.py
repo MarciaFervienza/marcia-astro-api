@@ -89,6 +89,23 @@ CHART_STYLE = os.environ.get("CHART_STYLE", "modern")  # 'modern' or 'classic'
 FILA_ASSINCRONA = os.environ.get("FILA_ASSINCRONA", "").strip().lower() in (
     "1", "true", "sim", "yes", "on")
 
+# SEGUNDA TENTATIVA QUANDO A FALHA FECHADA DISPARA (17/11).
+#
+# Medido em 14/11: Bete, Carlos e Marcelo falharam fechados, e os TRÊS
+# passaram de primeira ao serem refeitos — mesmos dados de nascimento,
+# mesma doutrina, mesmo gate. Não existem mapas difíceis: existe
+# variância na geração. Deixar a cliente sem nada por causa de uma
+# rolagem ruim desperdiça um relatório que sairia limpo na seguinte.
+#
+# O PADRÃO NÃO SE MOVE. É uma geração nova inteira, pelo mesmo caminho,
+# com a mesma falha fechada no fim. Se as duas falharem, o relatório
+# continua NÃO SAINDO. O que muda é quantas vezes o sistema tenta antes
+# de desistir — encanamento, não julgamento.
+#
+# Ligada por padrão; `SEGUNDA_TENTATIVA=0` desliga sem push.
+SEGUNDA_TENTATIVA = os.environ.get(
+    "SEGUNDA_TENTATIVA", "1").strip().lower() in ("1", "true", "sim", "yes", "on")
+
 # Espera máxima tolerada na fila antes de alertar que ninguém está
 # consumindo. 15 min é folgado de propósito: a geração leva 2 a 5 minutos
 # e uma rajada de pedidos pode enfileirar legitimamente. Abaixo disso o
@@ -3362,6 +3379,40 @@ def executar_geracao(body, ctx=None):
     # verificação lia None SEMPRE, e a falha fechada nunca disparava.
     # Detector de segurança morto é pior que ausente: o log diz que está
     # protegido. Foi a medição que expôs, não a leitura do código.
+    # SEGUNDA TENTATIVA — ver SEGUNDA_TENTATIVA no topo do arquivo.
+    #
+    # Registrada, nunca silenciosa: `segunda_tentativa` no meta diz que
+    # houve, e `falha_primeira_tentativa` guarda o motivo da primeira.
+    # Sem isso a repetição esconderia a taxa real de defeito atrás da
+    # insistência do sistema — e é justamente essa taxa que decide se o
+    # produto está pronto.
+    _falha_primeira = None
+    _segunda_tentativa = False
+    if result.get("falha_lingua") and SEGUNDA_TENTATIVA:
+        _falha_primeira = result.get("falha_lingua")
+        logger.warning("FALHA FECHADA na 1a tentativa — refazendo UMA vez: %s",
+                       str(_falha_primeira)[:300])
+        try:
+            _r2 = rg.generate_report(
+                body,
+                sections_only=sections_only,
+                limit=limit,
+                no_fio=no_fio,
+                write_file=False,
+                verbose=False,
+            )
+            _segunda_tentativa = True
+            result = _r2
+            if _r2.get("falha_lingua"):
+                logger.warning("2a tentativa também falhou fechada")
+            else:
+                logger.info("2a tentativa saiu limpa — relatório recuperado")
+        except Exception as _e2:
+            # A segunda tentativa não pode piorar o desfecho: se ela
+            # explodir, seguimos com o resultado da primeira e a falha
+            # fechada original seja reportada normalmente.
+            logger.exception("segunda tentativa falhou com exceção")
+
     _falha_lingua = result.get("falha_lingua")
     if _falha_lingua:
         _rl_log = result.get("revisao_lingua") or {}
@@ -3394,6 +3445,10 @@ def executar_geracao(body, ctx=None):
                           regeneracoes=_rl_log.get("regeneracoes"),
                           por_rodada=[len(r.get("achados", []))
                                       for r in (_rl_log.get("rodadas") or [])],
+                          # Duas recusas, não uma: a Márcia precisa saber
+                          # que o sistema já tentou de novo antes de ela
+                          # decidir refazer à mão.
+                          segunda_tentativa=_segunda_tentativa,
                           pendencias=[p.get("frase", "")[:110] for p in _pend])
         return ({
             "status": "error",
@@ -3410,7 +3465,12 @@ def executar_geracao(body, ctx=None):
             "meta": {"falha_lingua": _falha_lingua,
                      "pendencias": _pend,
                      "regeneracoes": _rl_log.get("regeneracoes"),
-                     "rodadas": len(_rl_log.get("rodadas") or [])},
+                     "rodadas": len(_rl_log.get("rodadas") or []),
+                     # Duas tentativas falharam, não uma. Sem este campo a
+                     # recusa parece mais frequente do que é, e a decisão
+                     # de refazer à mão seria tomada no escuro.
+                     "segunda_tentativa": _segunda_tentativa,
+                     "falha_primeira_tentativa": _falha_primeira},
         }), 422
 
     result["report"] = _apply_moon_note(result["report"], moon_meta, time_estimated)
@@ -3517,12 +3577,23 @@ def executar_geracao(body, ctx=None):
                 # cliente, e é assim que se descobre se o e-mail saiu mesmo
                 # quando o proxy já cortou a resposta.
                 _rl_ok = result.get("revisao_lingua") or {}
+                _lingua_flags_resp = result.get("lingua_flags") or []
                 _registra_geracao(
                     nome=body.get("name"), desfecho="ok", email_enviado=True,
                     rodadas=len(_rl_ok.get("rodadas") or []),
                     regeneracoes=_rl_ok.get("regeneracoes"),
                     por_rodada=[len(r.get("achados", []))
-                                for r in (_rl_ok.get("rodadas") or [])])
+                                for r in (_rl_ok.get("rodadas") or [])],
+                    # O PAINEL DA MÁRCIA (17/11). Estes três campos são o
+                    # que a mantém como editora do produto em vez de
+                    # espectadora dele: quantas sinalizações CHEGARAM ao
+                    # cliente, quais foram, e se o relatório só saiu porque
+                    # houve segunda tentativa. Sem eles, um relatório
+                    # recuperado e um relatório limpo são a mesma linha.
+                    segunda_tentativa=_segunda_tentativa,
+                    sinalizacoes=len(_lingua_flags_resp or []),
+                    sinalizado=[f"{x.get('kind')}: {x.get('match')}"
+                                for x in (_lingua_flags_resp or [])][:6])
                 logger.info("email sent to %s", recipient)
             else:
                 email_error = send_result
@@ -3533,6 +3604,12 @@ def executar_geracao(body, ctx=None):
         "report": result["report"],
         "pdf_base64": pdf_b64,
         "meta": {
+            # Um relatório RECUPERADO não pode ser indistinguível de um que
+            # saiu limpo de primeira: sem isto, a taxa real de defeito fica
+            # escondida atrás da insistência do sistema — e é essa taxa que
+            # diz se o produto está pronto.
+            "segunda_tentativa": _segunda_tentativa,
+            "falha_primeira_tentativa": _falha_primeira,
             "name": result["name"],
             "gender": result["gender"],
             "sections": result["sections"],

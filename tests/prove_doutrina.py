@@ -146,5 +146,34 @@ chk("ela manda EXPLICAR COM UMA ORAÇÃO, não só proíbe",
 chk("e nomeia o caso real que a motivou",
     [1] if "retrograu" in _src_rg else [])
 
+print("\n--- 17/11: léxico parental — função, não pessoa; papel, não desfecho ---")
+# A Marcelle não reconheceu a mãe na leitura da Lua, e reconheceu MUITO a
+# avó. O erro não era de leitura, era de ENDEREÇAMENTO. E a pressuposição
+# estava no vocabulário do próprio prompt: "a principal figura de cuidado"
+# nomeia o papel pelo desfecho esperado. Numa Lua tensa isso é contradição
+# nos termos — havia alguém naquele lugar, e essa pessoa não cuidou.
+#
+# Doutrina ditada pela Márcia em 14/11: a maternidade pode ser exercida de
+# muitas formas, e muitas delas não são maternais; a falha É a leitura.
+import ast as _ast
+_lit = "".join(n.value for n in _ast.walk(_ast.parse(_src_rg))
+               if isinstance(n, _ast.Constant) and isinstance(n.value, str)
+               and len(n.value) > 40)
+
+chk("a regra papel-não-qualidade está no prompt",
+    [1] if "A FUNÇÃO NOMEIA O PAPEL, NUNCA A QUALIDADE" in _lit else [])
+chk("prescreve 'quem exerceu a função materna'",
+    [1] if "quem exerceu a função materna" in _lit else [])
+chk("proíbe 'quem te acolheu' (pressupõe o desfecho)",
+    [1] if "quem te acolheu" in _lit else [])
+chk("abre o endereço: avó, tia, irmã, pai",
+    [1] if "pode ter sido a avó" in _lit else [])
+chk("Sol-Saturno: 'referência de autoridade', não 'função estruturante'",
+    [1] if "ou a referência de autoridade" in _lit else [])
+chk("e a autoridade frouxa é leitura válida, não buraco",
+    [1] if "nomeiam o TERRITÓRIO, nunca o desfecho" in _lit else [])
+chk("sumiu a prescrição antiga 'a principal figura de cuidado'",
+    [1] if "use 'a principal figura de cuidado'" not in _src_rg else [])
+
 print()
 print("ACHADOS 18/07: TUDO PROVADO" if ok else ">>> ALGO FALHOU")
