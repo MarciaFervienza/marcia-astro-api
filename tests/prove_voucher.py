@@ -354,8 +354,12 @@ chk("e a cliente recebe um e-mail", len(_enviados) == 1
     and _enviados[0][2] == "dora@exemplo.com", str(len(_enviados)))
 _assunto, _corpo, _dest = _enviados[0] if _enviados else ("", "", "")
 chk("o e-mail diz o MOTIVO (já foi usado)", "já foi usado" in _corpo)
-chk("diz que nenhum relatório foi gerado",
-    "Nenhum relatório foi gerado" in _corpo)
+chk("diz que o relatório não foi gerado",
+    "não consegui gerar o seu Mapa Natal" in _corpo)
+chk("manda para a Marcelle, no executivo@",
+    "Marcelle" in _corpo and "executivo@marciafervienza.com" in _corpo)
+chk("fecha com a despedida da Márcia",
+    _corpo.rstrip().endswith("Atenciosamente e obrigada!\n\nMárcia"))
 chk("chama pelo primeiro nome", _corpo.startswith("Oi, Dora!"))
 chk("sem travessão", "—" not in _corpo and "—" not in _assunto)
 _novos = list(_app._ULTIMAS_GERACOES)[_antes:]

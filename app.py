@@ -1568,17 +1568,24 @@ def _vouchers_ou_erro():
 
 # Mensagens de recusa do voucher. Ficam aqui, num lugar só, porque são o
 # que a CLIENTE lê — e porque cada uma pede uma ação diferente dela.
+# REDAÇÃO DA MÁRCIA (23/11). O texto de "ja_usado" é dela, palavra por
+# palavra; os outros três seguem o mesmo molde e mandam para o mesmo
+# lugar. O contato é a Marcelle, no executivo@, e não "responda este
+# e-mail": quem atende é ela, e a cliente precisa saber com quem fala.
+_CONTATO_RECUSA = ("entra em contato com a Marcelle pelo email "
+                   "executivo@marciafervienza.com")
 _RECUSA_VOUCHER = {
-    "inexistente": ("Não encontrei esse código. Confira se digitou igual ao "
-                    "que está no seu e-mail, ou responda o e-mail que a "
-                    "Márcia te mandou."),
-    "ja_usado": ("Esse código já foi usado. Cada código vale um relatório. "
-                 "Se você acha que houve engano, responda o e-mail que a "
-                 "Márcia te mandou."),
-    "expirado": ("Esse código expirou. Responda o e-mail que a Márcia te "
-                 "mandou e ela emite outro."),
-    "ausente": ("Falta o código de acesso. Ele está no e-mail que a Márcia "
-                "te mandou, no formato MF-0000-0000."),
+    "inexistente": ("Não encontrei esse código. Confere se ele foi digitado "
+                    "igual ao que está no seu email. Se o problema "
+                    f"continuar, {_CONTATO_RECUSA}."),
+    "ja_usado": ("Esse código já foi usado. Cada código só pode ser usado "
+                 "uma vez, para um relatório. Se você acha que houve engano, "
+                 f"{_CONTATO_RECUSA}."),
+    "expirado": ("Esse código expirou. Para receber um código novo, "
+                 f"{_CONTATO_RECUSA}."),
+    "ausente": ("Faltou o código de acesso. Ele está no email de "
+                "boas-vindas, no formato MF-0000-0000. Se você não "
+                f"encontrar, {_CONTATO_RECUSA}."),
 }
 
 
@@ -1645,10 +1652,10 @@ def _avisar_recusa_voucher(email, nome, motivo):
             texto = "\n".join([
                 saudacao, "",
                 "Recebi os seus dados de nascimento, mas não consegui "
-                "começar o seu Mapa Natal.", "",
+                "gerar o seu Mapa Natal.", "",
                 _RECUSA_VOUCHER.get(motivo, _RECUSA_VOUCHER["inexistente"]),
                 "",
-                "Nenhum relatório foi gerado com esse envio.", "",
+                "Atenciosamente e obrigada!", "",
                 "Márcia"])
             enviado = _enviar_email_bruto(
                 "Seu Mapa Natal: o código de acesso não funcionou",
