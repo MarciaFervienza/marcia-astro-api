@@ -309,6 +309,21 @@ chk("o bloco de presente só existe no combo",
     "presentear" in _txt and "presentear" not in _j["texto"])
 chk("chama a pessoa pelo primeiro nome", _txt.startswith("Oi, Bete!"))
 
+# 23/11: o primeiro e-mail real chegou com as linhas grudadas e a URL
+# do formulário à vista. O HTML existe para as duas coisas.
+_html = _app.html_de_texto(_txt)
+chk("o HTML separa os parágrafos", _html.count("<p>") >= 8,
+    str(_html.count("<p>")))
+chk("o link vira texto clicável, com o endereço no href",
+    '<a href="%s">Clique aqui para preencher o formulário</a>'
+    % _app.FORM_URL in _html)
+chk("a URL do formulário NÃO aparece como texto solto",
+    _html.replace('href="%s"' % _app.FORM_URL, "").count(_app.FORM_URL) == 0)
+chk("o código vai em negrito",
+    "<strong>%s</strong>" % _j3["codigo_aluna"] in _html)
+chk("texto com < e & é escapado, não vira marcação",
+    "&lt;b&gt;" in _app.html_de_texto("a <b> & c"))
+
 _r4 = _emitir(email="cida@exemplo.com", produto="preditivas",
               acesso="Acesso: entre em area-de-alunos com seu e-mail.")
 chk("o bloco de acesso ao curso entra quando é passado",
@@ -330,9 +345,11 @@ print("=" * 68)
 # recusada, a página de obrigado disse "está sendo escrito" igual, e a
 # recusa só pôde ser inferida pela AUSÊNCIA de uma geração no painel.
 _enviados = []
+_htmls = []
 _app._enviar_email_bruto = (
-    lambda assunto, texto, destino=None, detalhe_out=None:
-    (_enviados.append((assunto, texto, destino)) or True))
+    lambda assunto, texto, destino=None, detalhe_out=None, html=None:
+    (_enviados.append((assunto, texto, destino)) or _htmls.append(html)
+     or True))
 _app._missing_required_keys = lambda: []
 _app.chaves_malformadas = lambda: []
 
@@ -358,6 +375,10 @@ chk("diz que o relatório não foi gerado",
     "não consegui gerar o seu Mapa Natal" in _corpo)
 chk("manda para a Marcelle, no executivo@",
     "Marcelle" in _corpo and "executivo@marciafervienza.com" in _corpo)
+chk("pede 'por favor, entre em contato'",
+    "por favor, entre em contato com a Marcelle" in _corpo)
+chk("o aviso vai também em HTML, com parágrafos",
+    bool(_htmls and _htmls[0]) and _htmls[0].count("<p>") >= 4)
 chk("fecha com a despedida da Márcia",
     _corpo.rstrip().endswith("Atenciosamente e obrigada!\n\nMárcia"))
 chk("chama pelo primeiro nome", _corpo.startswith("Oi, Dora!"))

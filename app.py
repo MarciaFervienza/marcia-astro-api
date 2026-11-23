@@ -1529,7 +1529,8 @@ def emitir_acesso_endpoint():
     enviado, detalhe = False, []
     if enviar:
         enviado = _enviar_email_bruto(assunto, texto, destino=email,
-                                      detalhe_out=detalhe)
+                                      detalhe_out=detalhe,
+                                      html=html_de_texto(texto))
     logger.info("EMITIR-ACESSO produto=%s email=%r enviado=%s reaproveitado=%s",
                 produto, email[:60], enviado, reusou_a or reusou_p)
     return jsonify({
@@ -1572,10 +1573,10 @@ def _vouchers_ou_erro():
 # palavra; os outros três seguem o mesmo molde e mandam para o mesmo
 # lugar. O contato é a Marcelle, no executivo@, e não "responda este
 # e-mail": quem atende é ela, e a cliente precisa saber com quem fala.
-_CONTATO_RECUSA = ("entra em contato com a Marcelle pelo email "
+_CONTATO_RECUSA = ("por favor, entre em contato com a Marcelle pelo email "
                    "executivo@marciafervienza.com")
 _RECUSA_VOUCHER = {
-    "inexistente": ("Não encontrei esse código. Confere se ele foi digitado "
+    "inexistente": ("Não encontrei esse código. Confira se ele foi digitado "
                     "igual ao que está no seu email. Se o problema "
                     f"continuar, {_CONTATO_RECUSA}."),
     "ja_usado": ("Esse código já foi usado. Cada código só pode ser usado "
@@ -1659,7 +1660,7 @@ def _avisar_recusa_voucher(email, nome, motivo):
                 "Márcia"])
             enviado = _enviar_email_bruto(
                 "Seu Mapa Natal: o código de acesso não funcionou",
-                texto, destino=email)
+                texto, destino=email, html=html_de_texto(texto))
     except Exception as exc:                            # noqa: BLE001
         logger.error("aviso de recusa de voucher falhou: %s", exc)
     _registra_geracao(nome=nome or "(sem nome)",
@@ -4105,7 +4106,45 @@ def _nucleo_da_geracao(body, ctx=None):
 # tem de entrar no núcleo — é a única implementação, por decisão.
 # ======================================================================
 
-def _enviar_email_bruto(assunto, texto, destino=None, detalhe_out=None):
+def html_de_texto(texto, rotulo_do_link="Clique aqui para preencher o formulário"):
+    """Versão HTML de um e-mail de texto puro, para a cliente LER direito.
+
+    POR QUE EXISTE (23/11). O primeiro e-mail de boas-vindas chegou à
+    Márcia com as linhas todas grudadas e o endereço do formulário
+    escancarado. Quando o envio só leva text/plain, o SendGrid fabrica o
+    HTML por conta própria e junta as quebras de linha. Mandando o HTML
+    pronto, quem decide os parágrafos é este código.
+
+    Regras, e só estas: linha em branco separa parágrafo; quebra simples
+    vira <br>; uma linha "Link: <url>" vira um link com texto, sem a URL
+    à vista; e-mail solto vira mailto. Tudo o mais passa escapado.
+    """
+    import html as _h
+    import re as _re
+    paragrafos = []
+    for bloco in _re.split(r"\n\s*\n", (texto or "").strip()):
+        linhas = []
+        for linha in bloco.split("\n"):
+            m = _re.match(r"^\s*Link:\s*(https?://\S+)\s*$", linha)
+            if m:
+                linhas.append('<a href="%s">%s</a>' % (
+                    _h.escape(m.group(1), quote=True), _h.escape(rotulo_do_link)))
+                continue
+            seguro = _h.escape(linha)
+            seguro = _re.sub(
+                r"([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})",
+                r'<a href="mailto:\1">\1</a>', seguro)
+            seguro = _re.sub(r"(MF-[0-9A-Z]{4}-[0-9A-Z]{4})",
+                             r"<strong>\1</strong>", seguro)
+            linhas.append(seguro)
+        paragrafos.append("<p>" + "<br>".join(linhas) + "</p>")
+    return ('<div style="font-family:Georgia,serif;font-size:16px;'
+            'line-height:1.6;color:#222;max-width:560px">'
+            + "".join(paragrafos) + "</div>")
+
+
+def _enviar_email_bruto(assunto, texto, destino=None, detalhe_out=None,
+                        html=None):
     """Envio direto, SEM a dedupe de `_send_failure_alert`.
 
     A dedupe é certa no endpoint (uma exceção repetida em rajada não
@@ -4134,7 +4173,11 @@ def _enviar_email_bruto(assunto, texto, destino=None, detalhe_out=None):
                 "from": {"email": EMAIL_FROM_ADDRESS,
                          "name": EMAIL_FROM_NAME or EMAIL_FROM_ADDRESS},
                 "subject": assunto,
-                "content": [{"type": "text/plain", "value": texto}],
+                # text/plain SEMPRE primeiro: é exigência do SendGrid, e é
+                # o que sobra para quem lê e-mail sem HTML.
+                "content": ([{"type": "text/plain", "value": texto}]
+                            + ([{"type": "text/html", "value": html}]
+                               if html else [])),
             },
             headers={"Authorization": f"Bearer {SENDGRID_API_KEY}",
                      "Content-Type": "application/json"},
