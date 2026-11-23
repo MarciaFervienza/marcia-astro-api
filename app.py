@@ -4213,7 +4213,12 @@ def _enviar_email_bruto(assunto, texto, destino=None, detalhe_out=None,
                 # de marciafervienza.com. Link que a cliente não
                 # reconhece é link em que ela não clica.
                 "tracking_settings": {
-                    "click_tracking": {"enable": False,
+                    # 23/11, a Marcia: quer SABER quem clicou, so nao quer
+                    # ver o endereco. Entao o rastreio fica ligado na parte
+                    # HTML, onde o link esta atras do texto "Clique aqui",
+                    # e desligado na parte de texto puro, onde ele apareceria
+                    # inteiro.
+                    "click_tracking": {"enable": True,
                                        "enable_text": False}},
             },
             headers={"Authorization": f"Bearer {SENDGRID_API_KEY}",

@@ -447,9 +447,13 @@ chk("o e-mail diz EM QUE CAMPO o código entra",
 _fonte_app = open(_app.__file__, encoding="utf-8").read()
 _i_env = _fonte_app.index("def _enviar_email_bruto(")
 _envio = _fonte_app[_i_env:_fonte_app.index("\ndef ", _i_env + 10)]
-chk("rastreamento de clique desligado: o link chega como é",
-    '"click_tracking"' in _envio and '"enable": False' in _envio
+chk("clique rastreado no HTML (atrás do texto), nunca no texto puro",
+    '"click_tracking"' in _envio and '"enable": True' in _envio
     and '"enable_text": False' in _envio)
+_h = _app.html_de_texto(_bloco)
+chk("no HTML o endereço fica ATRÁS do texto, não à vista",
+    "Clique aqui para preencher o formulário</a>" in _h
+    and ">" + _app.FORM_URL not in _h, _h[:200])
 
 print()
 if falhas:
