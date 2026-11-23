@@ -1425,13 +1425,18 @@ _BV_PRAZO = "O relatório chega no seu email em até 24 horas."
 _BV_COMBO = ("O combo vem com bônus duplo. O primeiro é o relatório acima, "
              "o seu. O segundo é um voucher para você presentear quem "
              "quiser.")
-_BV_ENCAMINHE = "Para presentear, encaminhe daqui para baixo:"
+_BV_ENCAMINHE = ("Para presentear, é só encaminhar o texto abaixo para "
+                 "quem desejar:")
 _BV_PRESENTE_TITULO = "Você ganhou um Mapa Natal de presente."
 _BV_PRESENTE = ("É um relatório com a leitura dos pontos mais importantes "
                 "do seu mapa, escrito pela astróloga Márcia Fervienza a "
                 "partir do mesmo método que ela usa em consulta.")
 _BV_DUVIDA = "Qualquer dúvida, é só responder este email."
 _BV_BOTAO = "Preencher meus dados de nascimento"
+# Despedida escolhida pela Márcia em 23/11: o e-mail de boas-vindas sai
+# em nome da equipe, porque quem responde as dúvidas é a Marcelle.
+_BV_ABRACO = "Um abraço"
+_BV_ASSINATURA = "Equipe da Márcia Fervienza"
 
 
 def _primeiro_nome(nome):
@@ -1485,7 +1490,7 @@ def texto_boas_vindas(produto, nome=None, codigo_aluna=None,
                    _BV_PRESENTE_TITULO, "", _BV_PRESENTE, "",
                    _BV_CHAMADA, "", _bloco_formulario(codigo_presente), "",
                    _BV_PRAZO, "", "- - -"]
-    partes += ["", _BV_DUVIDA, "", "Márcia"]
+    partes += ["", _BV_DUVIDA, "", _BV_ABRACO, _BV_ASSINATURA]
     return "\n".join(partes)
 
 
@@ -1600,14 +1605,18 @@ def html_boas_vindas(produto, nome=None, codigo_aluna=None,
         '<tr><td style="padding:32px 32px 12px">%(corpo)s</td></tr>'
         '%(presente)s'
         '<tr><td style="padding:0 32px 30px">%(duvida)s'
-        '<p style="margin:0;font-family:%(ft)s;font-size:20px;'
-        'font-style:italic;color:%(noite)s">Márcia</p></td></tr>'
+        '<p style="margin:0;font-family:%(ft)s;font-size:16px;'
+        'line-height:1.65;color:%(texto)s">%(abraco)s<br>'
+        '<span style="font-size:18px;font-style:italic;color:%(noite)s">'
+        '%(assina)s</span></p></td></tr>'
         '<tr><td bgcolor="%(noite)s" style="height:6px;line-height:6px;'
         'font-size:0">&nbsp;</td></tr>'
         '</table></td></tr></table>'
     ) % {"papel": _COR_PAPEL, "noite": _COR_NOITE, "ouro": _COR_OURO,
          "ft": _FONTE_TITULO, "corpo": "".join(corpo),
-         "presente": presente, "duvida": P % e(_BV_DUVIDA)}
+         "presente": presente, "duvida": P % e(_BV_DUVIDA),
+         "texto": _COR_TEXTO, "abraco": e(_BV_ABRACO),
+         "assina": e(_BV_ASSINATURA)}
 
 
 @app.route("/emitir-acesso", methods=["POST"])
