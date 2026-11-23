@@ -1094,6 +1094,27 @@ chk("se o envio para uma falha, a outra ainda recebe",
 _app._enviar_email_bruto = _envio_orig
 _app._ALERT_RECIPIENT, _app.PAGBANK_AVISAR = _alerta_orig, _avisar_orig
 
+# RECUSA POR IDADE (23/11): a Marcelle preencheu o mapa de um menor, a
+# Márcia recebeu o alerta e quem preencheu não recebeu nada.
+_n0 = len(_enviados)
+chk("recusa por idade manda e-mail para quem preencheu",
+    _app._avisar_recusa_idade("mae@exemplo.com") is True
+    and _enviados[-1][2] == "mae@exemplo.com" and len(_enviados) == _n0 + 1)
+_ti = _enviados[-1][1]
+chk("o e-mail diz o motivo e que o código NÃO foi gasto",
+    "18 anos" in _ti and "não foi gasto" in _ti)
+chk("manda para a Marcelle e é assinado pela equipe",
+    "executivo@marciafervienza.com" in _ti
+    and _ti.rstrip().endswith(_app._BV_ASSINATURA))
+chk("sem travessão no texto da cliente", "—" not in _ti and "–" not in _ti)
+chk("sem e-mail, não levanta e não envia",
+    _app._avisar_recusa_idade("") is False and len(_enviados) == _n0 + 1)
+_i_idade = _fonte_app.index("age gate: sujeito menor (%d anos) — geração recusada")
+_trecho_idade = _fonte_app[_i_idade:_i_idade + 1200]
+chk("a trava de idade CHAMA o aviso, e devolve 403 (a casca devolve o código)",
+    "_avisar_recusa_idade(_req_email)" in _trecho_idade
+    and "}), 403" in _trecho_idade)
+
 # A busca por origem não pode depender de uma janela de N códigos.
 for _i in range(210):
     _v2.emitir(V.ALUNA, origem=f"enchimento:{_i}")

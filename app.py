@@ -2679,6 +2679,43 @@ def _devolver_voucher(codigo, por_que):
         logger.error("não consegui devolver o voucher %s: %s", codigo, exc)
 
 
+# RECUSA POR IDADE: o que a CLIENTE lê (23/11). Até aqui a recusa só
+# avisava a Márcia; quem preencheu ficava esperando 24 horas por um
+# relatório que não viria. O código volta sozinho (a casca
+# `executar_geracao` devolve em todo retorno que não é 200), e o e-mail
+# diz isso, porque é a primeira pergunta de quem pagou.
+_RECUSA_IDADE_ASSUNTO = "Seu Mapa Natal: não foi possível gerar o relatório"
+_RECUSA_IDADE = (
+    "Recebemos os dados de nascimento que você enviou, mas não vamos gerar "
+    "este Mapa Natal.",
+    "O relatório é uma leitura de autoconhecimento escrita para adultos, e "
+    "por isso só é feito para pessoas com 18 anos ou mais.",
+    "O seu código de acesso não foi gasto. Ele continua valendo e pode ser "
+    "usado para o mapa de uma pessoa adulta.",
+    "Se a data de nascimento foi digitada errada, é só preencher o "
+    "formulário de novo com o mesmo código. Se preferir o reembolso, "
+    f"{_CONTATO_RECUSA}.",
+)
+
+
+def _avisar_recusa_idade(email):
+    """Avisa a cliente de que não há relatório para menor de 18.
+    Sem nome na saudação: o nome do formulário é o do menor, não o de
+    quem lê. Nunca levanta: é caminho de recusa."""
+    try:
+        if not email or "@" not in email:
+            return False
+        saudacao, paragrafos = "Oi!", list(_RECUSA_IDADE)
+        texto = "\n\n".join([saudacao] + paragrafos) + (
+            f"\n\n{_BV_ABRACO}\n{_BV_ASSINATURA}")
+        return bool(_enviar_email_bruto(
+            _RECUSA_IDADE_ASSUNTO, texto, destino=email,
+            html=html_aviso(saudacao, paragrafos)))
+    except Exception as exc:                            # noqa: BLE001
+        logger.error("aviso de recusa por idade falhou: %s", exc)
+        return False
+
+
 def _rate_estornar_email(email_norm):
     """Devolve à cliente a tentativa que o limite de taxa contou.
 
@@ -4620,6 +4657,7 @@ def _nucleo_da_geracao(body, ctx=None):
                 "birth_city": body.get("birth_city"),
                 "ip": _client_ip, "ua": _ua,
             })
+            _avisar_recusa_idade(_req_email)
             return ({
                 "status": "refused",
                 "reason": "underage_subject",
