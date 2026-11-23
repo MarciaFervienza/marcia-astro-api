@@ -651,6 +651,133 @@ _app._EQUIPE_FALHAS.clear()
 _app.CODIGO_ADMIN = ""
 
 print()
+print("=" * 68)
+print("O) PAGBANK — a venda de curso emite o acesso sozinha (23/11)")
+print("=" * 68)
+chk("descrição do item decide o curso, sem acento e sem caixa",
+    _app._pagbank_produto(["Curso de Leitura de Mapa Natal 2027"]) == "leitura"
+    and _app._pagbank_produto(["CURSO DE TÉCNICAS DE PREVISÃO"]) == "preditivas"
+    and _app._pagbank_produto(["Astrologia Preditiva"]) == "preditivas"
+    and _app._pagbank_produto(["Combo Leitura + Preditivas"]) == "combo"
+    and _app._pagbank_produto(["Curso de Leitura", "Curso Preditivas"])
+    == "combo")
+chk("o que não é curso NÃO vira curso (consulta, live)",
+    _app._pagbank_produto(["Consulta de Astroterapia"]) is None
+    and _app._pagbank_produto(["Live de Eclipses"]) is None
+    and _app._pagbank_produto([]) is None)
+
+
+class _RespPB:
+    def __init__(self, status, corpo):
+        self.status_code, self.content = status, corpo.encode("utf-8")
+
+
+def _xml_pb(codigo, status, desc, email="bia@exemplo.com", nome="BIA Reis"):
+    return ("<transaction><code>%s</code><status>%s</status>"
+            "<grossAmount>449.99</grossAmount><sender><name>%s</name>"
+            "<email>%s</email></sender><items><item><id>1</id>"
+            "<description>%s</description><quantity>1</quantity>"
+            "<amount>449.99</amount></item></items></transaction>"
+            % (codigo, status, nome, email, desc))
+
+
+_pb_resposta = {}
+_pb_chamadas = []
+
+
+def _pb_get(url, params=None, timeout=None):
+    _pb_chamadas.append((url, dict(params or {})))
+    return _pb_resposta["r"]
+
+
+_app.requests.get = _pb_get
+_NC = "A1B2C3-D4E5F6A1B2C3-D4E5F6A1B2C3-D4E5F6"
+
+
+def _avisa_pb(cod=_NC):
+    return _cli.post("/pagbank-notificacao", data={
+        "notificationCode": cod, "notificationType": "transaction"})
+
+
+_app.PAGBANK_EMAIL, _app.PAGBANK_TOKEN = "", ""
+_pb_resposta["r"] = _RespPB(200, _xml_pb("TX-0001", "3", "Curso de Leitura"))
+_r0 = _avisa_pb()
+chk("sem credenciais, 503 (o PagBank tenta de novo) e nada é consultado",
+    _r0.status_code == 503 and not _pb_chamadas, str(_r0.status_code))
+
+_app.PAGBANK_EMAIL, _app.PAGBANK_TOKEN = "conta@teste.com", "token-de-teste"
+_n0 = len(_enviados)
+_r1 = _avisa_pb()
+chk("venda PAGA de curso: 200 e o e-mail de boas-vindas sai",
+    _r1.status_code == 200 and len(_enviados) == _n0 + 1
+    and _enviados[-1][2] == "bia@exemplo.com", str(_r1.status_code))
+chk("é o e-mail do curso certo, com o nome arrumado",
+    "Curso de Leitura de Mapa Natal está confirmada" in _enviados[-1][1]
+    and "Oi, Bia!" in _enviados[-1][1])
+chk("o servidor PERGUNTOU ao PagBank com o código do aviso",
+    _pb_chamadas and _pb_chamadas[-1][0].endswith(_NC)
+    and _pb_chamadas[-1][1].get("token") == "token-de-teste")
+_cod_pb = _re3.search(r"MF-[0-9A-Z]{4}-[0-9A-Z]{4}", _enviados[-1][1]).group(0)
+
+# O PagBank avisa em "paga" (3) e de novo em "disponível" (4), dias
+# depois. Se a aluna já usou o código, o 2º aviso não pode virar código
+# novo: uma compra, uma entrega.
+_v2.consumir(_cod_pb, email="bia@exemplo.com")
+_pb_resposta["r"] = _RespPB(200, _xml_pb("TX-0001", "4", "Curso de Leitura"))
+_n1 = len(_enviados)
+_r2 = _avisa_pb()
+chk("2º aviso da MESMA venda, código já usado: nada novo é emitido",
+    _r2.status_code == 200 and len(_enviados) == _n1
+    and _r2.get_json().get("ja_entregue") is True, str(_r2.get_json()))
+
+_pb_resposta["r"] = _RespPB(200, _xml_pb("TX-0002", "1", "Curso de Leitura",
+                                         email="caio@exemplo.com"))
+_n2 = len(_enviados)
+chk("aguardando pagamento NÃO libera nada",
+    _avisa_pb().get_json().get("motivo") == "nao_pago"
+    and len(_enviados) == _n2)
+
+_pb_resposta["r"] = _RespPB(200, _xml_pb("TX-0003", "3",
+                                         "Consulta de Astroterapia",
+                                         email="dani@exemplo.com"))
+chk("consulta paga não recebe boas-vindas de curso",
+    _avisa_pb().get_json().get("motivo") == "nao_e_curso"
+    and len(_enviados) == _n2)
+
+_pb_resposta["r"] = _RespPB(200, _xml_pb("TX-0004", "3", "Combo dos cursos",
+                                         email="eva@exemplo.com"))
+_avisa_pb()
+chk("combo pelo PagBank: dois códigos no mesmo e-mail",
+    len(set(_re3.findall(r"MF-[0-9A-Z]{4}-[0-9A-Z]{4}",
+                         _enviados[-1][1]))) == 2)
+
+_pb_resposta["r"] = _RespPB(200, _xml_pb("TX-0005", "3", "Curso de Leitura",
+                                         email=""))
+_n3 = len(_enviados)
+_r5 = _avisa_pb()
+chk("curso pago SEM e-mail: a equipe é alertada, com o link da página",
+    _r5.get_json().get("motivo") == "sem_email"
+    and len(_enviados) == _n3 + 1 and "/emitir" in _enviados[-1][1]
+    and "TX-0005" in _enviados[-1][1])
+
+_pb_resposta["r"] = _RespPB(401, "Unauthorized")
+chk("PagBank recusando a consulta: 502, para ele tentar de novo",
+    _avisa_pb().status_code == 502)
+_nq = len(_pb_chamadas)
+_rf = _cli.post("/pagbank-notificacao", data={
+    "notificationCode": "curto", "notificationType": "transaction"})
+chk("aviso malformado não gera consulta nem e-mail",
+    _rf.status_code == 200 and len(_pb_chamadas) == _nq)
+_app.PAGBANK_EMAIL, _app.PAGBANK_TOKEN = "", ""
+
+# A busca por origem não pode depender de uma janela de N códigos.
+for _i in range(210):
+    _v2.emitir(V.ALUNA, origem=f"enchimento:{_i}")
+chk("com mais de 200 códigos emitidos depois, o pedido antigo ainda acha "
+    "o seu", any(l["usado_em"] is not None for l in _v2.por_origem(
+        "leitura:bia@exemplo.com:pb-TX-0001")))
+
+print()
 if falhas:
     print(f">>> {falhas} FALHOU")
     raise SystemExit(1)

@@ -245,6 +245,26 @@ class Vouchers(_Banco):
                   "usado_em", "usado_por", "nome_gerado")
         return dict(zip(campos, linha))
 
+    def por_origem(self, origem):
+        """Todos os códigos emitidos para UMA origem, do mais novo ao mais
+        antigo, usados ou não.
+
+        Existe porque a busca por origem era feita varrendo `listar(200)`:
+        com o 201º código emitido, a compra mais antiga sairia da janela
+        e "já emiti para este pedido" passaria a responder "não" em
+        silêncio, emitindo de novo.
+        """
+        if not origem:
+            return []
+        cur = self.con().cursor()
+        cur.execute(self._q(
+            "SELECT codigo, tipo, origem, criado_em, expira_em, usado_em, "
+            "usado_por, nome_gerado FROM vouchers WHERE origem=%s "
+            "ORDER BY criado_em DESC"), (origem,))
+        campos = ("codigo", "tipo", "origem", "criado_em", "expira_em",
+                  "usado_em", "usado_por", "nome_gerado")
+        return [dict(zip(campos, l)) for l in cur.fetchall()]
+
     def listar(self, limite=50):
         cur = self.con().cursor()
         cur.execute(self._q(

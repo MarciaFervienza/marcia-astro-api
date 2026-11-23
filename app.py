@@ -1775,11 +1775,26 @@ def _emitir_acesso_nucleo(body):
         # para gerar um.
         origem = (f"{produto}:{email}" + (f":{pedido}" if pedido else "")
                   + sufixo)
-        for linha in v.listar(limite=200):
-            if linha["origem"] == origem and linha["tipo"] == tipo \
-                    and linha["usado_em"] is None:
+        for linha in v.por_origem(origem):
+            if linha["tipo"] == tipo and linha["usado_em"] is None:
                 return _vm.formatar(linha["codigo"]), True
         return v.emitir(tipo, origem=origem), False
+
+    # UM PEDIDO, UMA ENTREGA. Quando a venda avisa o servidor sozinha
+    # (Wix, PagBank), o mesmo aviso pode chegar de novo dias depois: o
+    # PagBank avisa em "paga" e outra vez em "disponível". Se a aluna já
+    # usou o código nesse meio-tempo, reaproveitar não acha nada e um
+    # código NOVO sairia para uma compra só. Com número de pedido, código
+    # já usado significa "já entregue": nada é emitido nem enviado.
+    # Sem pedido (a página da equipe) a regra não vale: ali é uma pessoa
+    # decidindo mandar outro.
+    if pedido:
+        _base = f"{produto}:{email}:{pedido}"
+        if any(l["usado_em"] is not None for l in v.por_origem(_base)):
+            logger.info("EMITIR-ACESSO pedido=%s já entregue e usado", pedido)
+            return jsonify({"status": "ok", "produto": produto,
+                            "email": email, "ja_entregue": True,
+                            "email_enviado": False}), 200
 
     codigo_aluna, reusou_a = _emitir_ou_reaproveitar(_vm.ALUNA)
     codigo_presente, reusou_p = (None, False)
@@ -1991,6 +2006,158 @@ def equipe_emitir_pagina():
         % (d.get("detalhe_email") or "erro de envio",
            d.get("codigo_aluna") or "?"))
     return _equipe_pagina(_h.escape(msg), "erro", valores), http, cab
+
+
+# ----------------------------------------------------------------------
+# PAGBANK — a venda de curso avisa o servidor, e o código sai sozinho.
+#
+# COMO FUNCIONA. O PagBank manda um POST com um `notificationCode` e mais
+# nada: nenhum dado da venda vem no aviso. O servidor então PERGUNTA ao
+# PagBank, com o token da conta, que transação é aquela. É essa pergunta
+# que torna o caminho seguro sem senha no aviso: um POST forjado traz um
+# código que o PagBank não reconhece, e nada acontece.
+#
+# O QUE NÃO SEI DAQUI (23/11) e só a primeira venda real responde: se o
+# aviso é enviado para pagamentos feitos pelos links pag.ae da página de
+# vendas, e com que texto vem a descrição do item. Por isso tudo o que
+# este caminho não resolve sozinho vira ALERTA para a equipe, com o link
+# da página /emitir, em vez de palpite.
+# ----------------------------------------------------------------------
+PAGBANK_EMAIL = os.environ.get("PAGBANK_EMAIL", "").strip()
+PAGBANK_TOKEN = os.environ.get("PAGBANK_TOKEN", "").strip()
+# Para onde vai o alerta. Sem a variável, vai para o mesmo endereço dos
+# alertas de falha que o servidor já manda.
+PAGBANK_AVISAR = os.environ.get("PAGBANK_AVISAR", "").strip()
+_PAGBANK_URL = ("https://ws.pagseguro.uol.com.br/v3/transactions/"
+                "notifications/")
+# 3 = paga (pode liberar o produto), 4 = disponível (mesma venda, dias
+# depois). As duas chegam; a regra "um pedido, uma entrega" cuida da 2ª.
+_PAGBANK_PAGO = ("3", "4")
+
+
+def _sem_acento(t):
+    import unicodedata
+    return "".join(c for c in unicodedata.normalize("NFD", t or "")
+                   if unicodedata.category(c) != "Mn").lower()
+
+
+def _pagbank_produto(descricoes):
+    """De que curso é a venda, pela descrição dos itens. None = não sei.
+
+    Não chuta: descrição que não fala de nenhum dos cursos devolve None,
+    e quem decide é uma pessoa. A conta do PagBank recebe outras coisas
+    (consultas, lives), e mandar "bem-vinda ao curso" para quem pagou uma
+    consulta é pior do que não mandar nada.
+    """
+    t = " | ".join(_sem_acento(d) for d in descricoes)
+    leitura = "leitura" in t
+    predit = any(k in t for k in ("preditiv", "previsao", "previsoes"))
+    if "combo" in t or (leitura and predit):
+        return "combo"
+    if predit:
+        return "preditivas"
+    if leitura:
+        return "leitura"
+    return None
+
+
+def _pagbank_alerta(assunto, linhas):
+    """Avisa a equipe do que o caminho automático não resolveu sozinho."""
+    try:
+        base = (os.environ.get("PUBLIC_URL", "").rstrip("/")
+                or "https://web-production-6c77f.up.railway.app")
+        texto = "\n".join(linhas + [
+            "", "Para emitir o acesso à mão, abra:", base + "/emitir"])
+        _enviar_email_bruto(assunto, texto,
+                            destino=PAGBANK_AVISAR or None)
+    except Exception as exc:                            # noqa: BLE001
+        logger.error("alerta do PagBank falhou: %s", exc)
+
+
+def _pagbank_consultar(codigo_notificacao):
+    """Pergunta ao PagBank que transação é esta. Devolve um dict, ou
+    levanta: quem chama decide entre "tente de novo" e "desisto"."""
+    import xml.etree.ElementTree as ET
+    r = requests.get(_PAGBANK_URL + codigo_notificacao,
+                     params={"email": PAGBANK_EMAIL, "token": PAGBANK_TOKEN},
+                     timeout=20)
+    if r.status_code != 200:
+        raise RuntimeError(f"PagBank respondeu HTTP {r.status_code}")
+    raiz = ET.fromstring(r.content)
+
+    def t(caminho):
+        el = raiz.find(caminho)
+        return (el.text or "").strip() if el is not None else ""
+    return {
+        "codigo": t("code"), "status": t("status"),
+        "referencia": t("reference"),
+        "nome": t("sender/name"), "email": t("sender/email").lower(),
+        "itens": [(i.findtext("description") or "").strip()
+                  for i in raiz.findall("items/item")],
+        "valor": t("grossAmount"),
+    }
+
+
+@app.route("/pagbank-notificacao", methods=["POST"])
+def pagbank_notificacao_endpoint():
+    """Recebe o aviso do PagBank e, se for venda de curso paga, emite.
+
+    Os códigos de resposta são para o PagBank: 200 = entendi, não mande
+    de novo; 5xx = tente de novo (ele reenvia a cada 2 horas, 5 vezes).
+    Por isso falha NOSSA devolve 5xx, e "não é comigo" devolve 200.
+    """
+    import re as _re
+    cod = (request.form.get("notificationCode") or "").strip()
+    tipo = (request.form.get("notificationType") or "").strip()
+    if tipo != "transaction" or not _re.fullmatch(r"[A-Za-z0-9-]{20,80}", cod):
+        return jsonify({"status": "ignorado", "motivo": "formato"}), 200
+    if not (PAGBANK_EMAIL and PAGBANK_TOKEN):
+        logger.error("PAGBANK aviso recebido, mas PAGBANK_EMAIL/TOKEN "
+                     "não estão configurados")
+        return jsonify({"status": "error",
+                        "message": "pagbank não configurado"}), 503
+    try:
+        tx = _pagbank_consultar(cod)
+    except Exception as exc:                            # noqa: BLE001
+        logger.error("PAGBANK consulta falhou: %s", exc)
+        return jsonify({"status": "error", "message": "consulta falhou"}), 502
+
+    logger.info("PAGBANK tx=%s status=%s itens=%r", tx["codigo"],
+                tx["status"], tx["itens"])
+    if tx["status"] not in _PAGBANK_PAGO:
+        return jsonify({"status": "ignorado", "motivo": "nao_pago"}), 200
+
+    produto = _pagbank_produto(tx["itens"])
+    if not produto:
+        # Outra coisa que a conta recebe (consulta, live). Não é erro e
+        # não merece alerta a cada venda: fica no log.
+        return jsonify({"status": "ignorado", "motivo": "nao_e_curso"}), 200
+    if "@" not in tx["email"] or not tx["codigo"]:
+        _pagbank_alerta(
+            "PagBank: venda de curso sem email de quem comprou",
+            [f"Curso: {_PRODUTOS[produto]}", f"Comprador: {tx['nome']}",
+             f"Transação: {tx['codigo']}", f"Valor: {tx['valor']}",
+             "", "O PagBank não informou um email válido, então o acesso "
+             "não foi enviado."])
+        return jsonify({"status": "alerta", "motivo": "sem_email"}), 200
+
+    resp, http = _emitir_acesso_nucleo({
+        "email": tx["email"], "nome": tx["nome"], "produto": produto,
+        "pedido": "pb-" + tx["codigo"], "enviar": True})
+    d = resp.get_json() or {}
+    if http != 200:
+        _pagbank_alerta(
+            "PagBank: venda de curso paga, mas o email de acesso não saiu",
+            [f"Curso: {_PRODUTOS[produto]}", f"Comprador: {tx['nome']}",
+             f"Contato: {tx['email']}", f"Transação: {tx['codigo']}",
+             "", f"Motivo: {d.get('message') or d.get('detalhe_email')}"])
+        return jsonify({"status": "error"}), 502
+    _registra_geracao(nome=tx["nome"] or "(sem nome)",
+                      desfecho="pagbank_ja_entregue" if d.get("ja_entregue")
+                      else f"pagbank_{produto}",
+                      email_enviado=bool(d.get("email_enviado")))
+    return jsonify({"status": "ok", "produto": produto,
+                    "ja_entregue": bool(d.get("ja_entregue"))}), 200
 
 
 def _vouchers_ou_erro():
