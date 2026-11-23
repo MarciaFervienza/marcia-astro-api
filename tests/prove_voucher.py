@@ -497,7 +497,7 @@ chk("curso avulso não leva o cartão de presente",
     "presente" not in _app.html_boas_vindas(
         "leitura", nome="Ana", codigo_aluna="MF-2345-6789").lower())
 chk("o endpoint manda ESTA versão, não o texto com parágrafos",
-    "html=html_boas_vindas(" in _insp.getsource(_app.emitir_acesso_endpoint))
+    "html=html_boas_vindas(" in _insp.getsource(_app._emitir_acesso_nucleo))
 
 print()
 print("=" * 68)
@@ -578,6 +578,77 @@ chk("os 3 códigos geram 3 relatórios no mesmo e-mail", _st == [200] * 3,
 _app._rate_ip_hits.clear()
 chk("e o mesmo código não gera um quarto",
     _gerar("rita@exemplo.com", _todos[0]).status_code == 403)
+
+print()
+print("=" * 68)
+print("N) PÁGINA DA EQUIPE — emitir sem terminal (23/11)")
+print("=" * 68)
+# A Marcelle não roda programa de terminal. A página é a ferramenta dela.
+_app.CODIGO_ADMIN = "EQUIPE-TESTE-2026-ABC"
+_app._EQUIPE_FALHAS.clear()
+_g = _cli.get("/emitir")
+_pg = _g.get_data(as_text=True)
+chk("a página abre no navegador, sem chave de API", _g.status_code == 200
+    and "<form" in _pg and 'name="email"' in _pg and 'name="produto"' in _pg)
+chk("pede o código da equipe num campo de senha",
+    'type="password"' in _pg and 'name="codigo"' in _pg)
+chk("oferece os quatro produtos",
+    all(f'value="{k}"' in _pg for k in ("leitura", "preditivas", "combo",
+                                         "mapa")))
+chk("não se oferece a buscadores", "noindex" in _pg)
+chk("a chave da API não aparece na página",
+    os.environ["API_SECRET_KEY"] not in _pg)
+
+_n_antes = len(_enviados)
+_dados = {"email": "ines@exemplo.com", "nome": "INES Prado",
+          "produto": "leitura"}
+_pe = _cli.post("/emitir", data=dict(_dados, codigo="codigo-errado-000"))
+chk("código errado: 403 e NADA é enviado", _pe.status_code == 403
+    and len(_enviados) == _n_antes, f"{_pe.status_code}")
+_pet = _pe.get_data(as_text=True)
+chk("o erro devolve o que foi digitado, menos o código",
+    "ines@exemplo.com" in _pet and "codigo-errado-000" not in _pet)
+
+_po = _cli.post("/emitir", data=dict(_dados,
+                                     codigo="equipe teste 2026 abc"))
+_pot = _po.get_data(as_text=True)
+chk("código certo: 200 e o e-mail sai", _po.status_code == 200
+    and len(_enviados) == _n_antes + 1
+    and _enviados[-1][2] == "ines@exemplo.com", f"{_po.status_code}")
+import re as _re3
+_mc = _re3.search(r"MF-[0-9A-Z]{4}-[0-9A-Z]{4}", _pot)
+chk("a página mostra o código emitido", bool(_mc)
+    and _mc.group(0) in _enviados[-1][1])
+chk("é o MESMO e-mail do caminho automático",
+    "Sua inscrição no Curso de Leitura de Mapa Natal está confirmada."
+    in _enviados[-1][1] and "Oi, Ines!" in _enviados[-1][1])
+_po2 = _cli.post("/emitir", data=dict(_dados,
+                                      codigo="EQUIPE-TESTE-2026-ABC"))
+chk("enviar de novo reaproveita o código e avisa",
+    _mc and _mc.group(0) in _po2.get_data(as_text=True)
+    and "já existia" in _po2.get_data(as_text=True))
+
+_pc = _cli.post("/emitir", data={"email": "zoe@exemplo.com", "nome": "Zoe",
+                                 "produto": "combo",
+                                 "codigo": "EQUIPE-TESTE-2026-ABC"})
+chk("combo pela página: dois códigos",
+    len(set(_re3.findall(r"MF-[0-9A-Z]{4}-[0-9A-Z]{4}",
+                         _pc.get_data(as_text=True)))) == 2)
+
+_app.CODIGO_ADMIN = ""
+_ps = _cli.post("/emitir", data=dict(_dados, codigo=""))
+chk("sem CODIGO_ADMIN posto, a página não emite para ninguém",
+    _ps.status_code == 403)
+_app.CODIGO_ADMIN = "EQUIPE-TESTE-2026-ABC"
+_app._EQUIPE_FALHAS.clear()
+for _ in range(_app._EQUIPE_MAX_FALHAS):
+    _cli.post("/emitir", data=dict(_dados, codigo="chute"))
+_pb = _cli.post("/emitir", data=dict(_dados,
+                                     codigo="EQUIPE-TESTE-2026-ABC"))
+chk("depois de 8 erros, o IP espera: nem o código certo passa",
+    _pb.status_code == 429, f"{_pb.status_code}")
+_app._EQUIPE_FALHAS.clear()
+_app.CODIGO_ADMIN = ""
 
 print()
 if falhas:

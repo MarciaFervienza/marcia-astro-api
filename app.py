@@ -1728,7 +1728,17 @@ def emitir_acesso_endpoint():
     if not API_SECRET_KEY or not presented \
             or not hmac.compare_digest(presented, API_SECRET_KEY):
         return jsonify({"status": "error", "message": "unauthorized"}), 401
+    return _emitir_acesso_nucleo(body)
 
+
+def _emitir_acesso_nucleo(body):
+    """Emite e envia, para quem JÁ foi autorizado.
+
+    Separado da rota porque há dois jeitos de se autorizar e um só de
+    emitir: a chave da API (Wix, scripts) e o código da equipe (a página
+    /emitir). Se cada porta tivesse a sua emissão, um dia uma mandaria um
+    e-mail diferente da outra.
+    """
     email = (body.get("email") or "").strip().lower()
     nome = (body.get("nome") or body.get("name") or "").strip()
     produto = (body.get("produto") or "").strip().lower()
@@ -1817,6 +1827,170 @@ def emitir_acesso_endpoint():
         # dela em vez de ficar sem nada para fazer.
         "texto": texto,
     }), 200 if (enviado or not enviar) else 502
+
+
+# ----------------------------------------------------------------------
+# PÁGINA DA EQUIPE — emitir o acesso sem tocar em terminal.
+#
+# POR QUE EXISTE (23/11). O `emitir.py` é um programa de terminal: precisa
+# do projeto instalado e da chave configurada. Eu disse à Márcia que "a
+# Marcelle roda o emitir.py" e ela respondeu que a Marcelle é pior do que
+# ela nisso. Ferramenta que a pessoa que vai usar não consegue abrir não é
+# ferramenta. Esta página abre no navegador e no celular, e a chave dela é
+# o código de admin, que as duas já têm.
+#
+# Mesmo com a venda avisando o servidor sozinha, a página continua sendo
+# o que resolve o e-mail perdido, o endereço trocado e o pagamento por
+# outro meio.
+# ----------------------------------------------------------------------
+_EQUIPE_FALHAS = {}          # ip -> deque[timestamp] de códigos errados
+_EQUIPE_MAX_FALHAS = 8       # por hora, por IP
+_EQUIPE_ROTULOS = (
+    ("leitura", "Curso de Leitura de Mapa Natal"),
+    ("preditivas", "Curso de Técnicas de Astrologia Preditiva"),
+    ("combo", "Combo: os dois cursos (2 códigos)"),
+    ("mapa", "Mapa Natal avulso"),
+)
+
+
+def _equipe_codigo_confere(apresentado):
+    """O código de admin, comparado em tempo constante. Sem CODIGO_ADMIN
+    posto (ou com menos de 12 caracteres) a página não abre para ninguém:
+    porta sem chave definida fica fechada, não aberta."""
+    import hmac
+    import vouchers as _vm
+    adm = _vm.normalizar(CODIGO_ADMIN)
+    if len(adm) < 12:
+        return False
+    return hmac.compare_digest(
+        _vm.normalizar(apresentado or "").encode(), adm.encode())
+
+
+def _equipe_bloqueado(ip, registrar=False):
+    agora = _time.time()
+    with _rate_lock:
+        dq = _EQUIPE_FALHAS.setdefault(ip, _deque())
+        while dq and dq[0] < agora - 3600:
+            dq.popleft()
+        if registrar:
+            dq.append(agora)
+        return len(dq) >= _EQUIPE_MAX_FALHAS
+
+
+def _equipe_pagina(aviso="", tipo="", valores=None):
+    """A página inteira. `valores` devolve o que a pessoa digitou quando há
+    erro, menos o código: senha não volta para a tela."""
+    import html as _h
+    e = _h.escape
+    v = valores or {}
+    opcoes = "".join(
+        '<option value="%s"%s>%s</option>' % (
+            k, " selected" if v.get("produto") == k else "", e(rot))
+        for k, rot in _EQUIPE_ROTULOS)
+    caixa = ""
+    if aviso:
+        cor = {"ok": "#1f6b45", "erro": "#9b2c2c"}.get(tipo, _COR_TEXTO)
+        fundo = {"ok": "#eef7f1", "erro": "#fbeeee"}.get(tipo, "#fffdf7")
+        caixa = ('<div style="border:1px solid %s;background:%s;color:%s;'
+                 'padding:14px 16px;margin:0 0 22px;font-size:16px;'
+                 'line-height:1.55">%s</div>' % (cor, fundo, cor, aviso))
+    campo = ('width:100%;box-sizing:border-box;padding:12px;font-size:16px;'
+             'font-family:Georgia,serif;border:1px solid #c9c2b0;'
+             'background:#fff;color:#1c2238')
+    rotulo = ('display:block;font-size:13px;letter-spacing:1px;'
+              'text-transform:uppercase;color:%s;margin:18px 0 6px'
+              % _COR_OURO_ESCURO)
+    return (
+        '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8">'
+        '<meta name="viewport" content="width=device-width,initial-scale=1">'
+        '<meta name="robots" content="noindex,nofollow">'
+        '<title>Emitir acesso</title></head>'
+        '<body style="margin:0;background:%(papel)s;font-family:Georgia,serif;'
+        'color:%(texto)s">'
+        '<div style="background:%(noite)s;text-align:center;padding:26px 16px">'
+        '<div style="color:%(ouro)s;font-size:20px;letter-spacing:4px;'
+        'text-transform:uppercase">Márcia Fervienza</div>'
+        '<div style="color:#a9b3cc;font-size:11px;letter-spacing:2px;'
+        'text-transform:uppercase;padding-top:6px">Emitir acesso</div></div>'
+        '<div style="max-width:520px;margin:0 auto;padding:26px 18px 60px">'
+        '%(caixa)s'
+        '<p style="font-size:16px;line-height:1.6;margin:0 0 6px">Preencha os '
+        'dados de quem comprou. O email com o código de acesso sai na hora, '
+        'para o endereço informado.</p>'
+        '<form method="post" action="/emitir" autocomplete="on">'
+        '<label style="%(rot)s" for="email">Email de quem comprou</label>'
+        '<input style="%(campo)s" type="email" id="email" name="email" '
+        'required value="%(v_email)s">'
+        '<label style="%(rot)s" for="nome">Nome</label>'
+        '<input style="%(campo)s" type="text" id="nome" name="nome" '
+        'required value="%(v_nome)s">'
+        '<label style="%(rot)s" for="produto">O que comprou</label>'
+        '<select style="%(campo)s" id="produto" name="produto">%(opcoes)s'
+        '</select>'
+        '<label style="%(rot)s" for="codigo">Código da equipe</label>'
+        '<input style="%(campo)s" type="password" id="codigo" name="codigo" '
+        'required autocomplete="current-password">'
+        '<button type="submit" style="margin-top:26px;width:100%%;'
+        'padding:15px;background:%(noite)s;color:%(ouro)s;border:0;'
+        'font-family:Georgia,serif;font-size:17px;letter-spacing:.3px;'
+        'cursor:pointer">Enviar o email com o código</button>'
+        '</form>'
+        '<p style="font-size:13.5px;line-height:1.6;color:#4a5068;'
+        'margin:22px 0 0">Enviar de novo para a mesma pessoa e o mesmo curso '
+        'não cria um código novo: reenvia o mesmo, enquanto ele não tiver '
+        'sido usado.</p>'
+        '</div></body></html>'
+    ) % {"papel": _COR_PAPEL, "texto": _COR_TEXTO, "noite": _COR_NOITE,
+         "ouro": _COR_OURO, "caixa": caixa, "rot": rotulo, "campo": campo,
+         "opcoes": opcoes, "v_email": e(v.get("email", ""), quote=True),
+         "v_nome": e(v.get("nome", ""), quote=True)}
+
+
+@app.route("/emitir", methods=["GET", "POST"])
+def equipe_emitir_pagina():
+    import html as _h
+    cab = {"Content-Type": "text/html; charset=utf-8",
+           "Cache-Control": "no-store"}
+    if request.method == "GET":
+        return _equipe_pagina(), 200, cab
+
+    ip = request.headers.get(
+        "X-Forwarded-For", request.remote_addr or "?").split(",")[0].strip()
+    valores = {k: (request.form.get(k) or "").strip()
+               for k in ("email", "nome", "produto")}
+    if _equipe_bloqueado(ip):
+        return _equipe_pagina(
+            "Muitas tentativas com o código errado. Espere uma hora e "
+            "tente de novo.", "erro", valores), 429, cab
+    if not _equipe_codigo_confere(request.form.get("codigo")):
+        _equipe_bloqueado(ip, registrar=True)
+        logger.warning("EQUIPE código errado ip=%s", ip)
+        return _equipe_pagina(
+            "O código da equipe não confere. Nada foi enviado.",
+            "erro", valores), 403, cab
+
+    resp, http = _emitir_acesso_nucleo({
+        "email": valores["email"], "nome": valores["nome"],
+        "produto": valores["produto"], "enviar": True})
+    d = resp.get_json() or {}
+    if http == 200:
+        cods = [d.get("codigo_aluna"), d.get("codigo_presente")] + list(
+            d.get("codigos_extras") or [])
+        cods = ", ".join(c for c in cods if c)
+        logger.info("EQUIPE emitiu produto=%s email=%r",
+                    d.get("produto"), valores["email"][:60])
+        return _equipe_pagina(
+            "<strong>Email enviado</strong> para %s.<br>Código: "
+            "<strong>%s</strong>%s" % (
+                _h.escape(d.get("email", "")), _h.escape(cods),
+                "<br>Esse código já existia e foi reenviado."
+                if d.get("reaproveitado") else ""), "ok"), 200, cab
+    msg = d.get("message") or (
+        "O email não saiu (%s). O código foi criado: %s. Tente de novo em "
+        "alguns minutos; ele será reaproveitado."
+        % (d.get("detalhe_email") or "erro de envio",
+           d.get("codigo_aluna") or "?"))
+    return _equipe_pagina(_h.escape(msg), "erro", valores), http, cab
 
 
 def _vouchers_ou_erro():
