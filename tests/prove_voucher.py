@@ -214,7 +214,11 @@ os.environ["DATABASE_URL"] = os.path.join(_tmp, "prova.db")
 os.environ.setdefault("API_SECRET_KEY", "chave-de-teste-" + "x" * 20)
 import app as _app
 
-_end = _insp.getsource(_app.generate_report_endpoint)
+# Em 23/11 o endpoint foi dividido: a porta (chave da API) ficou nele, e
+# o que vem depois da porta virou `_receber_pedido`, que o formulário
+# próprio também usa. As propriedades abaixo valem para o conjunto.
+_end = (_insp.getsource(_app.generate_report_endpoint)
+        + _insp.getsource(_app._receber_pedido))
 chk("o endpoint tira o código do corpo com pop (não vaza para o chart)",
     'body.pop("voucher"' in _end)
 chk("aceita o apelido 'codigo' do formulário", 'body.pop("codigo"' in _end)

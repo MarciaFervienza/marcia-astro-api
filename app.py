@@ -3578,6 +3578,168 @@ def busca_cidade_pagina():
         "Cache-Control": "no-store"}
 
 
+# ----------------------------------------------------------------------
+# O FORMULÁRIO PRÓPRIO (23/11) — ideia da Márcia
+#
+# O formulário do Wix entregava os dados a uma automação que os remontava
+# campo a campo e chamava a API. Nada voltava para a página: código
+# errado, menor de 18, cidade trocada, tudo era recusado em silêncio,
+# com a página de obrigado dizendo "está sendo escrito" de qualquer jeito.
+#
+# Aqui a página é nossa e fala direto com o servidor. O que é erro de
+# preenchimento aparece NA HORA, ao lado do campo, antes de qualquer
+# código ser gasto. A página de "recebemos" só aparece quando o pedido
+# foi de fato aceito.
+#
+# A PORTA É O CÓDIGO DE ACESSO. A página não tem (e não pode ter) a chave
+# da API. Sem código válido nada é gerado, e o teto por IP que já existe
+# segura quem tentar adivinhar códigos.
+#
+# OS NOMES DOS CAMPOS que o gerador espera NÃO mudam: name, email,
+# gender, birth_date, birth_time, unknown_birth_time, birth_city,
+# report_for, codigo. A tradução do que a página manda para esses nomes
+# é feita num lugar só, `_formulario_para_pedido`.
+# ----------------------------------------------------------------------
+_FORM_PARA_QUEM = ("meu", "presente", "sobre_outro")
+_FORM_RECUSA_IDADE = (
+    "Este relatório é uma leitura de autoconhecimento escrita para adultos, "
+    "e por isso só é feito para pessoas com 18 anos ou mais. Para leituras "
+    "de menores de 18 anos, o mais recomendado é agendar uma consulta com "
+    "a Márcia.")
+_FORM_ERRO_GERAL = (
+    "Não conseguimos receber o seu pedido agora. Tente de novo em alguns "
+    "minutos. Se continuar, escreva para executivo@marciafervienza.com.")
+
+
+def _carrega_formulario():
+    try:
+        caminho = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                               "formulario.html")
+        with open(caminho, encoding="utf-8") as fh:
+            return fh.read()
+    except Exception as exc:                            # noqa: BLE001
+        logger.error("formulario.html não pôde ser lido: %s", exc)
+        return None
+
+
+_FORMULARIO_HTML = _carrega_formulario()
+
+
+def _formulario_para_pedido(d, hoje=None):
+    """(pedido, None) com os nomes que o gerador espera, ou
+    (None, (campo, mensagem)) no primeiro problema de preenchimento.
+
+    Roda ANTES de o código ser reservado: erro de preenchimento não pode
+    gastar nem devolver código, e não gera e-mail de recusa.
+    """
+    import re
+    from datetime import date as _date, datetime as _dt
+    if not isinstance(d, dict):
+        return None, ("", _FORM_ERRO_GERAL)
+
+    def _s(k, n):
+        v = d.get(k)
+        return v.strip()[:n] if isinstance(v, str) else ""
+
+    nome, email = _s("nome", 120), _s("email", 160).lower()
+    genero, data, hora = _s("genero", 20), _s("data", 10), _s("hora", 5)
+    cidade, para, codigo = _s("cidade", 300), _s("para_quem", 20), _s("codigo", 40)
+    sem_hora = d.get("sem_hora") is True
+
+    if len(nome) < 2:
+        return None, ("nome", "Escreva o nome completo.")
+    if not re.match(r"^[^@\s]+@[^@\s]+\.[^@\s]+$", email):
+        return None, ("email", "Confira o e-mail: ele precisa ter o formato "
+                               "nome@exemplo.com.")
+    if genero not in ("feminino", "masculino"):
+        return None, ("genero", "Escolha uma opção.")
+    try:
+        if not re.match(r"^\d{4}-\d{2}-\d{2}$", data):
+            raise ValueError(data)
+        nasc = _dt.strptime(data, "%Y-%m-%d").date()
+    except ValueError:
+        return None, ("data", "Essa data não existe. Confira o dia e o mês.")
+    hoje = hoje or _date.today()
+    if nasc > hoje or nasc.year < 1900:
+        return None, ("data", "Confira o ano de nascimento.")
+    idade = hoje.year - nasc.year - (
+        (hoje.month, hoje.day) < (nasc.month, nasc.day))
+    if idade < 18 and email not in _RATE_EXEMPT_EMAILS:
+        return None, ("data", _FORM_RECUSA_IDADE)
+    if not sem_hora and not re.match(r"^([01]\d|2[0-3]):[0-5]\d$", hora):
+        return None, ("hora", "Use o formato HH:MM, por exemplo 09:05. Horas "
+                              "de 00:00 a 23:59.")
+    if not _cidade_escolhida(cidade):
+        return None, ("cidade", "Busque a cidade e escolha a sua na lista.")
+    if para not in _FORM_PARA_QUEM:
+        return None, ("para", "Escolha uma opção.")
+    if len(re.sub(r"[^0-9A-Za-z]", "", codigo)) < 8:
+        return None, ("codigo", "Escreva o código de acesso que está no "
+                                "e-mail que você recebeu.")
+    pedido = {
+        "name": nome, "email": email, "gender": genero,
+        "birth_date": data, "unknown_birth_time": sem_hora,
+        "birth_city": cidade, "report_for": para, "codigo": codigo,
+    }
+    if not sem_hora:
+        pedido["birth_time"] = hora
+    return pedido, None
+
+
+@app.route("/formulario", methods=["GET"])
+def formulario_pagina():
+    if not _FORMULARIO_HTML:
+        return "Formulário indisponível no momento.", 503, {
+            "Content-Type": "text/plain; charset=utf-8"}
+    return _FORMULARIO_HTML, 200, {
+        "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store"}
+
+
+@app.route("/formulario/enviar", methods=["POST"])
+def formulario_enviar():
+    cab = {"Cache-Control": "no-store"}
+
+    def _nao(campo, mensagem, http=200):
+        return jsonify({"ok": False, "campo": campo,
+                        "mensagem": mensagem}), http, cab
+
+    pedido, problema = _formulario_para_pedido(
+        request.get_json(silent=True) or {})
+    if problema:
+        return _nao(problema[0], problema[1])
+    try:
+        resp = _receber_pedido(pedido, "formulario",
+                               avisar_recusa_por_email=False)
+        corpo, http = resp[0], resp[1]
+        dados = corpo.get_json(silent=True) if hasattr(corpo, "get_json") \
+            else (corpo if isinstance(corpo, dict) else {})
+        dados = dados or {}
+    except Exception as exc:                            # noqa: BLE001
+        logger.exception("formulário próprio: falha ao receber o pedido")
+        _send_failure_alert("formulario_enviar", exc, {
+            "name": pedido.get("name"), "email": pedido.get("email")})
+        return _nao("", _FORM_ERRO_GERAL)
+    if http in (200, 202):
+        return jsonify({"ok": True}), 200, cab
+    codigo_erro = str(dados.get("code") or "")
+    if http == 403 and codigo_erro.startswith("voucher_"):
+        return _nao("codigo", dados.get("message")
+                    or _RECUSA_VOUCHER["inexistente"])
+    if http == 429:
+        return _nao("", dados.get("message") or _FORM_ERRO_GERAL)
+    if codigo_erro == "underage_subject" or dados.get("reason") == "underage_subject":
+        return _nao("data", _FORM_RECUSA_IDADE)
+    if codigo_erro == "cidade_fora_da_lista":
+        return _nao("cidade", "Busque a cidade e escolha a sua na lista.")
+    if codigo_erro == "lingua_falha_fechada":
+        # Só acontece com a fila desligada. O pedido foi recebido e a
+        # equipe foi avisada: para a cliente, é "recebemos".
+        return jsonify({"ok": True}), 200, cab
+    logger.error("formulário próprio: recusa não mapeada http=%s code=%r",
+                 http, codigo_erro)
+    return _nao("", _FORM_ERRO_GERAL)
+
+
 @app.route("/health", methods=["GET"])
 def health():
     """Lightweight liveness check for Railway.
@@ -3589,6 +3751,11 @@ def health():
     return jsonify({
         "status": "ok",
         "commit": os.environ.get("RAILWAY_GIT_COMMIT_SHA", "unknown"),
+        # Sem segredo: só diz se o pedido volta na hora (fila) ou segura a
+        # conexão até o relatório ficar pronto. O formulário próprio
+        # depende de saber qual dos dois está valendo.
+        "fila_assincrona": bool(FILA_ASSINCRONA),
+        "cidade_so_da_lista": bool(CIDADE_SO_DA_LISTA),
     }), 200
 
 
@@ -4282,6 +4449,22 @@ def generate_report_endpoint():
             "message": "Unauthorized",
         }), 401
 
+    return _receber_pedido(
+        body, "header" if request.headers.get("X-API-Key") else "body")
+
+
+def _receber_pedido(body, _key_via="?", avisar_recusa_por_email=True):
+    """O pedido DEPOIS da porta: rate limit, voucher, fila ou geração.
+
+    Dois caminhos chegam aqui (23/11): a API com chave (automação do Wix,
+    testes) e o formulário próprio, público, cuja tranca é o código de
+    acesso. O que vem depois da porta é um só, de propósito: voucher
+    reservado do mesmo jeito, mesma fila, mesma devolução na falha.
+
+    `avisar_recusa_por_email=False` é do formulário próprio: ele mostra a
+    recusa do código NA PÁGINA, na hora, e um e-mail dizendo a mesma coisa
+    chegaria depois de a pessoa já ter corrigido.
+    """
     # Segredo com caractere impossível em cabeçalho: recusa AQUI, com o
     # nome da variável, em vez de morrer 16 chamadas depois dentro do SDK.
     _malf = chaves_malformadas()
@@ -4314,7 +4497,6 @@ def generate_report_endpoint():
     # mapa, potencialmente sensíveis). Só metadados de identidade + origem.
     _client_ip = request.headers.get("X-Forwarded-For", request.remote_addr or "?").split(",")[0].strip()
     _ua = (request.headers.get("User-Agent", "?") or "?")[:120]
-    _key_via = "header" if request.headers.get("X-API-Key") else ("body" if key_from_body else "?")
     logger.info(
         "REQ /generate-report name=%r email=%r birth_date=%r city=%r ip=%s ua=%s key_via=%s",
         (body.get("name") or "")[:80],
@@ -4361,7 +4543,9 @@ def generate_report_endpoint():
         if not _voucher_bruto:
             logger.warning("VOUCHER ausente email=%r", _email_norm[:60])
             _rate_estornar_email(_email_norm)
-            _avisar_recusa_voucher(_email_norm, body.get("name"), "ausente")
+            if avisar_recusa_por_email:
+                _avisar_recusa_voucher(_email_norm, body.get("name"),
+                                       "ausente")
             return jsonify({
                 "status": "error", "code": "voucher_ausente",
                 "message": _RECUSA_VOUCHER["ausente"]}), 403
@@ -4378,7 +4562,9 @@ def generate_report_endpoint():
             logger.warning("VOUCHER recusado (%s) email=%r ip=%s",
                            _v_motivo, _email_norm[:60], _client_ip)
             _rate_estornar_email(_email_norm)
-            _avisar_recusa_voucher(_email_norm, body.get("name"), _v_motivo)
+            if avisar_recusa_por_email:
+                _avisar_recusa_voucher(_email_norm, body.get("name"),
+                                       _v_motivo)
             return jsonify({
                 "status": "error", "code": f"voucher_{_v_motivo}",
                 "message": _RECUSA_VOUCHER.get(
@@ -4419,6 +4605,9 @@ def generate_report_endpoint():
             # NÃO cai para o síncrono em silêncio: se a fila está fora,
             # a Márcia precisa saber, e não descobrir por um relatório
             # que demorou 4 minutos quando devia ter voltado em 1s.
+            # O código já foi reservado lá em cima: sem devolver aqui, a
+            # fila fora do ar custaria o código da cliente (23/11).
+            _devolver_voucher(body.pop("_voucher", None), "fila indisponivel")
             return err
         body["_ctx"] = {"ip": _client_ip, "ua": _ua}
         tid = f.enfileirar(body, nome=body.get("name"), email=body.get("email"))
@@ -4454,7 +4643,7 @@ def generate_report_endpoint():
                         f"com o comando herdado da raiz ele sobe como uma "
                         f"segunda cópia da API e fica VERDE sem consumir nada."),
                     {"name": body.get("name"), "email": body.get("email"),
-                     "birth_date": birth_date_raw,
+                     "birth_date": body.get("birth_date"),
                      "birth_city": body.get("birth_city"),
                      "ip": _client_ip, "ua": _ua})
         except Exception as _exc:                      # noqa: BLE001
