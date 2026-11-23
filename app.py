@@ -2266,7 +2266,7 @@ def pagbank_notificacao_endpoint():
 _PAGBANK_BUSCA = "https://ws.pagseguro.uol.com.br/v3/transactions"
 
 
-def _pagbank_buscar(horas=72, limite=50):
+def _pagbank_buscar(horas=72, limite=100):
     """PERGUNTA ao PagBank quais vendas a conta teve nas últimas horas.
 
     POR QUE EXISTE (23/11). O cadastro do aviso falhou dentro do PagBank,
@@ -2323,7 +2323,44 @@ def _pagbank_detalhar(codigo_transacao):
         "itens": [(i.findtext("description") or "").strip()
                   for i in raiz.findall("items/item")],
         "valor": t("grossAmount"),
+        "tipo": t("type"),
+        "esqueleto": _pagbank_esqueleto(raiz),
     }
+
+
+# Folhas do XML cujo VALOR pode aparecer no diagnóstico. O resto aparece
+# só como nome da etiqueta: serve para eu ver que campos existem (um
+# código de assinatura, um nome de plano) sem expor dado de cliente.
+_PAGBANK_XML_VISIVEL = {"type", "status", "reference", "description",
+                        "quantity", "amount", "grossAmount", "installmentCount",
+                        "itemCount", "date", "lastEventDate", "cancellationSource"}
+_PAGBANK_XML_OCULTO = ("sender", "shipping", "creditorFees", "primaryReceiver",
+                       "gatewaySystem", "address", "documents", "phone",
+                       "holder")
+
+
+def _pagbank_esqueleto(raiz):
+    """Os caminhos do XML, um por linha, com valor só onde é seguro."""
+    linhas = []
+
+    def anda(el, caminho):
+        filhos = list(el)
+        aqui = caminho + "/" + el.tag if caminho else el.tag
+        if any(parte in _PAGBANK_XML_OCULTO for parte in aqui.split("/")):
+            if not filhos:
+                linhas.append(aqui + " = <oculto>")
+            else:
+                for f in filhos:
+                    anda(f, aqui)
+            return
+        if not filhos:
+            v = (el.text or "").strip()
+            linhas.append(aqui + " = " + (v[:60] if el.tag
+                          in _PAGBANK_XML_VISIVEL else "<%d car.>" % len(v)))
+        for f in filhos:
+            anda(f, aqui)
+    anda(raiz, "")
+    return linhas[:80]
 
 
 @app.route("/pagbank-diag", methods=["POST"])
@@ -2357,8 +2394,8 @@ def pagbank_diag_endpoint():
     if erro:
         return jsonify(dict(saida, status="pagbank_recusou",
                             detalhe=erro)), 200
-    vendas = []
-    for tx in txs[:12]:
+    vendas, grupos, amostras = [], {}, {}
+    for tx in txs[:60]:
         linha = {"data": tx["data"][:16], "status": tx["status"],
                  "valor": tx["valor"], "meio": tx["meio"]}
         try:
@@ -2366,11 +2403,24 @@ def pagbank_diag_endpoint():
             linha["itens"] = d["itens"]
             linha["tem_email"] = "@" in d["email"]
             linha["curso"] = _pagbank_produto(d["itens"])
+            linha["tipo"] = d["tipo"]
+            linha["tem_referencia"] = bool(d["referencia"])
+            # Uma amostra da FORMA de cada tipo de venda diferente: é
+            # onde aparece (ou não) algo que diga de que plano ela é.
+            chave = " + ".join(d["itens"]) or "(sem descrição)"
+            if chave not in amostras:
+                amostras[chave] = d["esqueleto"]
         except Exception as exc:                        # noqa: BLE001
             linha["detalhe_falhou"] = str(exc)[:80]
         vendas.append(linha)
-    return jsonify(dict(saida, status="ok", horas=horas,
-                        total=len(txs), vendas=vendas)), 200
+        g = (" + ".join(linha.get("itens") or ["?"]), tx["valor"],
+             tx["status"])
+        grupos[g] = grupos.get(g, 0) + 1
+    resumo = [{"item": k[0], "valor": k[1], "status": k[2], "quantas": n}
+              for k, n in sorted(grupos.items(), key=lambda kv: -kv[1])]
+    return jsonify(dict(saida, status="ok", horas=horas, total=len(txs),
+                        vendas=vendas[:12], resumo=resumo,
+                        amostras=amostras)), 200
 
 
 def _vouchers_ou_erro():

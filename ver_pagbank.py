@@ -84,4 +84,22 @@ for v in d.get("vendas") or []:
         print(f"    item: {it}")
     print(f"    veio com e-mail: {'sim' if v.get('tem_email') else 'NÃO'}"
           f"    reconhecido como: {v.get('curso') or 'não é curso'}")
+
+if d.get("resumo"):
+    print("=" * 74)
+    print("RESUMO DO PERÍODO (até 60 vendas), agrupado")
+    print("=" * 74)
+    for g in d["resumo"]:
+        st = STATUS.get(g.get("status"), g.get("status"))
+        print(f"{g['quantas']:>3} x  R$ {g['valor']:>9}  {st:<18} {g['item']}")
+
+if d.get("amostras"):
+    print()
+    print("=" * 74)
+    print("FORMA DE CADA TIPO DE VENDA (campos que o PagBank manda)")
+    print("=" * 74)
+    for nome, linhas in d["amostras"].items():
+        print(f"\n--- {nome}")
+        for l in linhas:
+            print("   " + l)
 print()

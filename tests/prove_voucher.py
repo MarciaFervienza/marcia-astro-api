@@ -911,6 +911,14 @@ chk("e NÃO devolve nome nem e-mail de cliente, nem o token",
     "ivo@exemplo.com" not in _dg_txt and "Ivo" not in _dg_txt
     and "Lia" not in _dg_txt and "token-de-teste" not in _dg_txt)
 chk("olhar não emite nem envia nada", len(_enviados) == _nd)
+_esq = "\n".join(_dg["amostras"]["Curso de Leitura de Mapa Natal"])
+chk("a FORMA da venda mostra os campos, com valor só onde é seguro",
+    "items/item/description = Curso de Leitura de Mapa Natal" in _esq
+    and "transaction/status = 3" in _esq
+    and "sender/email = <oculto>" in _esq and "Ivo" not in _esq, _esq[:400])
+chk("o resumo agrupa por descrição, valor e situação",
+    {"item": "Curso de Leitura de Mapa Natal", "valor": "449.99",
+     "status": "3", "quantas": 1} in _dg["resumo"])
 _pb_resposta["busca_http"] = 401
 _dg2 = _cli.post("/pagbank-diag", json={}, headers=_CH).get_json()
 chk("token que o PagBank recusa aparece como recusa, não como 'zero vendas'",
