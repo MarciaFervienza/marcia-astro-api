@@ -1413,6 +1413,7 @@ _PRODUTOS = {
     "mapa": "Mapa Natal",
 }
 _CURSOS = ("leitura", "preditivas", "combo")
+_MAX_RELATORIOS_POR_PEDIDO = 10
 
 
 # --- frases do e-mail de boas-vindas: UMA fonte para texto e HTML ---------
@@ -1425,6 +1426,22 @@ _BV_BRINDE = ("E tem o seu brinde: um relatório com a leitura dos pontos "
 _BV_MAPA = ("É um relatório com a leitura dos pontos mais importantes do "
             "seu mapa natal, escrito a partir do mesmo método usado em "
             "consulta.")
+# Quem compra mais de um relatório no mesmo pedido recebe um código por
+# relatório. A frase diz quantos são e que cada um pode ir para outra
+# pessoa: é para isso que alguém compra dois.
+_BV_MAIS = ("Você comprou {n} relatórios. Cada código vale para um, e pode "
+            "ser usado por você ou por quem você quiser presentear. "
+            "{resto}")
+_BV_MAIS_UM = "O outro código é este:"
+_BV_MAIS_VARIOS = "Os outros códigos são estes:"
+
+
+def _frase_mais(codigos_extras):
+    n = len(codigos_extras) + 1
+    return _BV_MAIS.format(
+        n=n, resto=_BV_MAIS_UM if n == 2 else _BV_MAIS_VARIOS)
+
+
 _BV_CHAMADA = "Para receber, preencha seus dados de nascimento:"
 _BV_ONDE = ("No formulário, digite esse código no campo "
             "\"Código de acesso\". Ele vale para um relatório.")
@@ -1490,7 +1507,8 @@ def _bloco_formulario(codigo):
 
 
 def texto_boas_vindas(produto, nome=None, codigo_aluna=None,
-                      codigo_presente=None, acesso=None):
+                      codigo_presente=None, acesso=None,
+                      codigos_extras=None):
     """O e-mail que a compradora recebe, na versão de texto puro.
 
     SEM TRAVESSÃO e sem promessa de hora: o prazo é 24 horas, igual ao
@@ -1507,6 +1525,10 @@ def texto_boas_vindas(produto, nome=None, codigo_aluna=None,
     partes += ["", _BV_MAPA if produto == "mapa" else _BV_BRINDE, "",
                _BV_CHAMADA, "",
                _bloco_formulario(codigo_aluna), "", _BV_PRAZO]
+    if codigos_extras:
+        partes += ["", _frase_mais(codigos_extras)]
+        for c in codigos_extras:
+            partes += ["", _bloco_formulario(c)]
     if codigo_presente:
         partes += ["", _BV_COMBO, "", _BV_ENCAMINHE, "", "- - -", "",
                    _BV_PRESENTE_TITULO, "", _BV_PRESENTE, "",
@@ -1563,7 +1585,8 @@ def _html_cartao_codigo(codigo):
 
 
 def html_boas_vindas(produto, nome=None, codigo_aluna=None,
-                     codigo_presente=None, acesso=None):
+                     codigo_presente=None, acesso=None,
+                     codigos_extras=None):
     """O mesmo e-mail de `texto_boas_vindas`, com a cara da Márcia.
 
     POR QUE EXISTE (23/11). A versão anterior era o texto puro com
@@ -1591,6 +1614,9 @@ def html_boas_vindas(produto, nome=None, codigo_aluna=None,
     corpo += [P % e(_BV_MAPA if produto == "mapa" else _BV_BRINDE),
               P % e(_BV_CHAMADA),
               _html_cartao_codigo(codigo_aluna), P % e(_BV_PRAZO)]
+    if codigos_extras:
+        corpo.append(P % e(_frase_mais(codigos_extras)))
+        corpo += [_html_cartao_codigo(c) for c in codigos_extras]
 
     presente = ""
     if codigo_presente:
@@ -1673,6 +1699,12 @@ def emitir_acesso_endpoint():
     acesso = body.get("acesso") or ""
     enviar = body.get("enviar", True)
     pedido = str(body.get("pedido") or "").strip()[:60]
+    # O Wix manda a quantidade como texto ("2") ou número (2.0).
+    try:
+        quantidade = int(float(str(body.get("quantidade") or 1).strip()))
+    except (TypeError, ValueError):
+        quantidade = 1
+    quantidade = max(1, min(quantidade, _MAX_RELATORIOS_POR_PEDIDO))
 
     if "@" not in email:
         return jsonify({"status": "error",
@@ -1689,13 +1721,14 @@ def emitir_acesso_endpoint():
 
     import vouchers as _vm
 
-    def _emitir_ou_reaproveitar(tipo):
+    def _emitir_ou_reaproveitar(tipo, sufixo=""):
         # O pedido entra na origem quando vem (compra pela loja do Wix).
         # Sem ele, quem comprasse o relatório duas vezes com o mesmo
         # e-mail, uma para si e outra para dar, receberia na segunda
         # compra o MESMO código da primeira, e teria pago dois relatórios
         # para gerar um.
-        origem = f"{produto}:{email}" + (f":{pedido}" if pedido else "")
+        origem = (f"{produto}:{email}" + (f":{pedido}" if pedido else "")
+                  + sufixo)
         for linha in v.listar(limite=200):
             if linha["origem"] == origem and linha["tipo"] == tipo \
                     and linha["usado_em"] is None:
@@ -1707,8 +1740,18 @@ def emitir_acesso_endpoint():
     if produto == "combo":
         codigo_presente, reusou_p = _emitir_ou_reaproveitar(_vm.PRESENTE)
 
+    # Um código por relatório comprado. Só a compra avulsa tem
+    # quantidade; curso é um por pessoa. O teto existe porque o número
+    # vem de fora: um "quantidade: 5000" não pode virar 5000 códigos.
+    codigos_extras = []
+    if produto == "mapa":
+        for i in range(2, quantidade + 1):
+            c, _ = _emitir_ou_reaproveitar(_vm.ALUNA, sufixo=f"#{i}")
+            codigos_extras.append(c)
+
     texto = texto_boas_vindas(produto, nome=nome, codigo_aluna=codigo_aluna,
-                              codigo_presente=codigo_presente, acesso=acesso)
+                              codigo_presente=codigo_presente, acesso=acesso,
+                              codigos_extras=codigos_extras)
     assunto = assunto_boas_vindas(produto)
 
     enviado, detalhe = False, []
@@ -1719,7 +1762,8 @@ def emitir_acesso_endpoint():
                                           produto, nome=nome,
                                           codigo_aluna=codigo_aluna,
                                           codigo_presente=codigo_presente,
-                                          acesso=acesso))
+                                          acesso=acesso,
+                                          codigos_extras=codigos_extras))
     logger.info("EMITIR-ACESSO produto=%s email=%r enviado=%s reaproveitado=%s",
                 produto, email[:60], enviado, reusou_a or reusou_p)
     return jsonify({
@@ -1728,6 +1772,7 @@ def emitir_acesso_endpoint():
         "email": email,
         "codigo_aluna": codigo_aluna,
         "codigo_presente": codigo_presente,
+        "codigos_extras": codigos_extras,
         "reaproveitado": bool(reusou_a or reusou_p),
         "email_enviado": enviado,
         "detalhe_email": (detalhe or [None])[0],
@@ -3238,6 +3283,11 @@ def generate_report_endpoint():
         # outro processo, e só o payload atravessa essa fronteira.
         if _voucher_bruto:
             body["_voucher"] = _voucher_bruto
+        # Código válido é pagamento conferido: o limite de 2 por e-mail
+        # existe para quem chega SEM código, e não pode barrar o terceiro
+        # relatório de quem comprou três com o mesmo e-mail. Quem limita
+        # aqui é o próprio código, que vale uma vez.
+        _rate_estornar_email(_email_norm)
         logger.info("VOUCHER aceito email=%r", _email_norm[:60])
 
     # ==================================================================

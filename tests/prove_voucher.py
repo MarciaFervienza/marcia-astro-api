@@ -528,6 +528,50 @@ chk("DOIS pedidos do mesmo e-mail são DOIS códigos",
 chk("compra avulsa não ganha voucher de presente",
     not _m1.get("codigo_presente"))
 
+# Duas ou mais unidades no mesmo pedido: um código por relatório.
+_q = _emitir(email="rita@exemplo.com", nome="Rita", produto="mapa",
+             pedido="10003", quantidade="3").get_json()
+_todos = [_q["codigo_aluna"]] + _q["codigos_extras"]
+chk("3 unidades são 3 códigos diferentes", len(set(_todos)) == 3,
+    str(_todos))
+chk("os 3 estão no e-mail, com a frase que diz quantos são",
+    all(c in _q["texto"] for c in _todos)
+    and "Você comprou 3 relatórios." in _q["texto"])
+_qb = _emitir(email="rita@exemplo.com", nome="Rita", produto="mapa",
+              pedido="10003", quantidade=3.0).get_json()
+chk("repetir o pedido devolve os MESMOS 3 (não vira 6)",
+    [_qb["codigo_aluna"]] + _qb["codigos_extras"] == _todos)
+_qh = _app.html_boas_vindas("mapa", nome="Rita", codigo_aluna=_todos[0],
+                            codigos_extras=_todos[1:])
+chk("os 3 estão no HTML, cada um no seu cartão",
+    all(_qh.count(c) == 1 for c in _todos))
+_q2 = _emitir(email="rita@exemplo.com", produto="mapa", pedido="10004",
+              quantidade=2).get_json()
+chk("com 2, a frase fala em 'o outro código'",
+    "O outro código é este:" in _q2["texto"])
+_qx = _emitir(email="rita@exemplo.com", produto="mapa", pedido="10005",
+              quantidade=5000).get_json()
+chk("quantidade absurda bate no teto, não vira 5000 códigos",
+    len(_qx["codigos_extras"]) == _app._MAX_RELATORIOS_POR_PEDIDO - 1)
+_ql = _emitir(email="rita@exemplo.com", produto="mapa", pedido="10006",
+              quantidade="abc").get_json()
+chk("quantidade ilegível vira 1, não erro",
+    _ql["status"] == "ok" and _ql["codigos_extras"] == [])
+_qc = _emitir(email="curso@exemplo.com", produto="leitura",
+              quantidade=3).get_json()
+chk("curso ignora quantidade: é um por pessoa", _qc["codigos_extras"] == [])
+
+# Quem comprou 3 com o mesmo e-mail tem de conseguir gerar os 3. O
+# limite de taxa é 2 por e-mail em 24h e é contado antes do código.
+_app._rate_ip_hits.clear()
+_app._rate_email_hits.clear()
+_st = [_gerar("rita@exemplo.com", c).status_code for c in _todos]
+chk("os 3 códigos geram 3 relatórios no mesmo e-mail", _st == [200] * 3,
+    str(_st))
+_app._rate_ip_hits.clear()
+chk("e o mesmo código não gera um quarto",
+    _gerar("rita@exemplo.com", _todos[0]).status_code == 403)
+
 print()
 if falhas:
     print(f">>> {falhas} FALHOU")
