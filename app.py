@@ -1411,6 +1411,43 @@ _PRODUTOS = {
 }
 
 
+# --- frases do e-mail de boas-vindas: UMA fonte para texto e HTML ---------
+# O e-mail sai em duas versões (texto puro e HTML). Se cada versão tivesse
+# as suas frases, um dia uma seria corrigida e a outra não, e a cliente
+# leria promessas diferentes conforme o programa de e-mail dela.
+_BV_BRINDE = ("E tem o seu brinde: um relatório com a leitura dos pontos "
+              "mais importantes do seu mapa natal, escrito a partir do "
+              "mesmo método que uso em consulta.")
+_BV_CHAMADA = "Para receber, preencha seus dados de nascimento:"
+_BV_ONDE = ("No formulário, digite esse código no campo "
+            "\"Código de acesso\". Ele vale para um relatório.")
+_BV_PRAZO = "O relatório chega no seu email em até 24 horas."
+_BV_COMBO = ("O combo vem com bônus duplo. O primeiro é o relatório acima, "
+             "o seu. O segundo é um voucher para você presentear quem "
+             "quiser.")
+_BV_ENCAMINHE = "Para presentear, encaminhe daqui para baixo:"
+_BV_PRESENTE_TITULO = "Você ganhou um Mapa Natal de presente."
+_BV_PRESENTE = ("É um relatório com a leitura dos pontos mais importantes "
+                "do seu mapa, escrito pela astróloga Márcia Fervienza a "
+                "partir do mesmo método que ela usa em consulta.")
+_BV_DUVIDA = "Qualquer dúvida, é só responder este email."
+_BV_BOTAO = "Preencher meus dados de nascimento"
+
+
+def _primeiro_nome(nome):
+    """Primeiro nome, do jeito que se escreve numa carta.
+
+    Quem digita o nome no checkout às vezes digita em maiúsculas, e o
+    e-mail saía "Oi, MARCIA!". Só mexe quando está TUDO em maiúsculas ou
+    tudo em minúsculas; "McKenna" e "DeAndra" passam como vieram.
+    """
+    p = (nome or "").split()
+    if not p:
+        return ""
+    n = p[0]
+    return n.capitalize() if (n.isupper() or n.islower()) else n
+
+
 def _bloco_formulario(codigo):
     """O que a pessoa precisa para receber o relatório, e ONDE usar.
 
@@ -1421,14 +1458,13 @@ def _bloco_formulario(codigo):
     linhas = [f"Link: {FORM_URL}", f"Código de acesso: {codigo}"]
     if SENHA_PAGINA:
         linhas.insert(1, f"Senha da página: {SENHA_PAGINA}")
-    linhas += ["", "No formulário, digite esse código no campo "
-                   "\"Código de acesso\". Ele vale para um relatório."]
+    linhas += ["", _BV_ONDE]
     return "\n".join(linhas)
 
 
 def texto_boas_vindas(produto, nome=None, codigo_aluna=None,
                       codigo_presente=None, acesso=None):
-    """O e-mail que a compradora recebe. Texto puro, de propósito.
+    """O e-mail que a compradora recebe, na versão de texto puro.
 
     SEM TRAVESSÃO e sem promessa de hora: o prazo é 24 horas, igual ao
     que está nas duas páginas de venda, no e-mail da loja e na página de
@@ -1436,50 +1472,142 @@ def texto_boas_vindas(produto, nome=None, codigo_aluna=None,
     o sétimo nascer dizendo igual.
     """
     curso = _PRODUTOS.get(produto, produto)
-    saudacao = f"Oi, {nome.split()[0]}!" if nome else "Oi!"
+    pn = _primeiro_nome(nome)
+    saudacao = f"Oi, {pn}!" if pn else "Oi!"
     partes = [saudacao, "",
               f"Sua inscrição no {curso} está confirmada."]
     if acesso:
         partes += ["", acesso.strip()]
-    partes += [
-        "",
-        "E tem o seu brinde: um relatório com a leitura dos pontos mais "
-        "importantes do seu mapa natal, escrito a partir do mesmo método "
-        "que uso em consulta.",
-        "",
-        "Para receber, preencha seus dados de nascimento:",
-        "",
-        _bloco_formulario(codigo_aluna),
-        "",
-        "O relatório chega no seu email em até 24 horas.",
-    ]
+    partes += ["", _BV_BRINDE, "", _BV_CHAMADA, "",
+               _bloco_formulario(codigo_aluna), "", _BV_PRAZO]
     if codigo_presente:
-        partes += [
-            "",
-            "O combo vem com bônus duplo. O primeiro é o relatório acima, "
-            "o seu. O segundo é um voucher para você presentear quem quiser.",
-            "",
-            "Para presentear, encaminhe daqui para baixo:",
-            "",
-            "- - -",
-            "",
-            "Você ganhou um Mapa Natal de presente.",
-            "",
-            "É um relatório com a leitura dos pontos mais importantes do "
-            "seu mapa, escrito pela astróloga Márcia Fervienza a partir do "
-            "mesmo método que ela usa em consulta.",
-            "",
-            "Para receber, preencha seus dados de nascimento:",
-            "",
-            _bloco_formulario(codigo_presente),
-            "",
-            "O relatório chega no seu email em até 24 horas.",
-            "",
-            "- - -",
-        ]
-    partes += ["", "Qualquer dúvida, é só responder este email.", "",
-               "Márcia"]
+        partes += ["", _BV_COMBO, "", _BV_ENCAMINHE, "", "- - -", "",
+                   _BV_PRESENTE_TITULO, "", _BV_PRESENTE, "",
+                   _BV_CHAMADA, "", _bloco_formulario(codigo_presente), "",
+                   _BV_PRAZO, "", "- - -"]
+    partes += ["", _BV_DUVIDA, "", "Márcia"]
     return "\n".join(partes)
+
+
+# Cores da casa, as mesmas das páginas de venda: azul da noite e ouro.
+_COR_NOITE = "#0a1230"
+_COR_OURO = "#e0bd68"
+_COR_OURO_ESCURO = "#9a7120"
+_COR_PAPEL = "#f6f1e6"
+_COR_TEXTO = "#1c2238"
+_FONTE_TITULO = "Georgia,'Times New Roman',serif"
+_FONTE_TEXTO = "Georgia,'Times New Roman',serif"
+
+
+def _html_cartao_codigo(codigo):
+    """Botão + código + onde digitar. Tabelas e estilo na própria tag,
+    porque é o único HTML que Gmail, Outlook e Apple Mail leem igual."""
+    import html as _h
+    senha = ""
+    if SENHA_PAGINA:
+        senha = ('<p style="margin:0 0 14px;font-size:14px;color:%s">'
+                 'Senha da página: <strong>%s</strong></p>'
+                 % (_COR_TEXTO, _h.escape(SENHA_PAGINA)))
+    return (
+        '<table role="presentation" cellpadding="0" cellspacing="0" '
+        'border="0" align="center" style="margin:6px auto 22px"><tr>'
+        '<td align="center" bgcolor="%(noite)s" style="border-radius:4px">'
+        '<a href="%(url)s" style="display:inline-block;padding:14px 28px;'
+        'font-family:%(ft)s;font-size:16px;color:%(ouro)s;'
+        'text-decoration:none;letter-spacing:.3px">%(botao)s</a>'
+        '</td></tr></table>'
+        '%(senha)s'
+        '<table role="presentation" width="100%%" cellpadding="0" '
+        'cellspacing="0" border="0" style="margin:0 0 18px"><tr>'
+        '<td align="center" style="border:1px solid %(ouro)s;'
+        'background:#fffdf7;padding:16px 12px">'
+        '<div style="font-family:%(ft)s;font-size:11px;letter-spacing:2px;'
+        'text-transform:uppercase;color:%(ouroe)s">Código de acesso</div>'
+        '<div style="font-family:\'Courier New\',Courier,monospace;'
+        'font-size:24px;letter-spacing:3px;color:%(noite)s;'
+        'padding-top:6px"><strong>%(codigo)s</strong></div>'
+        '</td></tr></table>'
+        '<p style="margin:0 0 14px;font-size:14px;line-height:1.6;'
+        'color:#4a5068">%(onde)s</p>'
+    ) % {"noite": _COR_NOITE, "ouro": _COR_OURO, "ouroe": _COR_OURO_ESCURO,
+         "ft": _FONTE_TITULO, "url": _h.escape(FORM_URL, quote=True),
+         "botao": _h.escape(_BV_BOTAO), "senha": senha,
+         "codigo": _h.escape(codigo or ""), "onde": _h.escape(_BV_ONDE)}
+
+
+def html_boas_vindas(produto, nome=None, codigo_aluna=None,
+                     codigo_presente=None, acesso=None):
+    """O mesmo e-mail de `texto_boas_vindas`, com a cara da Márcia.
+
+    POR QUE EXISTE (23/11). A versão anterior era o texto puro com
+    parágrafos, e a Márcia leu: "tá com cara de email de sistema". É a
+    primeira coisa que a aluna recebe depois de pagar um curso de quase
+    cinco mil reais; tem que parecer vindo dela, não de um servidor.
+
+    As frases vêm todas das constantes _BV_*; este código só decide a
+    FORMA. A prova confere que nenhuma frase do texto falta aqui.
+    """
+    import html as _h
+    e = _h.escape
+    curso = _PRODUTOS.get(produto, produto)
+    pn = _primeiro_nome(nome)
+    P = ('<p style="margin:0 0 16px;font-family:%s;font-size:16px;'
+         'line-height:1.65;color:%s">%%s</p>' % (_FONTE_TEXTO, _COR_TEXTO))
+
+    corpo = ['<p style="margin:0 0 18px;font-family:%s;font-size:24px;'
+             'color:%s">%s</p>' % (_FONTE_TITULO, _COR_NOITE,
+                                   e(f"Oi, {pn}!" if pn else "Oi!")),
+             P % ("Sua inscrição no <strong>%s</strong> está confirmada."
+                  % e(curso))]
+    if acesso:
+        corpo.append(P % e(acesso.strip()).replace("\n", "<br>"))
+    corpo += [P % e(_BV_BRINDE), P % e(_BV_CHAMADA),
+              _html_cartao_codigo(codigo_aluna), P % e(_BV_PRAZO)]
+
+    presente = ""
+    if codigo_presente:
+        corpo += [P % e(_BV_COMBO), P % e(_BV_ENCAMINHE)]
+        presente = (
+            '<tr><td style="padding:0 32px 28px">'
+            '<table role="presentation" width="100%%" cellpadding="0" '
+            'cellspacing="0" border="0"><tr>'
+            '<td style="border:1px dashed %s;padding:24px 22px">'
+            '<div style="font-family:%s;font-size:11px;letter-spacing:2px;'
+            'text-transform:uppercase;color:%s;margin:0 0 8px">'
+            'Um presente para você</div>'
+            '<p style="margin:0 0 14px;font-family:%s;font-size:20px;'
+            'color:%s">%s</p>%s%s%s%s'
+            '</td></tr></table></td></tr>'
+        ) % (_COR_OURO_ESCURO, _FONTE_TITULO, _COR_OURO_ESCURO,
+             _FONTE_TITULO, _COR_NOITE, e(_BV_PRESENTE_TITULO),
+             P % e(_BV_PRESENTE), P % e(_BV_CHAMADA),
+             _html_cartao_codigo(codigo_presente), P % e(_BV_PRAZO))
+
+    return (
+        '<table role="presentation" width="100%%" cellpadding="0" '
+        'cellspacing="0" border="0" bgcolor="%(papel)s"><tr>'
+        '<td align="center" style="padding:24px 12px">'
+        '<table role="presentation" width="600" cellpadding="0" '
+        'cellspacing="0" border="0" style="width:100%%;max-width:600px;'
+        'background:#ffffff">'
+        '<tr><td align="center" bgcolor="%(noite)s" '
+        'style="padding:30px 24px 26px">'
+        '<div style="font-family:%(ft)s;font-size:22px;letter-spacing:4px;'
+        'text-transform:uppercase;color:%(ouro)s">Márcia Fervienza</div>'
+        '<div style="font-family:%(ft)s;font-size:12px;letter-spacing:2px;'
+        'text-transform:uppercase;color:#a9b3cc;padding-top:8px">'
+        'Astrologia e Astroterapia</div></td></tr>'
+        '<tr><td style="padding:32px 32px 12px">%(corpo)s</td></tr>'
+        '%(presente)s'
+        '<tr><td style="padding:0 32px 30px">%(duvida)s'
+        '<p style="margin:0;font-family:%(ft)s;font-size:20px;'
+        'font-style:italic;color:%(noite)s">Márcia</p></td></tr>'
+        '<tr><td bgcolor="%(noite)s" style="height:6px;line-height:6px;'
+        'font-size:0">&nbsp;</td></tr>'
+        '</table></td></tr></table>'
+    ) % {"papel": _COR_PAPEL, "noite": _COR_NOITE, "ouro": _COR_OURO,
+         "ft": _FONTE_TITULO, "corpo": "".join(corpo),
+         "presente": presente, "duvida": P % e(_BV_DUVIDA)}
 
 
 @app.route("/emitir-acesso", methods=["POST"])
@@ -1549,7 +1677,11 @@ def emitir_acesso_endpoint():
     if enviar:
         enviado = _enviar_email_bruto(assunto, texto, destino=email,
                                       detalhe_out=detalhe,
-                                      html=html_de_texto(texto))
+                                      html=html_boas_vindas(
+                                          produto, nome=nome,
+                                          codigo_aluna=codigo_aluna,
+                                          codigo_presente=codigo_presente,
+                                          acesso=acesso))
     logger.info("EMITIR-ACESSO produto=%s email=%r enviado=%s reaproveitado=%s",
                 produto, email[:60], enviado, reusou_a or reusou_p)
     return jsonify({

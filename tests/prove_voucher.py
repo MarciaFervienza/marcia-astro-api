@@ -456,6 +456,43 @@ chk("no HTML o endereço fica ATRÁS do texto, não à vista",
     and ">" + _app.FORM_URL not in _h, _h[:200])
 
 print()
+print("=" * 68)
+print("L) O E-MAIL DE BOAS-VINDAS TEM A CARA DA MÁRCIA (23/11)")
+print("=" * 68)
+import html as _hm
+import re as _re2
+_tx = _app.texto_boas_vindas("combo", nome="MARIA Souza",
+                             codigo_aluna="MF-2345-6789",
+                             codigo_presente="MF-ABCD-EFGH")
+_hx = _app.html_boas_vindas("combo", nome="MARIA Souza",
+                            codigo_aluna="MF-2345-6789",
+                            codigo_presente="MF-ABCD-EFGH")
+_visivel = _hm.unescape(_re2.sub(r"<[^>]+>", " ", _hx))
+_visivel = _re2.sub(r"\s+", " ", _visivel)
+chk("nome em maiúsculas vira nome de carta", "Oi, Maria!" in _tx
+    and "Oi, Maria!" in _visivel and "MARIA" not in _visivel)
+chk("nome com maiúscula no meio passa como veio",
+    _app._primeiro_nome("DeAndra Silva") == "DeAndra")
+# As duas versões saem das mesmas frases. Se alguém escrever uma frase
+# direto numa das funções, ela falta na outra e esta asserção cai.
+_frases = [l.strip() for l in _tx.split("\n") if l.strip()
+           and not l.startswith(("Link:", "- - -", "Código de acesso:"))]
+_faltam = [f for f in _frases
+           if _re2.sub(r"\s+", " ", f) not in _visivel]
+chk("toda frase do texto está no HTML", not _faltam, str(_faltam[:3]))
+chk("os dois códigos aparecem, cada um uma vez",
+    _visivel.count("MF-2345-6789") == 1
+    and _visivel.count("MF-ABCD-EFGH") == 1)
+chk("o endereço do formulário fica atrás do botão, não à vista",
+    _app.FORM_URL not in _visivel and _hx.count('href="') == 2)
+chk("sem travessão no HTML", "—" not in _hx)
+chk("curso avulso não leva o cartão de presente",
+    "presente" not in _app.html_boas_vindas(
+        "leitura", nome="Ana", codigo_aluna="MF-2345-6789").lower())
+chk("o endpoint manda ESTA versão, não o texto com parágrafos",
+    "html=html_boas_vindas(" in _insp.getsource(_app.emitir_acesso_endpoint))
+
+print()
 if falhas:
     print(f">>> {falhas} FALHOU")
     raise SystemExit(1)
