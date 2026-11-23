@@ -860,6 +860,63 @@ _no2 = len(_enviados)
 _cli.post("/pagbank-notificacao", json={"id": "CHBK_999", "tipo": "x"})
 chk("desligado, não manda nada", len(_enviados) == _no2)
 
+# --- perguntar em vez de esperar: a busca e o diagnóstico -----------------
+# O cadastro do aviso falhou dentro do PagBank. O servidor passa a poder
+# OLHAR as vendas, e o diagnóstico mostra o que ele vê sem dado de cliente.
+_BUSCA_XML = ("<transactionSearchResult><transactions>"
+              "<transaction><date>2026-11-23T10:15:00.000-03:00</date>"
+              "<code>TX-B1</code><status>3</status>"
+              "<grossAmount>449.99</grossAmount>"
+              "<paymentMethod><type>1</type></paymentMethod></transaction>"
+              "<transaction><date>2026-11-22T09:00:00.000-03:00</date>"
+              "<code>TX-B2</code><status>3</status>"
+              "<grossAmount>350.00</grossAmount></transaction>"
+              "</transactions></transactionSearchResult>")
+_det = {"TX-B1": _xml_pb("TX-B1", "3", "Curso de Leitura de Mapa Natal",
+                         email="ivo@exemplo.com", nome="Ivo Lins"),
+        "TX-B2": _xml_pb("TX-B2", "3", "Consulta de Astroterapia",
+                         email="lia@exemplo.com", nome="Lia Nunes")}
+_busca_params = []
+
+
+def _pb_get3(url, params=None, headers=None, timeout=None):
+    if url.rstrip("/").endswith("/transactions"):
+        _busca_params.append(dict(params or {}))
+        return _RespPB(_pb_resposta.get("busca_http", 200), _BUSCA_XML)
+    return _RespPB(200, _det[url.rsplit("/", 1)[1]])
+
+
+_app.requests.get = _pb_get3
+_app.PAGBANK_EMAIL, _app.PAGBANK_TOKEN = "conta@teste.com", "token-de-teste"
+_txs, _err = _app._pagbank_buscar(horas=48)
+chk("a busca devolve as vendas com código, status e valor",
+    _err is None and [t["codigo"] for t in _txs] == ["TX-B1", "TX-B2"]
+    and _txs[0]["status"] == "3")
+chk("a janela pedida nunca termina no futuro (o PagBank recusa)",
+    _busca_params[-1]["finalDate"] < __import__("datetime").datetime
+    .utcnow().strftime("%Y-%m-%dT%H:%M"))
+
+_CHJ = dict(_CH, **{"Content-Type": "application/json"})
+chk("o diagnóstico exige a chave da API",
+    _cli.post("/pagbank-diag", json={}).status_code == 401)
+_nd = len(_enviados)
+_dg = _cli.post("/pagbank-diag", json={"horas": 48}, headers=_CH).get_json()
+chk("o diagnóstico mostra a descrição e o que foi reconhecido",
+    _dg["status"] == "ok" and _dg["total"] == 2
+    and _dg["vendas"][0]["itens"] == ["Curso de Leitura de Mapa Natal"]
+    and _dg["vendas"][0]["curso"] == "leitura"
+    and _dg["vendas"][1]["curso"] is None, str(_dg)[:300])
+_dg_txt = _json3.dumps(_dg, ensure_ascii=False)
+chk("e NÃO devolve nome nem e-mail de cliente, nem o token",
+    "ivo@exemplo.com" not in _dg_txt and "Ivo" not in _dg_txt
+    and "Lia" not in _dg_txt and "token-de-teste" not in _dg_txt)
+chk("olhar não emite nem envia nada", len(_enviados) == _nd)
+_pb_resposta["busca_http"] = 401
+_dg2 = _cli.post("/pagbank-diag", json={}, headers=_CH).get_json()
+chk("token que o PagBank recusa aparece como recusa, não como 'zero vendas'",
+    _dg2["status"] == "pagbank_recusou" and "401" in _dg2["detalhe"])
+_pb_resposta["busca_http"] = 200
+
 _app.PAGBANK_EMAIL, _app.PAGBANK_TOKEN = "", ""
 
 # A busca por origem não pode depender de uma janela de N códigos.

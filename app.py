@@ -2263,6 +2263,116 @@ def pagbank_notificacao_endpoint():
                     "ja_entregue": bool(d.get("ja_entregue"))}), 200
 
 
+_PAGBANK_BUSCA = "https://ws.pagseguro.uol.com.br/v3/transactions"
+
+
+def _pagbank_buscar(horas=72, limite=50):
+    """PERGUNTA ao PagBank quais vendas a conta teve nas últimas horas.
+
+    POR QUE EXISTE (23/11). O cadastro do aviso falhou dentro do PagBank,
+    nas duas telas dele, sem nem tocar no nosso servidor. Esperar que ele
+    avise é depender de uma tela que não abre. Perguntar não depende de
+    nada além do token: em vez de o PagBank bater aqui, o servidor vai lá
+    e olha as vendas.
+
+    Devolve (lista de transações, erro). A busca só traz código, data e
+    status; quem comprou e o quê vem de `_pagbank_detalhar`.
+    """
+    import datetime as _dt
+    import xml.etree.ElementTree as ET
+    # A API trabalha no horário de Brasília e recusa data no futuro.
+    agora = _dt.datetime.utcnow() - _dt.timedelta(hours=3, minutes=5)
+    ini = agora - _dt.timedelta(hours=horas)
+    r = requests.get(_PAGBANK_BUSCA, params={
+        "email": PAGBANK_EMAIL, "token": PAGBANK_TOKEN,
+        "initialDate": ini.strftime("%Y-%m-%dT%H:%M"),
+        "finalDate": agora.strftime("%Y-%m-%dT%H:%M"),
+        "page": 1, "maxPageResults": limite}, timeout=25)
+    if r.status_code != 200:
+        return [], f"HTTP {r.status_code}"
+    raiz = ET.fromstring(r.content)
+    saida = []
+    for t in raiz.findall("transactions/transaction"):
+        saida.append({
+            "codigo": (t.findtext("code") or "").strip(),
+            "data": (t.findtext("date") or "").strip(),
+            "status": (t.findtext("status") or "").strip(),
+            "valor": (t.findtext("grossAmount") or "").strip(),
+            "meio": (t.findtext("paymentMethod/type") or "").strip(),
+        })
+    return saida, None
+
+
+def _pagbank_detalhar(codigo_transacao):
+    """Uma transação inteira: quem comprou e o quê. Levanta em erro."""
+    import xml.etree.ElementTree as ET
+    r = requests.get(_PAGBANK_BUSCA + "/" + codigo_transacao,
+                     params={"email": PAGBANK_EMAIL, "token": PAGBANK_TOKEN},
+                     timeout=20)
+    if r.status_code != 200:
+        raise RuntimeError(f"PagBank respondeu HTTP {r.status_code}")
+    raiz = ET.fromstring(r.content)
+
+    def t(caminho):
+        el = raiz.find(caminho)
+        return (el.text or "").strip() if el is not None else ""
+    return {
+        "codigo": t("code") or codigo_transacao, "status": t("status"),
+        "referencia": t("reference"),
+        "nome": t("sender/name"), "email": t("sender/email").lower(),
+        "itens": [(i.findtext("description") or "").strip()
+                  for i in raiz.findall("items/item")],
+        "valor": t("grossAmount"),
+    }
+
+
+@app.route("/pagbank-diag", methods=["POST"])
+def pagbank_diag_endpoint():
+    """O que o servidor enxerga na conta do PagBank, SEM dado de cliente.
+
+    Responde três perguntas que eu não consigo responder de fora: o token
+    que está no Railway serve? O servidor alcança o PagBank? E como vem
+    escrita a descrição de uma venda feita pelo link da página?
+    Não emite nada e não manda e-mail: só olha.
+    """
+    import hmac
+    body = request.get_json(silent=True) or {}
+    presented = request.headers.get("X-API-Key") or body.get("api_key", "")
+    if not API_SECRET_KEY or not presented \
+            or not hmac.compare_digest(presented, API_SECRET_KEY):
+        return jsonify({"status": "error", "message": "unauthorized"}), 401
+    saida = {"tem_email": bool(PAGBANK_EMAIL), "tem_token": bool(PAGBANK_TOKEN),
+             "tamanho_token": len(PAGBANK_TOKEN)}
+    if not (PAGBANK_EMAIL and PAGBANK_TOKEN):
+        return jsonify(dict(saida, status="sem_credenciais")), 200
+    try:
+        horas = max(1, min(int(body.get("horas") or 72), 720))
+    except (TypeError, ValueError):
+        horas = 72
+    try:
+        txs, erro = _pagbank_buscar(horas=horas)
+    except Exception as exc:                            # noqa: BLE001
+        return jsonify(dict(saida, status="falha_de_rede",
+                            detalhe=str(exc)[:200])), 200
+    if erro:
+        return jsonify(dict(saida, status="pagbank_recusou",
+                            detalhe=erro)), 200
+    vendas = []
+    for tx in txs[:12]:
+        linha = {"data": tx["data"][:16], "status": tx["status"],
+                 "valor": tx["valor"], "meio": tx["meio"]}
+        try:
+            d = _pagbank_detalhar(tx["codigo"])
+            linha["itens"] = d["itens"]
+            linha["tem_email"] = "@" in d["email"]
+            linha["curso"] = _pagbank_produto(d["itens"])
+        except Exception as exc:                        # noqa: BLE001
+            linha["detalhe_falhou"] = str(exc)[:80]
+        vendas.append(linha)
+    return jsonify(dict(saida, status="ok", horas=horas,
+                        total=len(txs), vendas=vendas)), 200
+
+
 def _vouchers_ou_erro():
     """Os vouchers, ou (None, resposta de erro). Falha ALTA, nunca silenciosa.
 
