@@ -1417,7 +1417,7 @@ _PRODUTOS = {
 # leria promessas diferentes conforme o programa de e-mail dela.
 _BV_BRINDE = ("E tem o seu brinde: um relatório com a leitura dos pontos "
               "mais importantes do seu mapa natal, escrito a partir do "
-              "mesmo método que uso em consulta.")
+              "mesmo método usado em consulta.")
 _BV_CHAMADA = "Para receber, preencha seus dados de nascimento:"
 _BV_ONDE = ("No formulário, digite esse código no campo "
             "\"Código de acesso\". Ele vale para um relatório.")
