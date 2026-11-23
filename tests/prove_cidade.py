@@ -213,6 +213,37 @@ chk("valor incerto NÃO recusa a geração",
 chk("o meta registra o valor bruto e se foi reconhecido",
     '"report_for_bruto"' in _src_ep2 and '"report_for_reconhecido"' in _src_ep2)
 
+# ---------------------------------------------------------------------
+# 23/11 — a frase de abertura só na ABERTURA (relatório em 3ª pessoa).
+# A Márcia leu um relatório sobre outra pessoa em que toda seção começava
+# com "Quando olho para o mapa de Lucca…".
+import report_generator as _rg3
+import inspect as _insp3
+_ch3 = {"name": "Lucca Prado", "_voice": {"person": "terceira",
+                                          "name": "Lucca Prado"}}
+_ab = _rg3.voice_rules_block(_ch3, abertura=True)
+_na = _rg3.voice_rules_block(_ch3, abertura=False)
+chk("3ª pessoa, ABERTURA: recebe a frase 'Quando olho para o mapa de Lucca'",
+    "a primeira frase vira 'Quando olho para o mapa de Lucca" in _ab)
+chk("3ª pessoa, OUTRA seção: recebe a PROIBIÇÃO, não a instrução",
+    "NÃO é a abertura" in _na and "a primeira frase vira" not in _na
+    and "Não comece com 'Quando olho para o mapa de Lucca'" in _na)
+chk("o padrão (sem dizer nada) é NÃO ser abertura: o Fio Condutor e "
+    "qualquer seção nova caem do lado seguro",
+    _rg3.voice_rules_block(_ch3) == _na)
+chk("quem decide é o MOLDE da seção, não a ordem nem o nome",
+    "abertura=MARCA_ABERTURA in section[\"psychological_frame\"]"
+    in _insp3.getsource(_rg3).replace("\n            ", ""))
+_fr = _insp3.getsource(_rg3)
+chk("as três variantes de abertura carregam a marca; nenhuma outra seção",
+    _fr.count('"' + _rg3.MARCA_ABERTURA + " (igual em todo relatório)") == 3)
+_ch2 = {"name": "Helena Penteado", "_voice": {"person": "segunda",
+                                              "name": "Helena Penteado"}}
+chk("2ª pessoa não muda: o bloco é o mesmo com ou sem abertura",
+    _rg3.voice_rules_block(_ch2, abertura=True)
+    == _rg3.voice_rules_block(_ch2, abertura=False)
+    and "SEGUNDA PESSOA" in _rg3.voice_rules_block(_ch2))
+
 print()
 if falhas:
     print(f">>> {falhas} FALHOU")

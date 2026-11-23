@@ -407,6 +407,16 @@ def _styles():
             leading=9,
             spaceBefore=6,   # respiro entre o bloco de dados e a linha técnica
         ),
+        # Nota de procedência, no fim do relatório (23/11).
+        "nota_final": ParagraphStyle(
+            name="nota_final",
+            fontName="EBGaramond-Italic",
+            fontSize=12.5,
+            textColor=COLOR_CHARCOAL,
+            alignment=TA_CENTER,
+            leading=18,
+            spaceBefore=6,
+        ),
         "footnote": ParagraphStyle(
             name="footnote",
             fontName="EBGaramond-Italic",
@@ -1161,7 +1171,13 @@ def _cover_flowables(client_name: str, birth_date: str, birth_place: str, styles
 
     # Attribution — quiet, in Inter
     flow.append(Paragraph(
-        "Interpretado por <font face='EBGaramond-Italic'>Márcia Fervienza</font>",
+        # 23/11, a Márcia: "o meu nome está pequeno". EB Garamond tem o
+        # corpo visual menor que a Inter no mesmo tamanho nominal: a 10pt,
+        # o nome saía MENOR que o "Interpretado por" ao lado. A 14pt ele
+        # passa a ser o maior elemento da linha, que é o que uma
+        # assinatura deve ser.
+        "Interpretado por <font face='EBGaramond-Italic' size='14'>"
+        "Márcia Fervienza</font>",
         styles["cover_attribution"],
     ))
 
@@ -1518,6 +1534,33 @@ def _section_flowables(title: str, paragraphs: list, styles, points: dict,
 # ============================================================
 # PUBLIC API
 # ============================================================
+# NOTA DE PROCEDÊNCIA — decisão da Márcia, 23/11: "É preciso incluir".
+# Quem recebe o relatório tem de saber de onde ele vem: do banco de dados
+# dela e com ajuda de inteligência artificial. A frase é dela; fica numa
+# constante porque é o tipo de texto que ela vai querer ajustar sem que
+# alguém precise procurar onde ele mora.
+NOTA_FINAL_TITULO = "SOBRE ESTE RELATÓRIO"
+NOTA_FINAL = ("Este relatório foi produzido com base no banco de dados que "
+              "construí ao longo de 18 anos de atendimento, com a ajuda de "
+              "inteligência artificial.")
+
+
+def _nota_final_flowables(styles):
+    """A nota fecha o relatório, depois da última seção, sem página própria
+    e sem entrada no índice: é procedência, não conteúdo. KeepTogether
+    para o fio, o título e a frase nunca se separarem numa quebra."""
+    return [KeepTogether([
+        Spacer(1, 1.2 * cm),
+        HRFlowable(width=2.8 * cm, thickness=0.6, color=COLOR_GOLD,
+                   spaceBefore=2, spaceAfter=12, hAlign="CENTER",
+                   lineCap="round"),
+        Paragraph(NOTA_FINAL_TITULO, styles["chart_page_kicker"]),
+        Paragraph(_escape(NOTA_FINAL), styles["nota_final"]),
+        Paragraph("<font face='EBGaramond-Italic' size='13'>"
+                  "Márcia Fervienza</font>", styles["nota_final"]),
+    ])]
+
+
 def generate_pdf(
     report_text: str,
     client_name: str,
@@ -1672,6 +1715,8 @@ def generate_pdf(
             quote = _select_pull_quote(paragraphs)
             if quote:
                 story.extend(_pull_quote_flowables(quote, styles))
+
+    story.extend(_nota_final_flowables(styles))
 
     # multiBuild: 1ª passada descobre em que página cada entrada caiu, 2ª
     # desenha o índice já com os números. Custo medido: +0.47s (0.5% do

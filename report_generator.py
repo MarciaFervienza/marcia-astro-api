@@ -2179,7 +2179,12 @@ def call_claude_detector(prompt, max_tokens=SECTION_MAX_TOKENS):
 
 
 
-def voice_rules_block(chart) -> str:
+# Marca que identifica, no molde de uma seção, que ela é a ABERTURA do
+# relatório. Só as seções de abertura a carregam.
+MARCA_ABERTURA = "ABERTURA — FORMA FIXA"
+
+
+def voice_rules_block(chart, abertura=False) -> str:
     """Bloco de regras de VOZ para os prompts, derivado de chart["_voice"].
 
     Dois interruptores desacoplados (decisão da Márcia, 17/07):
@@ -2233,8 +2238,22 @@ def voice_rules_block(chart) -> str:
         f"- {rel_line}\n"
         f"- Concordância de gênero do SUJEITO ({first}) segue o gênero "
         "informado do sujeito, não o do leitor.\n"
-        "- Na ABERTURA, a primeira frase vira: 'Quando olho para o mapa de "
-        f"{first}, …' — dirigida ao leitor, sobre o sujeito.\n"
+        + (
+            # 23/11: a Márcia leu um relatório em terceira pessoa em que
+            # TODA seção começava com "Quando olho para o mapa de Lucca…".
+            # Esta regra ia junto com todas as seções, e cada seção é
+            # escrita sozinha: cada uma achava que era a abertura. Agora só
+            # a abertura a recebe, e as outras recebem a proibição.
+            "- Esta seção é a ABERTURA do relatório: a primeira frase vira "
+            f"'Quando olho para o mapa de {first}, …' — dirigida ao leitor, "
+            "sobre o sujeito.\n"
+            if abertura else
+            "- Esta seção NÃO é a abertura do relatório. Não comece com "
+            f"'Quando olho para o mapa de {first}' nem com fórmula parecida "
+            "('Olhando para o mapa de…', 'Ao observar o mapa de…'): essa "
+            "frase já foi usada uma vez, na abertura. Entre direto no "
+            "assunto da seção.\n"
+        ) +
         "- Fechos de orientação ('o que esse posicionamento pede…') referem-se "
         f"ao que o posicionamento pede DE {first}, ou ao que o leitor pode "
         "observar/apoiar — nunca instruções em segunda pessoa ao sujeito."
@@ -2348,7 +2367,9 @@ def generate_section(section, chart, name, gender, section_context=None,
         depth_instruction=section.get("depth_instruction", DEPTH_TIER_3),
         gender=gender,
         style_rules=SECTION_STYLE_RULES,
-        voice_rules=voice_rules_block(chart),
+        voice_rules=voice_rules_block(
+            chart,
+            abertura=MARCA_ABERTURA in section["psychological_frame"]),
     )
     prompt += bloco_correcao_dirigida(evitar)
 

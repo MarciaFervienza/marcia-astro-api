@@ -201,6 +201,27 @@ _h_minusculos = [ln for ln in _tudo.splitlines()
 checa("8e. nenhum título minúsculo no PDF renderizado", not _h_minusculos,
       str(_h_minusculos[:3]))
 
+# ---------------------------------------------------------------- 9
+# NOTA DE PROCEDÊNCIA (23/11). A Márcia: "É preciso incluir" que o mapa
+# vem do banco de dados dela e tem ajuda de inteligência artificial.
+# A asserção é sobre o PDF ENTREGUE, não sobre a constante: uma nota que
+# existe no código e não chega à página é o defeito que este arquivo
+# nasceu para pegar.
+_plano = re.sub(r"\s+", " ", _tudo)
+checa("9a. a nota de procedência está no PDF entregue",
+      re.sub(r"\s+", " ", pg.NOTA_FINAL) in _plano)
+checa("9b. fala do banco de dados dela E da inteligência artificial",
+      "banco de dados" in pg.NOTA_FINAL
+      and "inteligência artificial" in pg.NOTA_FINAL)
+checa("9c. aparece UMA vez, e depois da última seção",
+      _plano.count(re.sub(r"\s+", " ", pg.NOTA_FINAL)) == 1
+      and _plano.rfind("inteligência artificial")
+      > _plano.rfind(pg.NOTA_FINAL_TITULO) > len(_plano) * 0.5)
+import inspect as _insp9
+checa("9d. na capa, o nome dela é MAIOR que o 'Interpretado por'",
+      "size='14'>\"\n        \"Márcia Fervienza</font>"
+      in _insp9.getsource(pg._cover_flowables))
+
 print()
 if falhas:
     print(f">>> {len(falhas)} FALHOU: {falhas}")
