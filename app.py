@@ -256,6 +256,34 @@ def _rate_check(email_norm, ip):
     return None
 
 
+def _avisar_uso_da_equipe(assunto, linhas):
+    """Conta à MÁRCIA cada coisa grátis que sai com a senha da equipe.
+
+    Decisão dela (23/11): relatório pedido com a senha da equipe e código
+    emitido pela página Emitir acesso não custam nada a quem pede, e por
+    isso não podem ser invisíveis para ela. Vai só para o endereço dela
+    (o dos alertas), não para a caixa da equipe: é ela quem confere.
+
+    Sai numa thread: avisar não pode atrasar nem derrubar o pedido.
+    """
+    import threading
+
+    def _manda():
+        try:
+            _enviar_email_bruto(assunto, "\n".join(linhas),
+                                destino=_ALERT_RECIPIENT)
+        except Exception as exc:                        # noqa: BLE001
+            logger.error("aviso de uso da equipe falhou: %s", exc)
+
+    try:
+        t = threading.Thread(target=_manda, name="aviso-equipe", daemon=True)
+        t.start()
+        return t
+    except Exception as exc:                            # noqa: BLE001
+        logger.error("aviso de uso da equipe não saiu: %s", exc)
+        return None
+
+
 def _rate_estornar_ip(ip):
     """Devolve ao IP a tentativa que o limite contou, quando o pedido foi
     ACEITO (código válido). Recusa não é devolvida: é ela que o teto
@@ -2129,6 +2157,19 @@ def equipe_emitir_pagina():
         cods = ", ".join(c for c in cods if c)
         logger.info("EQUIPE emitiu produto=%s email=%r",
                     d.get("produto"), valores["email"][:60])
+        _avisar_uso_da_equipe(
+            "Mapa Natal: código emitido pela página da equipe", [
+                "Um email de boas-vindas com código foi enviado pela "
+                "página Emitir acesso, sem passar por uma venda automática.",
+                "",
+                f"Para: {valores['nome'] or '(sem nome)'} "
+                f"<{d.get('email', '')}>",
+                f"Produto: {_PRODUTOS.get(d.get('produto'), d.get('produto'))}",
+                f"Código: {cods}",
+                ("Esse código já existia e foi só reenviado."
+                 if d.get("reaproveitado") else
+                 "Código novo: dá direito a um relatório."),
+            ])
         return _equipe_pagina(
             "<strong>Email enviado</strong> para %s.<br>Código: "
             "<strong>%s</strong>%s" % (
@@ -4660,6 +4701,7 @@ def _receber_pedido(body, _key_via="?", avisar_recusa_por_email=True,
     #
     # O código sai do corpo com pop: ele não é dado do mapa e não pode
     # vazar para o `chart` que a fila guarda.
+    _via_equipe = False
     _voucher_campo = body.pop("voucher", "")
     _voucher_alias = body.pop("codigo", "")
     _voucher_bruto = str(_voucher_campo or _voucher_alias or "").strip()
@@ -4682,6 +4724,7 @@ def _receber_pedido(body, _key_via="?", avisar_recusa_por_email=True,
             # linha de tabela. Por isso NÃO entra em body["_voucher"].
             logger.info("VOUCHER de admin usado email=%r", _email_norm[:60])
             _v_ok, _v_motivo, _voucher_bruto = True, "admin", ""
+            _via_equipe = True
         else:
             _v_ok, _v_motivo = _v.consumir(_voucher_bruto, email=_email_norm,
                                            nome=body.get("name"))
@@ -4714,6 +4757,18 @@ def _receber_pedido(body, _key_via="?", avisar_recusa_por_email=True,
         # pedido aceito não.
         _rate_estornar_ip(_client_ip)
         logger.info("VOUCHER aceito email=%r", _email_norm[:60])
+        if _via_equipe:
+            _avisar_uso_da_equipe(
+                "Mapa Natal: relatório pedido com a senha da equipe", [
+                    "Um relatório foi pedido com a senha da equipe, sem "
+                    "gastar código de cliente.",
+                    "",
+                    f"Nome no mapa: {body.get('name')}",
+                    f"Vai para o e-mail: {_email_norm}",
+                    f"Nascimento: {body.get('birth_date')} | "
+                    f"{body.get('birth_city')}",
+                    f"Para quem: {body.get('report_for') or '(não informado)'}",
+                ])
 
     # ==================================================================
     # CAMINHO ASSÍNCRONO — 202 + fila, em vez de segurar a conexão.
@@ -4743,7 +4798,8 @@ def _receber_pedido(body, _key_via="?", avisar_recusa_por_email=True,
             # fila fora do ar custaria o código da cliente (23/11).
             _devolver_voucher(body.pop("_voucher", None), "fila indisponivel")
             return err
-        body["_ctx"] = {"ip": _client_ip, "ua": _ua}
+        body["_ctx"] = {"ip": _client_ip, "ua": _ua,
+                        "via_equipe": _via_equipe}
         tid = f.enfileirar(body, nome=body.get("name"), email=body.get("email"))
         logger.info("ENFILEIRADO %s name=%r email=%r", tid,
                     (body.get("name") or "")[:60], _email_norm[:60])
@@ -4791,14 +4847,16 @@ def _receber_pedido(body, _key_via="?", avisar_recusa_por_email=True,
         }), 202
 
     if em_segundo_plano:
-        _gerar_em_segundo_plano(body, {"ip": _client_ip, "ua": _ua})
+        _gerar_em_segundo_plano(body, {"ip": _client_ip, "ua": _ua,
+                                       "via_equipe": _via_equipe})
         return jsonify({
             "status": "accepted",
             "message": ("Recebemos o seu pedido. O relatório leva alguns "
                         "minutos e chega por e-mail quando ficar pronto."),
         }), 202
 
-    _corpo, _http = executar_geracao(body, {"ip": _client_ip, "ua": _ua})
+    _corpo, _http = executar_geracao(body, {"ip": _client_ip, "ua": _ua,
+                                            "via_equipe": _via_equipe})
     return jsonify(_corpo), _http
 
 
@@ -4932,6 +4990,9 @@ def _nucleo_da_geracao(body, ctx=None):
     ctx = ctx or {}
     _client_ip = ctx.get("ip", "?")
     _ua = ctx.get("ua", "?")
+    # Pedido feito com a senha da equipe: vai marcado no painel, para a
+    # Márcia distinguir o que foi cortesia ou conserto do que foi venda.
+    _via_equipe = bool(ctx.get("via_equipe"))
     # Pull out optional control fields without polluting the chart
     sections_only = body.pop("sections_only", None)
     limit = body.pop("limit", None)
@@ -5563,7 +5624,7 @@ def _nucleo_da_geracao(body, ctx=None):
              "pendencias": _pend,
              "regeneracoes": _rl_log.get("regeneracoes"),
              "rodadas": len(_rl_log.get("rodadas") or [])})
-        _registra_geracao(nome=body.get("name"),
+        _registra_geracao(nome=body.get("name"), equipe=_via_equipe,
                           desfecho="falha_fechada_lingua", email_enviado=False,
                           rodadas=len(_rl_log.get("rodadas") or []),
                           regeneracoes=_rl_log.get("regeneracoes"),
@@ -5706,6 +5767,7 @@ def _nucleo_da_geracao(body, ctx=None):
                 _lingua_flags_resp = result.get("lingua_flags") or []
                 _registra_geracao(
                     nome=body.get("name"), desfecho="ok", email_enviado=True,
+                    equipe=_via_equipe,
                     rodadas=len(_rl_ok.get("rodadas") or []),
                     regeneracoes=_rl_ok.get("regeneracoes"),
                     por_rodada=[len(r.get("achados", []))
@@ -5738,7 +5800,7 @@ def _nucleo_da_geracao(body, ctx=None):
     # código, e a equipe é avisada pelos dois canais, com o que fazer.
     if recipient and not email_sent:
         _registra_geracao(nome=body.get("name"), desfecho="email_falhou",
-                          email_enviado=False)
+                          email_enviado=False, equipe=_via_equipe)
         try:
             _alerta_com_retry(
                 "Mapa Natal: relatório escrito e NÃO entregue",

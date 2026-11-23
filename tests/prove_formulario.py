@@ -49,6 +49,11 @@ _enviados = []
 _app._enviar_email_bruto = (
     lambda assunto, texto, destino=None, detalhe_out=None, html=None:
     (_enviados.append((assunto, destino)) or True))
+# O aviso à Márcia de cada uso da senha da equipe sai numa thread. Fica
+# calado até a seção F3, que é onde ele é provado: fora dali, um aviso
+# chegando fora de hora bagunçaria a contagem de e-mails das outras provas.
+_aviso_real = _app._avisar_uso_da_equipe
+_app._avisar_uso_da_equipe = lambda *a, **k: None
 _gerados = []
 _resposta_geracao = [({"status": "ok"}, 200)]
 
@@ -338,6 +343,66 @@ chk("e a outra conexão segue livre",
     .get_json().get("ok") is True)
 _app._rate_ip_hits.clear()
 _app._rate_email_hits.clear()
+
+print()
+print("=" * 68)
+print("F3) O QUE SAI COM A SENHA DA EQUIPE NÃO É INVISÍVEL PARA A MÁRCIA")
+print("=" * 68)
+def _aviso_e_espera(assunto, linhas):
+    t = _aviso_real(assunto, linhas)
+    if t is not None:
+        t.join(5)
+    return t
+
+
+_app._avisar_uso_da_equipe = _aviso_e_espera
+_alerta_orig = _app._ALERT_RECIPIENT
+_app._ALERT_RECIPIENT = "dona@exemplo.com"
+_ctxs = []
+_ger_orig = _app.executar_geracao
+
+
+def _geracao_com_ctx(body, ctx=None):
+    _ctxs.append(dict(ctx or {}))
+    return _ger_orig(body, ctx)
+
+
+_app.executar_geracao = _geracao_com_ctx
+_app._gerar_em_segundo_plano = (
+    lambda body, ctx: _app.executar_geracao(body, ctx))
+_app.CODIGO_ADMIN = "EQUIPE-TESTE-2026-ABC"
+_n_e = len(_enviados)
+_envia(_bom(codigo="EQUIPE-TESTE-2026-ABC", nome="Cortesia Exemplo"))
+_novos = _enviados[_n_e:]
+chk("relatório pedido com a senha da equipe AVISA a Márcia, e só ela",
+    _novos == [("Mapa Natal: relatório pedido com a senha da equipe",
+                "dona@exemplo.com")], str(_novos))
+chk("e a geração leva a marca da equipe, para o painel",
+    _ctxs[-1].get("via_equipe") is True)
+_n_e = len(_enviados)
+_envia(_bom())
+chk("pedido com código de cliente NÃO gera esse aviso, nem leva a marca",
+    len(_enviados) == _n_e and _ctxs[-1].get("via_equipe") is False)
+_src_nuc = __import__("inspect").getsource(_app._nucleo_da_geracao)
+chk("as três linhas do painel (ok, língua, e-mail) registram a marca",
+    _src_nuc.count("equipe=_via_equipe") == 3)
+_n_e = len(_enviados)
+_rp = _cli.post("/emitir", data={
+    "email": "aluna@exemplo.com", "nome": "Aluna Exemplo",
+    "produto": "mapa", "codigo": "EQUIPE-TESTE-2026-ABC"})
+_novos = [e for e in _enviados[_n_e:] if e[1] == "dona@exemplo.com"]
+chk("código emitido pela página Emitir acesso também avisa a Márcia",
+    _rp.status_code == 200
+    and _novos == [("Mapa Natal: código emitido pela página da equipe",
+                    "dona@exemplo.com")], f"{_rp.status_code} {_novos}")
+_app.CODIGO_ADMIN = ""
+_app._ALERT_RECIPIENT = _alerta_orig
+_app.executar_geracao = _ger_orig
+_app._avisar_uso_da_equipe = lambda *a, **k: None
+_painel = open(os.path.join(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))), "painel.py"), encoding="utf-8").read()
+chk("o painel mostra a coluna da equipe e conta quantos foram",
+    "g.get('equipe')" in _painel and "com a senha da equipe" in _painel)
 
 print()
 print("=" * 68)

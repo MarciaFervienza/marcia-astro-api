@@ -66,7 +66,7 @@ if not gs:
 print("=" * 78)
 print(f"ÚLTIMAS {len(gs)} GERAÇÕES")
 print("=" * 78)
-print(f"{'dia':<7}{'hora':<10}{'quem':<22}{'desfecho':<18}{'2a':<5}{'rod':<5}{'sinaliz.':<9}")
+print(f"{'dia':<7}{'hora':<10}{'quem':<22}{'desfecho':<18}{'eq':<4}{'2a':<5}{'rod':<5}{'sinaliz.':<9}")
 print("-" * 78)
 
 recusados, recuperados, sinalizados = [], [], []
@@ -77,7 +77,7 @@ for g in gs:
     rod = g.get("rodadas")
     sin = g.get("sinalizacoes")
     print(f"{str(g.get('dia') or ''):<7}{str(g.get('quando') or '')[:8]:<10}{nome:<22}"
-          f"{desf[:17]:<18}{seg:<5}{str(rod if rod is not None else '—'):<5}"
+          f"{desf[:17]:<18}{('EQ' if g.get('equipe') else ''):<4}{seg:<5}{str(rod if rod is not None else '—'):<5}"
           f"{str(sin if sin is not None else '—'):<9}")
     # "falh" pega falha_fechada_lingua E email_falhou (23/11): relatório
     # escrito e não entregue também é um mapa que não saiu.
@@ -90,6 +90,8 @@ for g in gs:
 
 print("-" * 78)
 ok = sum(1 for g in gs if g.get("desfecho") == "ok")
+_eq = sum(1 for g in gs if g.get("equipe"))
+print(f"com a senha da equipe (coluna eq): {_eq}")
 print(f"entregues: {ok}    recusados: {len(recusados)}    "
       f"recuperados pela 2a tentativa: {len(recuperados)}")
 

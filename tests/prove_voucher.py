@@ -213,6 +213,11 @@ _tmp = tempfile.mkdtemp()
 os.environ["DATABASE_URL"] = os.path.join(_tmp, "prova.db")
 os.environ.setdefault("API_SECRET_KEY", "chave-de-teste-" + "x" * 20)
 import app as _app
+# O aviso à Márcia de cada uso da senha da equipe (23/11) sai numa thread
+# e é provado em prove_formulario. Aqui ele fica calado desde o começo,
+# porque estas provas contam e olham os e-mails enviados, e um aviso
+# chegando fora de hora faria a prova falhar de vez em quando.
+_app._avisar_uso_da_equipe = lambda *a, **k: None
 
 # Em 23/11 o endpoint foi dividido: a porta (chave da API) ficou nele, e
 # o que vem depois da porta virou `_receber_pedido`, que o formulário
