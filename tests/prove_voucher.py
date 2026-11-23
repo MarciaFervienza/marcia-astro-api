@@ -207,6 +207,11 @@ print()
 print("=" * 68)
 print("H) A LIGAÇÃO COM A GERAÇÃO — reserva antes, devolve se falhar")
 print("=" * 68)
+# O banco e a chave entram ANTES do import: o app lê os dois no topo do
+# módulo, e a seção I chama o endpoint de verdade pelo cliente de teste.
+_tmp = tempfile.mkdtemp()
+os.environ["DATABASE_URL"] = os.path.join(_tmp, "prova.db")
+os.environ.setdefault("API_SECRET_KEY", "chave-de-teste-" + "x" * 20)
 import app as _app
 
 _end = _insp.getsource(_app.generate_report_endpoint)
@@ -242,6 +247,80 @@ chk("as três recusas têm mensagem para a CLIENTE",
                                             "expirado", "ausente")))
 chk("o interruptor nasce DESLIGADO — o campo do Wix vem antes da exigência",
     _app.VOUCHER_OBRIGATORIO is False)
+
+print()
+print("=" * 68)
+print("I) /emitir-acesso — o código nasce e o e-mail sai do mesmo lugar")
+print("=" * 68)
+_cli = _app.app.test_client()
+_CH = {"X-API-Key": os.environ["API_SECRET_KEY"]}
+
+
+def _emitir(**kw):
+    corpo = {"enviar": False}
+    corpo.update(kw)
+    return _cli.post("/emitir-acesso", json=corpo, headers=_CH)
+
+
+_r = _cli.post("/emitir-acesso", json={"email": "a@b.com",
+                                       "produto": "leitura"})
+chk("sem chave de API, 401", _r.status_code == 401, str(_r.status_code))
+
+_r = _emitir(email="semarroba", produto="leitura")
+chk("e-mail inválido é recusado", _r.status_code == 400)
+_r = _emitir(email="a@b.com", produto="curso-que-nao-existe")
+chk("produto desconhecido é recusado, dizendo quais valem",
+    _r.status_code == 400 and "leitura" in _r.get_json()["message"])
+
+_r = _emitir(email="Ana@Exemplo.com", nome="Ana Souza", produto="leitura")
+_j = _r.get_json()
+chk("curso avulso emite UM código", _r.status_code == 200
+    and _j["codigo_aluna"] and _j["codigo_presente"] is None)
+chk("o e-mail é normalizado para minúsculo", _j["email"] == "ana@exemplo.com")
+_codigo_ana = _j["codigo_aluna"]
+
+_r2 = _emitir(email="ana@exemplo.com", nome="Ana Souza", produto="leitura")
+chk("chamar duas vezes NÃO emite um código órfão",
+    _r2.get_json()["codigo_aluna"] == _codigo_ana
+    and _r2.get_json()["reaproveitado"] is True)
+
+_r3 = _emitir(email="bete@exemplo.com", nome="Bete Prado", produto="combo")
+_j3 = _r3.get_json()
+chk("combo emite DOIS códigos, e diferentes",
+    _j3["codigo_aluna"] and _j3["codigo_presente"]
+    and _j3["codigo_aluna"] != _j3["codigo_presente"])
+
+_v2 = V.abrir()
+chk("o código do combo é do tipo 'presente'",
+    _v2.consultar(_j3["codigo_presente"])["tipo"] == V.PRESENTE)
+chk("e guarda de qual compra veio",
+    _v2.consultar(_j3["codigo_presente"])["origem"] == "combo:bete@exemplo.com")
+
+_txt = _j3["texto"]
+chk("o texto volta junto, para a Marcelle copiar se o envio falhar",
+    bool(_txt))
+chk("sem travessão no texto da cliente", "—" not in _txt)
+chk("promete 24 horas", "24 horas" in _txt)
+chk("NÃO promete 1 hora", "1 hora" not in _txt)
+chk("traz os dois códigos", _j3["codigo_aluna"] in _txt
+    and _j3["codigo_presente"] in _txt)
+chk("traz o endereço do formulário", _app.FORM_URL in _txt)
+chk("o bloco de presente só existe no combo",
+    "presentear" in _txt and "presentear" not in _j["texto"])
+chk("chama a pessoa pelo primeiro nome", _txt.startswith("Oi, Bete!"))
+
+_r4 = _emitir(email="cida@exemplo.com", produto="preditivas",
+              acesso="Acesso: entre em area-de-alunos com seu e-mail.")
+chk("o bloco de acesso ao curso entra quando é passado",
+    "area-de-alunos" in _r4.get_json()["texto"])
+
+chk("sem SENHA_PAGINA posta, o e-mail não fala de senha nenhuma",
+    "Senha da página" not in _txt)
+_app.SENHA_PAGINA = "senha-de-teste"
+chk("com SENHA_PAGINA posta, a senha entra",
+    "Senha da página: senha-de-teste"
+    in _app.texto_boas_vindas("leitura", codigo_aluna="MF-0000-0000"))
+_app.SENHA_PAGINA = ""
 
 print()
 if falhas:

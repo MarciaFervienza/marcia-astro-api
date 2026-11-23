@@ -1381,6 +1381,173 @@ def _fila_ou_erro():
             "message": f"A fila persistida não está disponível: {exc}"}), 503)
 
 
+# ENDEREÇO DO FORMULÁRIO E SENHA DA PÁGINA — configuráveis, e por um
+# motivo concreto: a senha fixa do Wix é justamente a coisa que o voucher
+# existe para aposentar. Quando a Márcia tirar a senha da página, ela
+# esvazia a variável e o e-mail para de mencioná-la. Sem push, sem
+# deploy, sem um texto de e-mail falando de uma senha que não existe mais.
+FORM_URL = os.environ.get(
+    "FORM_URL", "https://www.marciafervienza.com/porrima-k7f2m9x4").strip()
+SENHA_PAGINA = os.environ.get("SENHA_PAGINA", "").strip()
+
+# Nome de cada produto como ele aparece para a cliente.
+_PRODUTOS = {
+    "leitura": "Curso de Leitura de Mapa Natal",
+    "preditivas": "Curso de Técnicas de Astrologia Preditiva",
+    "combo": "Curso de Leitura de Mapa Natal e Curso de Técnicas de "
+             "Astrologia Preditiva",
+}
+
+
+def _bloco_formulario(codigo):
+    """As três linhas que a pessoa precisa para receber o relatório."""
+    linhas = [f"Link: {FORM_URL}", f"Código de acesso: {codigo}"]
+    if SENHA_PAGINA:
+        linhas.insert(1, f"Senha da página: {SENHA_PAGINA}")
+    return "\n".join(linhas)
+
+
+def texto_boas_vindas(produto, nome=None, codigo_aluna=None,
+                      codigo_presente=None, acesso=None):
+    """O e-mail que a compradora recebe. Texto puro, de propósito.
+
+    SEM TRAVESSÃO e sem promessa de hora: o prazo é 24 horas, igual ao
+    que está nas duas páginas de venda, no e-mail da loja e na página de
+    obrigado. Seis lugares dizendo a mesma coisa só continua verdade se
+    o sétimo nascer dizendo igual.
+    """
+    curso = _PRODUTOS.get(produto, produto)
+    saudacao = f"Oi, {nome.split()[0]}!" if nome else "Oi!"
+    partes = [saudacao, "",
+              f"Sua inscrição no {curso} está confirmada."]
+    if acesso:
+        partes += ["", acesso.strip()]
+    partes += [
+        "",
+        "E tem o seu brinde: um relatório com a leitura dos pontos mais "
+        "importantes do seu mapa natal, escrito a partir do mesmo método "
+        "que uso em consulta.",
+        "",
+        "Para receber, preencha seus dados de nascimento:",
+        "",
+        _bloco_formulario(codigo_aluna),
+        "",
+        "O relatório chega no seu email em até 24 horas.",
+    ]
+    if codigo_presente:
+        partes += [
+            "",
+            "O combo vem com bônus duplo. O primeiro é o relatório acima, "
+            "o seu. O segundo é um voucher para você presentear quem quiser.",
+            "",
+            "Para presentear, encaminhe daqui para baixo:",
+            "",
+            "- - -",
+            "",
+            "Você ganhou um Mapa Natal de presente.",
+            "",
+            "É um relatório com a leitura dos pontos mais importantes do "
+            "seu mapa, escrito pela astróloga Márcia Fervienza a partir do "
+            "mesmo método que ela usa em consulta.",
+            "",
+            "Para receber, preencha seus dados de nascimento:",
+            "",
+            _bloco_formulario(codigo_presente),
+            "",
+            "O relatório chega no seu email em até 24 horas.",
+            "",
+            "- - -",
+        ]
+    partes += ["", "Qualquer dúvida, é só responder este email.", "",
+               "Márcia"]
+    return "\n".join(partes)
+
+
+@app.route("/emitir-acesso", methods=["POST"])
+def emitir_acesso_endpoint():
+    """Emite o código e manda o e-mail de boas-vindas. Um lugar só.
+
+    POR QUE UM ENDPOINT, e não um script da Marcelle. Hoje quem chama é
+    ela, pelo painel; amanhã quem chama é a notificação do PagBank. Os
+    dois precisam emitir o MESMO código e mandar o MESMO texto, e duas
+    implementações do mesmo e-mail é a classe de defeito em que os dois
+    divergem em silêncio e ninguém descobre até uma cliente comparar.
+
+    IDEMPOTENTE POR E-MAIL E PRODUTO. Clicar duas vezes não emite dois
+    códigos: se já existe um voucher não usado para esta compra, ele é
+    reaproveitado e o e-mail reenviado. Sem isso, o segundo clique
+    deixaria um código órfão vivo por 120 dias.
+    """
+    import hmac
+    body = request.get_json(silent=True) or {}
+    if isinstance(body, dict) and set(body.keys()) == {"data"} \
+            and isinstance(body["data"], dict):
+        body = body["data"]
+    presented = request.headers.get("X-API-Key") or body.pop("api_key", "")
+    if not API_SECRET_KEY or not presented \
+            or not hmac.compare_digest(presented, API_SECRET_KEY):
+        return jsonify({"status": "error", "message": "unauthorized"}), 401
+
+    email = (body.get("email") or "").strip().lower()
+    nome = (body.get("nome") or body.get("name") or "").strip()
+    produto = (body.get("produto") or "").strip().lower()
+    acesso = body.get("acesso") or ""
+    enviar = body.get("enviar", True)
+
+    if "@" not in email:
+        return jsonify({"status": "error",
+                        "message": "Informe um e-mail válido."}), 400
+    if produto not in _PRODUTOS:
+        return jsonify({
+            "status": "error",
+            "message": f"Produto desconhecido: {produto!r}. "
+                       f"Use um de: {', '.join(sorted(_PRODUTOS))}."}), 400
+
+    v, err = _vouchers_ou_erro()
+    if err:
+        return err
+
+    import vouchers as _vm
+
+    def _emitir_ou_reaproveitar(tipo):
+        origem = f"{produto}:{email}"
+        for linha in v.listar(limite=200):
+            if linha["origem"] == origem and linha["tipo"] == tipo \
+                    and linha["usado_em"] is None:
+                return _vm.formatar(linha["codigo"]), True
+        return v.emitir(tipo, origem=origem), False
+
+    codigo_aluna, reusou_a = _emitir_ou_reaproveitar(_vm.ALUNA)
+    codigo_presente, reusou_p = (None, False)
+    if produto == "combo":
+        codigo_presente, reusou_p = _emitir_ou_reaproveitar(_vm.PRESENTE)
+
+    texto = texto_boas_vindas(produto, nome=nome, codigo_aluna=codigo_aluna,
+                              codigo_presente=codigo_presente, acesso=acesso)
+    assunto = f"Bem-vinda ao {_PRODUTOS[produto]}"
+
+    enviado, detalhe = False, []
+    if enviar:
+        enviado = _enviar_email_bruto(assunto, texto, destino=email,
+                                      detalhe_out=detalhe)
+    logger.info("EMITIR-ACESSO produto=%s email=%r enviado=%s reaproveitado=%s",
+                produto, email[:60], enviado, reusou_a or reusou_p)
+    return jsonify({
+        "status": "ok" if (enviado or not enviar) else "error",
+        "produto": produto,
+        "email": email,
+        "codigo_aluna": codigo_aluna,
+        "codigo_presente": codigo_presente,
+        "reaproveitado": bool(reusou_a or reusou_p),
+        "email_enviado": enviado,
+        "detalhe_email": (detalhe or [None])[0],
+        # O texto volta SEMPRE, inclusive quando o envio falha: se o
+        # SendGrid estiver fora, a Marcelle copia daqui e manda do Gmail
+        # dela em vez de ficar sem nada para fazer.
+        "texto": texto,
+    }), 200 if (enviado or not enviar) else 502
+
+
 def _vouchers_ou_erro():
     """Os vouchers, ou (None, resposta de erro). Falha ALTA, nunca silenciosa.
 
