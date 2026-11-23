@@ -157,6 +157,86 @@ chk("não carrega a chave da API",
 chk("sem travessão no que a cliente lê", "—" not in _h and "–" not in _h)
 
 print()
+print("=" * 68)
+print("E) A TRANCA — cidade que não saiu da lista NÃO GERA")
+print("=" * 68)
+_enviados = []
+_app._enviar_email_bruto = (
+    lambda assunto, texto, destino=None, detalhe_out=None, html=None:
+    (_enviados.append((assunto, texto, destino, html)) or True))
+
+
+def _pedido(cidade, email="cliente@exemplo.com"):
+    return {"name": "Pessoa Exemplo", "email": email,
+            "birth_date": "1990-05-10", "birth_time": "08:30",
+            "birth_city": cidade, "gender": "feminino",
+            "_voucher": None}
+
+
+chk("a tranca nasce DESLIGADA", _app.CIDADE_SO_DA_LISTA is False)
+
+_geo_chamado = []
+_geo_orig = _app._geocode_birth_city
+
+
+def _geo_espiao(c):
+    _geo_chamado.append(c)
+    return None, None, None, "parou aqui de propósito"
+
+
+_app._geocode_birth_city = _geo_espiao
+_app._send_failure_alert = lambda *a, **k: None
+_c0, _h0 = _app._nucleo_da_geracao(_pedido("Santa Rosa"))
+chk("desligada, texto livre segue o caminho antigo (geocodifica)",
+    _geo_chamado == ["Santa Rosa"] and _h0 == 400, f"{_geo_chamado} {_h0}")
+
+_app.CIDADE_SO_DA_LISTA = True
+_geo_chamado.clear()
+_n0 = len(_enviados)
+_c1, _h1 = _app._nucleo_da_geracao(_pedido("Santa Rosa"))
+chk("ligada, texto livre é recusado com 422 (a casca devolve o código)",
+    _h1 == 422 and _c1["code"] == "cidade_fora_da_lista", f"{_h1} {_c1}")
+chk("e NÃO tenta adivinhar: nem chega a geocodificar", _geo_chamado == [])
+chk("quem preencheu recebe UM e-mail",
+    len(_enviados) == _n0 + 1 and _enviados[-1][2] == "cliente@exemplo.com")
+_tc = _enviados[-1][1]
+chk("o e-mail diz o que fazer e que o código continua disponível",
+    "Buscar" in _tc and "continua disponível" in _tc
+    and "executivo@marciafervienza.com" in _tc)
+chk("assinado pela equipe, sem travessão, em HTML também",
+    _tc.rstrip().endswith(_app._BV_ASSINATURA) and "—" not in _tc
+    and "–" not in _tc and bool(_enviados[-1][3]))
+
+# A casca: 422 devolve o código reservado.
+_vv = V.abrir()
+_cod = _vv.emitir(V.ALUNA)
+_vv.consumir(_cod, email="cliente@exemplo.com")
+_b = _pedido("Santa Rosa"); _b["_voucher"] = _cod
+_app.executar_geracao(_b)
+chk("o código reservado volta a ficar disponível depois da recusa",
+    _vv.consultar(_cod)["usado_em"] is None)
+
+# Cidade escolhida passa da tranca. Provado na função da decisão, e não
+# rodando o núcleo: com a cidade aceita ele seguiria até a geração de
+# verdade, que custa dinheiro e não cabe numa prova.
+chk("ligada, cidade ESCOLHIDA na lista não é recusada pela tranca",
+    _app._tranca_da_cidade_recusa(_app._cidade_escolhida(RS),
+                                  "cliente@exemplo.com") is False
+    and _app._tranca_da_cidade_recusa(None, "cliente@exemplo.com") is True)
+chk("o núcleo decide por essa função, depois de consultar a escolha",
+    _nuc.index("_cidade_escolhida(birth_city)")
+    < _nuc.index("_tranca_da_cidade_recusa(_escolhida")
+    < _nuc.index("_geocode_birth_city(birth_city)"))
+
+_interno = sorted(_app._RATE_EXEMPT_EMAILS)[0]
+_geo_chamado.clear()
+_c3, _h3 = _app._nucleo_da_geracao(_pedido("Santa Rosa", email=_interno))
+chk("e-mail interno de QA passa da tranca, como na trava de idade",
+    _geo_chamado == ["Santa Rosa"] and _c3.get("code") != "cidade_fora_da_lista")
+_app.CIDADE_SO_DA_LISTA = False
+_app._geocode_birth_city = _geo_orig
+
+print()
 if falhas:
     print(f">>> {falhas} FALHOU")
     raise SystemExit(1)

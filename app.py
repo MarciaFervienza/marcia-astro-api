@@ -2723,6 +2723,52 @@ def _avisar_recusa_idade(email):
         return False
 
 
+# TRANCA DA CIDADE. Nasce DESLIGADA: enquanto a página do formulário não
+# tiver a busca publicada, todo mundo ainda digita a cidade à mão, e a
+# tranca ligada recusaria 100% dos pedidos. Liga-se com
+# CIDADE_SO_DA_LISTA=1 no Railway, DEPOIS de a página nova estar no ar.
+CIDADE_SO_DA_LISTA = os.environ.get("CIDADE_SO_DA_LISTA", "").strip() == "1"
+_RECUSA_CIDADE_ASSUNTO = "Seu Mapa Natal: precisamos confirmar a cidade"
+_RECUSA_CIDADE = (
+    "Recebemos os seus dados de nascimento, mas ainda não geramos o seu "
+    "Mapa Natal, porque não conseguimos confirmar a cidade de nascimento.",
+    "Há muitas cidades com o mesmo nome, e uma cidade trocada muda o mapa "
+    "inteiro. Por isso, na página do formulário, a cidade precisa ser "
+    "escolhida na busca: digite o nome, clique em Buscar e selecione a "
+    "sua na lista.",
+    "O código que você recebeu continua disponível. É só preencher o "
+    "formulário novamente, escolhendo a cidade na lista, e utilizar o "
+    "mesmo código.",
+    "Qualquer dúvida, é só entrar em contato por email "
+    "(executivo@marciafervienza.com).",
+)
+
+
+def _tranca_da_cidade_recusa(escolhida, email):
+    """True quando o pedido deve ser recusado por cidade fora da lista."""
+    if not CIDADE_SO_DA_LISTA or escolhida:
+        return False
+    return (email or "").strip().lower() not in _RATE_EXEMPT_EMAILS
+
+
+def _avisar_cidade_fora_da_lista(email):
+    """Avisa quem preencheu de que a cidade precisa vir da busca.
+    Nunca levanta: é caminho de recusa."""
+    try:
+        email = (email or "").strip()
+        if not email or "@" not in email:
+            return False
+        saudacao, paragrafos = "Oi!", list(_RECUSA_CIDADE)
+        texto = "\n\n".join([saudacao] + paragrafos) + (
+            f"\n\n{_BV_ABRACO}\n{_BV_ASSINATURA}")
+        return bool(_enviar_email_bruto(
+            _RECUSA_CIDADE_ASSUNTO, texto, destino=email,
+            html=html_aviso(saudacao, paragrafos)))
+    except Exception as exc:                            # noqa: BLE001
+        logger.error("aviso de cidade fora da lista falhou: %s", exc)
+        return False
+
+
 def _rate_estornar_email(email_norm):
     """Devolve à cliente a tentativa que o limite de taxa contou.
 
@@ -4570,6 +4616,19 @@ def _nucleo_da_geracao(body, ctx=None):
         if _escolhida:
             logger.info("cidade escolhida na busca da página: %s",
                         _escolhida[3])
+    # A TRANCA (decisão da Márcia, 23/11): com a busca publicada na
+    # página, cidade que não saiu da lista NÃO GERA. Não tenta adivinhar,
+    # não geocodifica texto livre. O 422 faz a casca devolver o código, e
+    # a cliente recebe o e-mail dizendo o que fazer. E-mails internos de
+    # QA passam, como na trava de idade.
+    if _tranca_da_cidade_recusa(_escolhida, body.get("email")):
+        logger.warning("cidade fora da lista recusada: %r", birth_city)
+        _avisar_cidade_fora_da_lista(body.get("email"))
+        return ({
+            "status": "refused", "code": "cidade_fora_da_lista",
+            "message": ("A cidade de nascimento precisa ser escolhida na "
+                        "busca da página do formulário."),
+        }), 422
     if _escolhida:
         lat, lng, tz_str, birth_city = _escolhida
         body["birth_city"] = birth_city
