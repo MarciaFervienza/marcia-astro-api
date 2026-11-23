@@ -3355,6 +3355,183 @@ def buscar_cidade_endpoint():
     return jsonify({"status": "ok", "q": _q, "opcoes": ops}), 200
 
 
+# ----------------------------------------------------------------------
+# BUSCA DE CIDADE NA PÁGINA DO FORMULÁRIO (23/11)
+#
+# O formulário do Wix deixava a cliente DIGITAR a cidade, sem nada contra
+# o que conferir. Três saídas ruins: cidade que o servidor não acha,
+# cidade com homônima (recusa), e a pior, cidade resolvida no lugar
+# errado sem ninguém perceber (mapa de outra pessoa, limpo por todos os
+# detectores).
+#
+# A correção: uma caixinha na página (servida daqui, embutida no Wix)
+# busca, mostra a lista e a cliente ESCOLHE. O rótulo escolhido entra no
+# campo de cidade do formulário, e o servidor guardou as coordenadas
+# daquele rótulo no momento em que o mostrou. Na geração, rótulo exato
+# guardado = cidade escolhida: sem geocodificar de novo, sem ambiguidade.
+#
+# POR QUE GUARDAR, e não mandar um id escondido pelo formulário: o corpo
+# do pedido é montado campo a campo numa automação do Wix. Um campo novo
+# seria mais uma peça para alguém esquecer de mapear. O rótulo viaja no
+# campo que já existe.
+#
+# A busca é PÚBLICA (a página não pode carregar a chave da API), então
+# tem teto por IP. Ela só devolve nomes de lugares.
+# ----------------------------------------------------------------------
+_CIDADES_HITS = {}
+_CIDADES_MAX_POR_HORA = 40
+
+
+def _cidades_bloqueado(ip):
+    agora = _time.time()
+    with _rate_lock:
+        dq = _CIDADES_HITS.setdefault(ip, _deque())
+        while dq and dq[0] < agora - 3600:
+            dq.popleft()
+        if len(dq) >= _CIDADES_MAX_POR_HORA:
+            return True
+        dq.append(agora)
+        return False
+
+
+def _guardar_cidades(opcoes):
+    """Guarda o que a busca mostrou. Nunca levanta: sem banco, a busca
+    ainda mostra a lista e a geração cai no caminho antigo."""
+    try:
+        v, err = _vouchers_ou_erro()
+        if not v:
+            return False
+        for o in opcoes:
+            v.guardar_cidade(o["rotulo"], o["lat"], o["lng"], o["tz"])
+        return True
+    except Exception as exc:                            # noqa: BLE001
+        logger.error("não consegui guardar as cidades da busca: %s", exc)
+        return False
+
+
+def _cidade_escolhida(texto):
+    """(lat, lng, tz, rotulo) se o texto é um rótulo que a busca mostrou."""
+    try:
+        if not texto or not str(texto).strip():
+            return None
+        v, err = _vouchers_ou_erro()
+        return v.cidade_guardada(str(texto)) if v else None
+    except Exception as exc:                            # noqa: BLE001
+        logger.error("não consegui consultar a cidade escolhida: %s", exc)
+        return None
+
+
+@app.route("/cidades", methods=["GET"])
+def cidades_publico():
+    cab = {"Cache-Control": "no-store", "Access-Control-Allow-Origin": "*"}
+    ip = request.headers.get(
+        "X-Forwarded-For", request.remote_addr or "?").split(",")[0].strip()
+    q = (request.args.get("q") or "").strip()[:120]
+    if len(q) < 3:
+        return jsonify({"status": "ok", "opcoes": []}), 200, cab
+    if _cidades_bloqueado(ip):
+        return jsonify({"status": "error", "code": "muitas_buscas"}), 429, cab
+    ops, err = buscar_cidades(q)
+    if err:
+        logger.warning("busca pública de cidade falhou: %s", str(err)[:200])
+        return jsonify({"status": "error", "code": "busca_falhou"}), 502, cab
+    vistos, unicas = set(), []
+    for o in ops:
+        if o["rotulo"] not in vistos:
+            vistos.add(o["rotulo"])
+            unicas.append(o)
+    _guardar_cidades(unicas)
+    return jsonify({"status": "ok",
+                    "opcoes": [o["rotulo"] for o in unicas]}), 200, cab
+
+
+_BUSCA_CIDADE_HTML = """<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cidade de nascimento</title>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:Georgia,'Times New Roman',serif;color:#1c2238;
+background:transparent;padding:2px}
+.cx{background:#f6f1e6;border:1px solid #e0bd68;border-radius:6px;
+padding:18px 18px 16px}
+h1{font-size:19px;font-weight:normal;color:#0a1230}
+p.aj{font-size:14.5px;line-height:1.45;margin-top:6px;color:#3a4160}
+.ln{display:flex;gap:8px;margin-top:12px}
+input{flex:1;min-width:0;font:inherit;font-size:16px;padding:11px 12px;
+border:1px solid #b9b2a0;border-radius:4px;background:#fff;color:#1c2238}
+input:focus{outline:2px solid #e0bd68;border-color:#9a7120}
+button{font-family:Arial,Helvetica,sans-serif;cursor:pointer}
+.bt{font-size:14px;font-weight:bold;letter-spacing:.06em;padding:0 18px;
+border:0;border-radius:4px;background:#0a1230;color:#e0bd68}
+.bt:disabled{opacity:.55;cursor:default}
+ul{list-style:none;margin-top:12px}
+li{margin-top:6px}
+.op{display:block;width:100%;text-align:left;font-family:Georgia,serif;
+font-size:15.5px;line-height:1.35;padding:11px 12px;background:#fff;
+border:1px solid #cfc8b6;border-radius:4px;color:#1c2238}
+.op:hover,.op:focus{border-color:#9a7120;background:#fffaf0;outline:none}
+.av{font-size:14.5px;line-height:1.45;margin-top:12px;color:#7a2b2b}
+.ok{margin-top:12px;padding:12px;background:#eef7f1;border:1px solid #9cc7ae;
+border-radius:4px;font-size:15.5px;line-height:1.4;color:#1f4a33}
+.ok b{display:block;margin-top:2px;color:#0a1230}
+.tr{margin-top:8px;background:none;border:0;color:#9a7120;font-size:13.5px;
+text-decoration:underline;padding:0}
+</style></head><body><div class="cx">
+<h1>Cidade de nascimento</h1>
+<p class="aj">Digite a cidade, clique em Buscar e escolha a sua na lista.</p>
+<div class="ln"><input id="q" type="text" autocomplete="off"
+placeholder="Ex.: Santa Rosa" aria-label="Cidade de nascimento">
+<button class="bt" id="b" type="button">BUSCAR</button></div>
+<div id="r" aria-live="polite"></div>
+</div>
+<script>
+(function(){
+var q=document.getElementById('q'),b=document.getElementById('b'),
+    r=document.getElementById('r');
+function limpa(){while(r.firstChild){r.removeChild(r.firstChild);}}
+function aviso(t){limpa();var p=document.createElement('p');p.className='av';
+  p.textContent=t;r.appendChild(p);}
+function manda(rotulo){try{parent.postMessage(
+  {tipo:'cidade-escolhida',rotulo:rotulo},'*');}catch(e){}}
+function escolhe(rotulo){limpa();var d=document.createElement('div');
+  d.className='ok';d.appendChild(document.createTextNode('Cidade escolhida:'));
+  var s=document.createElement('b');s.textContent=rotulo;d.appendChild(s);
+  var t=document.createElement('button');t.type='button';t.className='tr';
+  t.textContent='Trocar de cidade';
+  t.onclick=function(){manda('');limpa();q.focus();};
+  r.appendChild(d);r.appendChild(t);manda(rotulo);}
+function busca(){var v=q.value.trim();
+  if(v.length<3){aviso('Digite pelo menos 3 letras.');return;}
+  b.disabled=true;b.textContent='BUSCANDO';limpa();
+  fetch('/cidades?q='+encodeURIComponent(v))
+  .then(function(x){return x.json().then(function(j){return [x.status,j];});})
+  .then(function(a){var st=a[0],j=a[1];
+    if(st===429){aviso('Muitas buscas em pouco tempo. Espere alguns minutos e tente de novo.');return;}
+    if(st!==200||!j||j.status!=='ok'){aviso('A busca falhou agora. Tente de novo em instantes.');return;}
+    if(!j.opcoes.length){aviso('N\\u00e3o encontramos essa cidade. Tente escrever com o estado ou o pa\\u00eds, por exemplo: Santa Rosa, RS.');return;}
+    var u=document.createElement('ul');
+    j.opcoes.forEach(function(o){var li=document.createElement('li'),
+      k=document.createElement('button');k.type='button';k.className='op';
+      k.textContent=o;k.onclick=function(){escolhe(o);};
+      li.appendChild(k);u.appendChild(li);});
+    r.appendChild(u);})
+  .catch(function(){aviso('A busca falhou agora. Tente de novo em instantes.');})
+  .then(function(){b.disabled=false;b.textContent='BUSCAR';});}
+b.onclick=busca;
+q.addEventListener('keydown',function(e){if(e.key==='Enter'){e.preventDefault();busca();}});
+})();
+</script></body></html>"""
+
+
+@app.route("/busca-cidade", methods=["GET"])
+def busca_cidade_pagina():
+    """A caixinha de busca, embutida na página do formulário do Wix."""
+    return _BUSCA_CIDADE_HTML, 200, {
+        "Content-Type": "text/html; charset=utf-8",
+        "Cache-Control": "no-store"}
+
+
 @app.route("/health", methods=["GET"])
 def health():
     """Lightweight liveness check for Railway.
@@ -4385,6 +4562,14 @@ def _nucleo_da_geracao(body, ctx=None):
         return ({"status": "error",
                         "message": "Identificador de cidade inválido. "
                                    "Selecione a cidade novamente."}), 400
+    # CAMINHO DO FORMULÁRIO DO WIX (23/11): o campo de cidade traz o rótulo
+    # que a cliente ESCOLHEU na busca da página. Rótulo exato guardado é
+    # escolha, e vale como o city_id: não geocodifica de novo.
+    if not _escolhida:
+        _escolhida = _cidade_escolhida(birth_city)
+        if _escolhida:
+            logger.info("cidade escolhida na busca da página: %s",
+                        _escolhida[3])
     if _escolhida:
         lat, lng, tz_str, birth_city = _escolhida
         body["birth_city"] = birth_city

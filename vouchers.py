@@ -75,6 +75,17 @@ _ESQUEMA = [
         quando  DOUBLE PRECISION NOT NULL
     )
     """,
+    # Cidades que a busca do formulário já mostrou. A cliente escolhe um
+    # rótulo da lista; o rótulo volta no formulário e é a chave daqui.
+    """
+    CREATE TABLE IF NOT EXISTS cidades_vistas (
+        rotulo  TEXT PRIMARY KEY,
+        lat     DOUBLE PRECISION NOT NULL,
+        lng     DOUBLE PRECISION NOT NULL,
+        tz      TEXT NOT NULL,
+        quando  DOUBLE PRECISION NOT NULL
+    )
+    """,
 ]
 
 # Motivos de recusa. São strings estáveis porque viram mensagem para a
@@ -308,6 +319,43 @@ class Vouchers(_Banco):
             "DELETE FROM vendas_vistas WHERE chave=%s"), (str(chave),))
         if self.postgres:
             con.commit()
+
+    # ------------------------------------------- cidades que a busca mostrou
+    def guardar_cidade(self, rotulo, lat, lng, tz, agora=None):
+        """Guarda o que a busca mostrou. A PRIMEIRA gravação de um rótulo
+        vale: o que a cliente viu e escolheu é o que o relatório usa, mesmo
+        que o provedor de mapas mude a resposta depois."""
+        rotulo = (rotulo or "").strip()
+        if not rotulo or not tz:
+            return False
+        con = self.con()
+        cur = con.cursor()
+        try:
+            cur.execute(self._q(
+                "INSERT INTO cidades_vistas (rotulo, lat, lng, tz, quando) "
+                "VALUES (%s, %s, %s, %s, %s) ON CONFLICT (rotulo) DO NOTHING"),
+                (rotulo, float(lat), float(lng), str(tz),
+                 agora if agora is not None else time.time()))
+            if self.postgres:
+                con.commit()
+            return True
+        except Exception:                               # noqa: BLE001
+            if self.postgres:
+                con.rollback()
+            raise
+
+    def cidade_guardada(self, rotulo):
+        """(lat, lng, tz, rotulo) do rótulo EXATO, ou None. Exato de
+        propósito: texto parecido não é escolha, é digitação."""
+        rotulo = (rotulo or "").strip()
+        if not rotulo:
+            return None
+        cur = self.con().cursor()
+        cur.execute(self._q(
+            "SELECT lat, lng, tz, rotulo FROM cidades_vistas "
+            "WHERE rotulo=%s"), (rotulo,))
+        l = cur.fetchone()
+        return (float(l[0]), float(l[1]), l[2], l[3]) if l else None
 
     def listar(self, limite=50):
         cur = self.con().cursor()
