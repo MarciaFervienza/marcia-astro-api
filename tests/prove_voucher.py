@@ -635,6 +635,16 @@ chk("combo pela página: dois códigos",
     len(set(_re3.findall(r"MF-[0-9A-Z]{4}-[0-9A-Z]{4}",
                          _pc.get_data(as_text=True)))) == 2)
 
+# 23/11: senha de 12 caracteres com símbolos era recusada como "não
+# confere", porque o tamanho era contado só em letras e números.
+_app.CODIGO_ADMIN = "Mapa@2026!#$"
+_app._EQUIPE_FALHAS.clear()
+chk("senha de 12 caracteres COM símbolos abre a página",
+    _app._equipe_codigo_confere("Mapa@2026!#$")
+    and _app._equipe_codigo_confere("  Mapa@2026!#$ "))
+chk("e, sendo curta em letras e números, só vale escrita exatamente",
+    not _app._equipe_codigo_confere("mapa2026")
+    and not _app._equipe_codigo_confere("Mapa@2026!#%"))
 _app.CODIGO_ADMIN = ""
 _ps = _cli.post("/emitir", data=dict(_dados, codigo=""))
 chk("sem CODIGO_ADMIN posto, a página não emite para ninguém",

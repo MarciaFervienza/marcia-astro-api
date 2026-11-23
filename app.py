@@ -1874,11 +1874,21 @@ def _equipe_codigo_confere(apresentado):
     porta sem chave definida fica fechada, não aberta."""
     import hmac
     import vouchers as _vm
-    adm = _vm.normalizar(CODIGO_ADMIN)
+    # O tamanho mínimo vale para a senha COMO FOI ESCRITA. Contar só letras
+    # e números (23/11) fechava a porta para uma senha de 12 caracteres com
+    # símbolos, sem dizer por quê: "não confere" para a senha certa.
+    bruto = CODIGO_ADMIN
+    if len(bruto) < 12:
+        return False
+    dado = (apresentado or "").strip()
+    if hmac.compare_digest(dado.encode(), bruto.encode()):
+        return True
+    # Tolerância de digitação (maiúsculas, hífen, espaço), só quando o que
+    # sobra ainda é uma senha de verdade.
+    adm = _vm.normalizar(bruto)
     if len(adm) < 12:
         return False
-    return hmac.compare_digest(
-        _vm.normalizar(apresentado or "").encode(), adm.encode())
+    return hmac.compare_digest(_vm.normalizar(dado).encode(), adm.encode())
 
 
 def _equipe_bloqueado(ip, registrar=False):
@@ -4089,9 +4099,7 @@ def generate_report_endpoint():
                 "status": "error", "code": "voucher_ausente",
                 "message": _RECUSA_VOUCHER["ausente"]}), 403
         import vouchers as _vmod
-        _adm = _vmod.normalizar(CODIGO_ADMIN)
-        if len(_adm) >= 12 and hmac.compare_digest(
-                _vmod.normalizar(_voucher_bruto).encode(), _adm.encode()):
+        if _equipe_codigo_confere(_voucher_bruto):
             # Nada a reservar e nada a devolver: o código de admin não é
             # linha de tabela. Por isso NÃO entra em body["_voucher"].
             logger.info("VOUCHER de admin usado email=%r", _email_norm[:60])
