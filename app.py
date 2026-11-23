@@ -2098,6 +2098,89 @@ def _pagbank_consultar(codigo_notificacao):
     }
 
 
+def _pagbank_consultar_pedido(pedido_id):
+    """Formato novo: pergunta ao PagBank pelo PEDIDO que o aviso citou.
+
+    O JSON do aviso não é usado como verdade, só o `id` dele. Quem diz se
+    está pago, quem comprou e o quê é a resposta do PagBank à consulta
+    feita com o token da conta: um aviso forjado com um pedido inventado
+    não encontra nada lá.
+    """
+    r = requests.get("https://api.pagseguro.com/orders/" + pedido_id,
+                     headers={"Authorization": "Bearer " + PAGBANK_TOKEN,
+                              "accept": "application/json"},
+                     timeout=20)
+    if r.status_code != 200:
+        raise RuntimeError(f"PagBank respondeu HTTP {r.status_code}")
+    o = r.json() or {}
+    cobr = o.get("charges") or []
+    pago = any(str(c.get("status") or "").upper() == "PAID" for c in cobr)
+    cli = o.get("customer") or {}
+    return {
+        "codigo": str(o.get("id") or pedido_id),
+        "status": "3" if pago else "1",
+        "referencia": str(o.get("reference_id") or ""),
+        "nome": str(cli.get("name") or "").strip(),
+        "email": str(cli.get("email") or "").strip().lower(),
+        "itens": [str(i.get("name") or "").strip()
+                  for i in (o.get("items") or [])]
+                 + [str(c.get("description") or "").strip() for c in cobr],
+        "valor": str(((cobr[0].get("amount") or {}).get("value"))
+                     if cobr else ""),
+    }
+
+
+# Chaves cujo VALOR pode ir para o retrato do aviso. Todo o resto vai só
+# como tipo: o retrato serve para eu ver a FORMA do que o PagBank manda,
+# não para espalhar dado de cliente por e-mail.
+_PAGBANK_VISIVEL = {"id", "status", "reference_id", "type", "event",
+                    "notificationType", "created_at", "paid_at",
+                    "description", "currency", "value", "quantity",
+                    "unit_amount"}
+
+
+def _pagbank_retrato(obj, chave="", nivel=0):
+    if nivel > 6:
+        return "..."
+    if isinstance(obj, dict):
+        return {str(k): _pagbank_retrato(v, str(k), nivel + 1)
+                for k, v in list(obj.items())[:40]}
+    if isinstance(obj, list):
+        return [_pagbank_retrato(v, chave, nivel + 1) for v in obj[:5]]
+    if chave == "name" or chave in _PAGBANK_VISIVEL:
+        # "name" aparece no item (nome do curso, que eu preciso ver) e no
+        # cliente (que não): mostra só as 4 primeiras letras nos dois.
+        t = str(obj)
+        return t[:60] if chave != "name" else t[:60] if nivel > 2 else t[:4]
+    return f"<{type(obj).__name__}>"
+
+
+def _pagbank_observar(corpo, cabecalhos):
+    """Com PAGBANK_OBSERVAR=1, manda à equipe um retrato de cada aviso.
+
+    POR QUE EXISTE. Eu não alcanço o Railway daqui e o PagBank não tem
+    ambiente de teste para os links pag.ae. A única forma de saber o que
+    ele manda de verdade é olhar a primeira venda. Ligado só enquanto a
+    ponte está sendo ajustada; desligado, não faz nada.
+    """
+    if os.environ.get("PAGBANK_OBSERVAR", "").strip() != "1":
+        return
+    try:
+        import json
+        cab = {k: v for k, v in cabecalhos.items()
+               if k.lower().startswith("x-") and "auth" not in k.lower()
+               or k.lower() == "content-type"}
+        texto = "\n".join([
+            "Aviso recebido do PagBank (retrato, sem dados de cliente).", "",
+            "Cabeçalhos:", json.dumps(cab, ensure_ascii=False, indent=1), "",
+            "Corpo:", json.dumps(_pagbank_retrato(corpo), ensure_ascii=False,
+                                 indent=1)[:6000]])
+        _enviar_email_bruto("PagBank: retrato de um aviso", texto,
+                            destino=PAGBANK_AVISAR or None)
+    except Exception as exc:                            # noqa: BLE001
+        logger.error("retrato do PagBank falhou: %s", exc)
+
+
 @app.route("/pagbank-notificacao", methods=["POST"])
 def pagbank_notificacao_endpoint():
     """Recebe o aviso do PagBank e, se for venda de curso paga, emite.
@@ -2107,17 +2190,37 @@ def pagbank_notificacao_endpoint():
     Por isso falha NOSSA devolve 5xx, e "não é comigo" devolve 200.
     """
     import re as _re
+    # DOIS FORMATOS (23/11). A documentação descreve o aviso antigo, um
+    # formulário com `notificationCode`. Mas a tela de Integrações da
+    # conta da Márcia só oferece o cadastro novo, por evento
+    # (ORDER.CHARGE), que manda um JSON com o pedido. Como não sei qual
+    # dos dois chega para pagamento por link pag.ae, o endereço entende
+    # os dois, e nos dois PERGUNTA ao PagBank antes de acreditar.
+    corpo_json = request.get_json(silent=True)
+    eh_json = isinstance(corpo_json, dict)
     cod = (request.form.get("notificationCode") or "").strip()
     tipo = (request.form.get("notificationType") or "").strip()
-    if tipo != "transaction" or not _re.fullmatch(r"[A-Za-z0-9-]{20,80}", cod):
+    _pagbank_observar(corpo_json if eh_json else dict(request.form),
+                      dict(request.headers))
+
+    if eh_json:
+        pedido_id = str(corpo_json.get("id") or "").strip()
+        if not _re.fullmatch(r"ORDE_[A-Za-z0-9-]{8,80}", pedido_id):
+            # Evento que não é um pedido (chargeback, custos, conta) ou
+            # formato que eu não previ: não é venda, não mande de novo.
+            return jsonify({"status": "ignorado", "motivo": "formato"}), 200
+    elif tipo != "transaction" or not _re.fullmatch(
+            r"[A-Za-z0-9-]{20,80}", cod):
         return jsonify({"status": "ignorado", "motivo": "formato"}), 200
-    if not (PAGBANK_EMAIL and PAGBANK_TOKEN):
+
+    if not PAGBANK_TOKEN or (not eh_json and not PAGBANK_EMAIL):
         logger.error("PAGBANK aviso recebido, mas PAGBANK_EMAIL/TOKEN "
                      "não estão configurados")
         return jsonify({"status": "error",
                         "message": "pagbank não configurado"}), 503
     try:
-        tx = _pagbank_consultar(cod)
+        tx = (_pagbank_consultar_pedido(pedido_id) if eh_json
+              else _pagbank_consultar(cod))
     except Exception as exc:                            # noqa: BLE001
         logger.error("PAGBANK consulta falhou: %s", exc)
         return jsonify({"status": "error", "message": "consulta falhou"}), 502

@@ -768,6 +768,98 @@ _rf = _cli.post("/pagbank-notificacao", data={
     "notificationCode": "curto", "notificationType": "transaction"})
 chk("aviso malformado não gera consulta nem e-mail",
     _rf.status_code == 200 and len(_pb_chamadas) == _nq)
+# --- formato novo: JSON por evento (ORDER.CHARGE) --------------------------
+# A tela de Integrações da conta só oferece este cadastro. O aviso traz o
+# pedido inteiro, mas o servidor só confia no `id` e pergunta o resto.
+
+
+class _RespJSON:
+    def __init__(self, status, obj):
+        self.status_code, self._o = status, obj
+
+    def json(self):
+        return self._o
+
+
+def _pedido_pb(oid, status, item, email="gil@exemplo.com", nome="GIL Sá"):
+    return {"id": oid, "reference_id": "ref-1",
+            "customer": {"name": nome, "email": email},
+            "items": [{"name": item, "quantity": 1, "unit_amount": 44999}],
+            "charges": [{"id": "CHAR_1", "status": status,
+                         "amount": {"value": 44999, "currency": "BRL"}}]}
+
+
+_pb_json_chamadas = []
+
+
+def _pb_get2(url, params=None, headers=None, timeout=None):
+    _pb_json_chamadas.append((url, dict(headers or {})))
+    return _pb_resposta["r"]
+
+
+_app.requests.get = _pb_get2
+_app.PAGBANK_EMAIL, _app.PAGBANK_TOKEN = "", "token-de-teste"
+_OID = "ORDE_AAAA1111-BBBB-2222-CCCC-333344445555"
+_pb_resposta["r"] = _RespJSON(200, _pedido_pb(_OID, "PAID",
+                                              "Curso de Leitura de Mapa"))
+_nj = len(_enviados)
+# O aviso MENTE de propósito: diz outro e-mail e outro curso. O que vale
+# é o que o PagBank responde na consulta.
+_rj1 = _cli.post("/pagbank-notificacao", json=_pedido_pb(
+    _OID, "PAID", "Curso Preditivas", email="intruso@exemplo.com"))
+chk("JSON de pedido pago: 200 e o e-mail sai", _rj1.status_code == 200
+    and len(_enviados) == _nj + 1, str(_rj1.status_code))
+chk("vale a RESPOSTA do PagBank, não o que o aviso alega",
+    _enviados[-1][2] == "gil@exemplo.com"
+    and "Curso de Leitura de Mapa Natal está confirmada" in _enviados[-1][1])
+chk("a consulta do pedido leva o token no cabeçalho, não na URL",
+    _pb_json_chamadas and _pb_json_chamadas[-1][0].endswith(_OID)
+    and _pb_json_chamadas[-1][1].get("Authorization")
+    == "Bearer token-de-teste" and "token-de-teste" not in
+    _pb_json_chamadas[-1][0])
+
+_pb_resposta["r"] = _RespJSON(200, _pedido_pb(
+    "ORDE_ZZZZ1111-BBBB-2222-CCCC-333344445555", "WAITING",
+    "Curso de Leitura", email="hugo@exemplo.com"))
+_nj2 = len(_enviados)
+chk("pedido ainda não pago (boleto esperando) não libera",
+    _cli.post("/pagbank-notificacao", json={
+        "id": "ORDE_ZZZZ1111-BBBB-2222-CCCC-333344445555"}
+    ).get_json().get("motivo") == "nao_pago" and len(_enviados) == _nj2)
+
+_pb_resposta["r"] = _RespJSON(404, {})
+chk("pedido que o PagBank não reconhece (aviso forjado): nada sai",
+    _cli.post("/pagbank-notificacao", json={
+        "id": "ORDE_FALSO111-BBBB-2222-CCCC-333344445555"}).status_code == 502
+    and len(_enviados) == _nj2)
+_nq2 = len(_pb_json_chamadas)
+chk("evento que não é pedido (chargeback, custos) é ignorado sem consulta",
+    _cli.post("/pagbank-notificacao", json={"id": "CHBK_123", "x": 1}
+              ).get_json().get("motivo") == "formato"
+    and len(_pb_json_chamadas) == _nq2)
+
+# --- retrato: ver a FORMA do aviso sem espalhar dado de cliente -----------
+_ret = _app._pagbank_retrato(_pedido_pb(_OID, "PAID", "Curso de Leitura",
+                                        email="gil@exemplo.com",
+                                        nome="Gilberto Sá"))
+import json as _json3
+_ret_txt = _json3.dumps(_ret, ensure_ascii=False)
+chk("o retrato mostra o que eu preciso: id, status e nome do item",
+    _OID in _ret_txt and "PAID" in _ret_txt
+    and "Curso de Leitura" in _ret_txt)
+chk("e NÃO mostra e-mail nem nome inteiro de cliente",
+    "gil@exemplo.com" not in _ret_txt and "Gilberto" not in _ret_txt)
+os.environ["PAGBANK_OBSERVAR"] = "1"
+_pb_resposta["r"] = _RespJSON(404, {})
+_no = len(_enviados)
+_cli.post("/pagbank-notificacao", json={"id": "CHBK_999", "tipo": "x"})
+chk("com PAGBANK_OBSERVAR=1, cada aviso vira um retrato para a equipe",
+    len(_enviados) == _no + 1 and "retrato" in _enviados[-1][0])
+os.environ["PAGBANK_OBSERVAR"] = ""
+_no2 = len(_enviados)
+_cli.post("/pagbank-notificacao", json={"id": "CHBK_999", "tipo": "x"})
+chk("desligado, não manda nada", len(_enviados) == _no2)
+
 _app.PAGBANK_EMAIL, _app.PAGBANK_TOKEN = "", ""
 
 # A busca por origem não pode depender de uma janela de N códigos.
