@@ -86,6 +86,16 @@ _ESQUEMA = [
         quando  DOUBLE PRECISION NOT NULL
     )
     """,
+    # O painel da Márcia. Vivia na memória do servidor e zerava a cada
+    # reinício: em 23/11 um mapa sumiu e o painel não tinha como dizer o
+    # que houve antes do último deploy.
+    """
+    CREATE TABLE IF NOT EXISTS geracoes (
+        quando  DOUBLE PRECISION NOT NULL,
+        dados   TEXT NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS idx_geracoes_quando ON geracoes (quando)",
 ]
 
 # Motivos de recusa. São strings estáveis porque viram mensagem para a
@@ -356,6 +366,39 @@ class Vouchers(_Banco):
             "WHERE rotulo=%s"), (rotulo,))
         l = cur.fetchone()
         return (float(l[0]), float(l[1]), l[2], l[3]) if l else None
+
+    # ------------------------------------------------- o painel das gerações
+    def guardar_geracao(self, dados, agora=None):
+        """Uma linha do painel. `dados` é o dicionário já pronto."""
+        import json
+        con = self.con()
+        try:
+            con.cursor().execute(self._q(
+                "INSERT INTO geracoes (quando, dados) VALUES (%s, %s)"),
+                (agora if agora is not None else time.time(),
+                 json.dumps(dados, ensure_ascii=False)))
+            if self.postgres:
+                con.commit()
+            return True
+        except Exception:                               # noqa: BLE001
+            if self.postgres:
+                con.rollback()
+            raise
+
+    def ultimas_geracoes(self, limite=40):
+        """As últimas `limite`, da mais antiga para a mais nova."""
+        import json
+        cur = self.con().cursor()
+        cur.execute(self._q(
+            "SELECT dados FROM geracoes ORDER BY quando DESC LIMIT %s"),
+            (int(limite),))
+        saida = []
+        for (bruto,) in cur.fetchall():
+            try:
+                saida.append(json.loads(bruto))
+            except Exception:                           # noqa: BLE001
+                continue
+        return list(reversed(saida))
 
     def listar(self, limite=50):
         cur = self.con().cursor()

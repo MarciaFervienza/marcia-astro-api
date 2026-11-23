@@ -60,13 +60,13 @@ except Exception as ex:
 gs = dados.get("geracoes") or []
 if not gs:
     print("Nenhuma geração registrada ainda.")
-    print("(O registro vive na memória do servidor e zera a cada deploy.)")
+    print("(O registro fica no banco do servidor e sobrevive aos deploys.)")
     sys.exit(0)
 
 print("=" * 78)
 print(f"ÚLTIMAS {len(gs)} GERAÇÕES")
 print("=" * 78)
-print(f"{'hora':<10}{'quem':<22}{'desfecho':<18}{'2a':<5}{'rod':<5}{'sinaliz.':<9}")
+print(f"{'dia':<7}{'hora':<10}{'quem':<22}{'desfecho':<18}{'2a':<5}{'rod':<5}{'sinaliz.':<9}")
 print("-" * 78)
 
 recusados, recuperados, sinalizados = [], [], []
@@ -76,10 +76,12 @@ for g in gs:
     seg = "SIM" if g.get("segunda_tentativa") else ""
     rod = g.get("rodadas")
     sin = g.get("sinalizacoes")
-    print(f"{str(g.get('quando') or '')[:8]:<10}{nome:<22}"
+    print(f"{str(g.get('dia') or ''):<7}{str(g.get('quando') or '')[:8]:<10}{nome:<22}"
           f"{desf[:17]:<18}{seg:<5}{str(rod if rod is not None else '—'):<5}"
           f"{str(sin if sin is not None else '—'):<9}")
-    if "falha" in desf:
+    # "falh" pega falha_fechada_lingua E email_falhou (23/11): relatório
+    # escrito e não entregue também é um mapa que não saiu.
+    if "falh" in desf:
         recusados.append(g)
     if g.get("segunda_tentativa"):
         recuperados.append(g)

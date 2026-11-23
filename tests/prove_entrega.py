@@ -139,6 +139,111 @@ chk("com o 502, o código da cliente volta a ficar disponível",
 _app._time = _tempo_orig
 
 print()
+print("=" * 68)
+print("C) O ALERTA VAI PARA AS DUAS, COM O QUE FAZER")
+print("=" * 68)
+_alerta_orig = _app._ALERT_RECIPIENT
+_app._ALERT_RECIPIENT = "dona@exemplo.com"
+chk("os destinos são a Márcia e a Marcelle, sem repetir",
+    _app._alerta_destinos() == ["dona@exemplo.com",
+                                "executivo@marciafervienza.com"]
+    and _app._alerta_destinos(["DONA@exemplo.com", "x@exemplo.com"])
+    == ["dona@exemplo.com", "executivo@marciafervienza.com",
+        "x@exemplo.com"])
+_posts = []
+
+
+class _Resp:
+    status_code = 202
+    text = ""
+
+
+_app.requests.post = lambda url, **kw: (_posts.append((url, kw)) or _Resp())
+_app._telegram_enviar = lambda *a, **k: False
+_app.SENDGRID_API_KEY, _app.EMAIL_FROM_ADDRESS = "sg-falso", "de@exemplo.com"
+_app._alert_last_sent.clear()
+try:
+    raise RuntimeError("frase quebrada")
+except RuntimeError as _e:
+    _app._send_failure_alert("lingua_falha_fechada", _e, {
+        "name": "Pessoa Exemplo", "email": "cliente@exemplo.com",
+        "birth_date": "1990-05-10", "birth_city": "Santa Rosa"})
+_pl = (_posts[-1][1].get("json") or {}) if _posts else {}
+_para = [p["to"][0]["email"] for p in _pl.get("personalizations", [])]
+chk("o alerta de falha sai para as duas, cada uma no seu envio",
+    _para == ["dona@exemplo.com", "executivo@marciafervienza.com"],
+    str(_para))
+_corpo_alerta = (_pl.get("content") or [{}])[0].get("value", "")
+chk("abre dizendo O QUE FAZER, em português de gente",
+    _corpo_alerta.startswith("O QUE FAZER:")
+    and "senha da equipe" in _corpo_alerta
+    and "avise a Márcia" in _corpo_alerta)
+chk("e traz os dados para refazer o pedido",
+    "Pessoa Exemplo" in _corpo_alerta and "cliente@exemplo.com" in _corpo_alerta
+    and "1990-05-10" in _corpo_alerta and "Santa Rosa" in _corpo_alerta)
+
+_brutos = []
+_falha_para = {"dona@exemplo.com": 1}
+
+
+def _bruto_falso(assunto, texto, destino=None, **k):
+    if _falha_para.get(destino, 0) > 0:
+        _falha_para[destino] -= 1
+        return False
+    _brutos.append(destino)
+    return True
+
+
+_app._enviar_email_bruto = _bruto_falso
+_app._time = _Relogio()
+_app._alerta_com_retry("assunto", "texto")
+chk("alerta com retry: as duas recebem, e quem já recebeu NÃO recebe "
+    "de novo quando a outra precisa de nova tentativa",
+    sorted(_brutos) == ["dona@exemplo.com",
+                        "executivo@marciafervienza.com"], str(_brutos))
+_app._time = _tempo_orig
+_app._ALERT_RECIPIENT = _alerta_orig
+
+print()
+print("=" * 68)
+print("D) O PAINEL SOBREVIVE AO REINÍCIO")
+print("=" * 68)
+_app._registra_geracao(nome="Pessoa Exemplo", desfecho="ok",
+                       email_enviado=True)
+_app._registra_geracao(nome="Outra Pessoa", desfecho="email_falhou",
+                       email_enviado=False)
+# Um reinício apaga a memória do processo. O banco fica.
+with _app._geracoes_lock:
+    _app._ULTIMAS_GERACOES.clear()
+_gs, _fonte = _app._geracoes_para_o_painel()
+chk("com a memória apagada, o painel ainda tem as duas gerações",
+    _fonte == "banco"
+    and [g.get("nome") for g in _gs][-2:] == ["Pessoa Exemplo",
+                                              "Outra Pessoa"], str(_gs)[-200:])
+chk("cada linha traz o dia, além da hora",
+    all(g.get("dia") and g.get("quando") for g in _gs[-2:]))
+chk("a ordem é da mais antiga para a mais nova",
+    _gs[-1].get("desfecho") == "email_falhou")
+_cli = _app.app.test_client()
+_rp = _cli.get("/ultimas-geracoes",
+               headers={"X-API-Key": os.environ["API_SECRET_KEY"]})
+chk("o endereço do painel entrega do banco, e continua exigindo a chave",
+    _rp.status_code == 200 and _rp.get_json().get("fonte") == "banco"
+    and len(_rp.get_json()["geracoes"]) >= 2
+    and _cli.get("/ultimas-geracoes").status_code == 401)
+_orig_v = _app._vouchers_ou_erro
+_app._vouchers_ou_erro = lambda: (None, ("sem banco", 503))
+_app._registra_geracao(nome="Sem Banco", desfecho="ok", email_enviado=True)
+_gs2, _fonte2 = _app._geracoes_para_o_painel()
+chk("sem banco, registrar não levanta e o painel cai para a memória",
+    _fonte2 == "memoria" and _gs2[-1].get("nome") == "Sem Banco")
+_app._vouchers_ou_erro = _orig_v
+_painel = open(os.path.join(os.path.dirname(os.path.dirname(
+    os.path.abspath(__file__))), "painel.py"), encoding="utf-8").read()
+chk("o script do painel conta 'email_falhou' entre os que não saíram",
+    'if "falh" in desf:' in _painel and "g.get('dia')" in _painel)
+
+print()
 if falhas:
     print(f">>> {falhas} FALHOU")
     raise SystemExit(1)

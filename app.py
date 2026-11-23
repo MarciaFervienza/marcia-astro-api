@@ -275,6 +275,29 @@ _RATE_LIMIT_MESSAGE_PT = (
 # apontado para um endereço que ela não acompanha.
 _ALERT_RECIPIENT = (os.environ.get("ALERT_RECIPIENT", "").strip()
                     or "executivo@marciafervienza.com")
+# OS ALERTAS VÃO PARA AS DUAS (decisão da Márcia, 23/11). A Márcia decide;
+# a Marcelle é quem refaz o pedido da cliente quando uma geração falha.
+# Com um destino só, a outra dependia de recado, e o mapa de uma cliente
+# ficava parado até alguém lembrar de avisar.
+_ALERTA_EQUIPE = "executivo@marciafervienza.com"
+_ALERTA_O_QUE_FAZER = (
+    "O QUE FAZER: se este alerta é do pedido de uma cliente, o mapa dela "
+    "NÃO foi entregue. Refaça o pedido pelo formulário, com a senha da "
+    "equipe no campo do código e os dados que estão abaixo (nome, e-mail, "
+    "data e cidade). Se falhar de novo, avise a Márcia.")
+
+
+def _alerta_destinos(extras=()):
+    """Quem recebe alerta, sem repetir endereço."""
+    vistos, saida = set(), []
+    for e in [_ALERT_RECIPIENT, _ALERTA_EQUIPE] + list(extras):
+        e = (e or "").strip()
+        if e and "@" in e and e.lower() not in vistos:
+            vistos.add(e.lower())
+            saida.append(e)
+    return saida
+
+
 _ALERT_DEDUPE_WINDOW_SECS = 10 * 60
 _alert_last_sent = {}     # signature → timestamp
 _alert_dedupe_lock = _Lock()
@@ -304,6 +327,7 @@ def _send_failure_alert(stage, exc, request_ctx):
         # Últimas ~30 linhas de traceback (suficiente pra diagnóstico, não estoura)
         _tb_tail = "\n".join(tb_str.strip().splitlines()[-30:])
         _text = (
+            f"{_ALERTA_O_QUE_FAZER}\n\n"
             f"Falha no pipeline /generate-report — estágio: {stage}\n"
             f"Timestamp: {_when}\n"
             f"Exceção: {type(exc).__name__}: {exc}\n\n"
@@ -328,7 +352,10 @@ def _send_failure_alert(stage, exc, request_ctx):
                            "seguiu só pelo Telegram")
             return
         payload = {
-            "personalizations": [{"to": [{"email": _ALERT_RECIPIENT}]}],
+            # Uma personalização por destino: cada uma recebe o seu, sem
+            # ver o endereço da outra e sem depender dela.
+            "personalizations": [{"to": [{"email": _d}]}
+                                 for _d in _alerta_destinos()],
             "from": {"email": EMAIL_FROM_ADDRESS, "name": EMAIL_FROM_NAME or EMAIL_FROM_ADDRESS},
             "subject": f"[Mapa Natal API] Falha em {stage} — {type(exc).__name__}",
             "content": [{"type": "text/plain", "value": _text}],
@@ -1410,11 +1437,40 @@ def _enviar_relatorio_insistindo(recipient, client_name, pdf_bytes,
 
 
 def _registra_geracao(**kw):
+    """Uma linha do painel: na memória E no banco.
+
+    O banco é o que faz o painel sobreviver a um reinício (23/11). A
+    memória continua porque, com o banco fora, é melhor um painel curto
+    do que nenhum. Nunca levanta: registrar não pode custar a geração.
+    """
+    try:
+        linha = {"quando": _time.strftime("%H:%M:%S"),
+                 "dia": _time.strftime("%d/%m"), **kw}
+    except Exception:                                   # noqa: BLE001
+        return
     try:
         with _geracoes_lock:
-            _ULTIMAS_GERACOES.append({"quando": _time.strftime("%H:%M:%S"), **kw})
-    except Exception:
+            _ULTIMAS_GERACOES.append(linha)
+    except Exception:                                   # noqa: BLE001
         pass
+    try:
+        v, _err = _vouchers_ou_erro()
+        if v:
+            v.guardar_geracao(linha)
+    except Exception as exc:                            # noqa: BLE001
+        logger.warning("painel: não consegui guardar a geração: %s", exc)
+
+
+def _geracoes_para_o_painel(limite=40):
+    """Do banco quando dá; da memória quando não dá."""
+    try:
+        v, _err = _vouchers_ou_erro()
+        if v:
+            return v.ultimas_geracoes(limite), "banco"
+    except Exception as exc:                            # noqa: BLE001
+        logger.warning("painel: não consegui ler do banco: %s", exc)
+    with _geracoes_lock:
+        return list(_ULTIMAS_GERACOES), "memoria"
 
 
 @app.route("/ultimas-geracoes", methods=["GET"])
@@ -1425,9 +1481,9 @@ def ultimas_geracoes_endpoint():
     if not API_SECRET_KEY or not presented \
             or not hmac.compare_digest(presented, API_SECRET_KEY):
         return jsonify({"status": "error", "message": "unauthorized"}), 401
-    with _geracoes_lock:
-        return jsonify({"status": "ok",
-                        "geracoes": list(_ULTIMAS_GERACOES)}), 200
+    _gs, _de_onde = _geracoes_para_o_painel()
+    return jsonify({"status": "ok", "geracoes": _gs,
+                    "fonte": _de_onde}), 200
 
 
 def _fila_ou_erro():
@@ -5962,8 +6018,13 @@ def _alerta_com_retry(assunto, texto, tentativas=4):
     _tg = _telegram_enviar(f"{assunto}\n\n{texto}")
     espera = 2.0
     _mail = False
+    _faltam = _alerta_destinos()
     for i in range(tentativas):
-        if _enviar_email_bruto(assunto, texto):
+        # Cada destino é um envio. Quem já recebeu não recebe de novo
+        # quando a tentativa se repete por causa do outro.
+        _faltam = [d for d in _faltam
+                   if not _enviar_email_bruto(assunto, texto, destino=d)]
+        if not _faltam:
             if i:
                 logger.info("alerta enviado na tentativa %d", i + 1)
             _mail = True
