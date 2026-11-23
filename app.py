@@ -2691,7 +2691,7 @@ _RECUSA_IDADE = (
     "não podemos gerar este Mapa Natal.",
     "O relatório é uma leitura de autoconhecimento escrita para adultos, e "
     "por isso só é feito para pessoas com 18 anos ou mais. Para leituras "
-    "de menores de 12 anos, o mais recomendado é agendar uma consulta com "
+    "de menores de 18 anos, o mais recomendado é agendar uma consulta com "
     "a Márcia, para que ela possa interpretar o mapa com o cuidado que se "
     "faz necessário.",
     "A boa notícia é que o código que você recebeu continua disponível "
