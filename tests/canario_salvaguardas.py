@@ -177,7 +177,7 @@ _i = _src_ep.index("FALHA FECHADA DE LÍNGUA")
 for _marca, _rot in (("_apply_moon_note", "nota da Lua"),
                      ("_generate_chart_svg", "SVG"),
                      ("pg.generate_pdf", "PDF"),
-                     ("send_report_email", "e-mail")):
+                     ("_enviar_relatorio_insistindo", "e-mail")):
     salvaguarda(f"falha fechada acontece ANTES de: {_rot}",
                 _src_ep.index(_marca) > _i)
 _bloco = _src_ep[_i:_src_ep.index("_apply_moon_note", _i)]

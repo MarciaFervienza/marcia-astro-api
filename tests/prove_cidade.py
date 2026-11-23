@@ -90,7 +90,7 @@ chk("a mensagem pede precisão, não se desculpa",
     and "desculp" not in _bloco_amb.lower())
 for _marca, _rot in (("rg.generate_report", "geração"),
                      ("pg.generate_pdf", "PDF"),
-                     ("send_report_email", "e-mail")):
+                     ("_enviar_relatorio_insistindo", "e-mail")):
     chk(f"recusa por ambiguidade acontece ANTES de: {_rot}",
         _src.index(_marca) > _i_amb)
 

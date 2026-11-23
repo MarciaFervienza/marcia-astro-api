@@ -193,7 +193,7 @@ _i = _src.index("FALHA FECHADA DE LÍNGUA")
 for _marca, _rot in (("_apply_moon_note", "nota da Lua"),
                      ("_generate_chart_svg", "SVG da mandala"),
                      ("pg.generate_pdf", "geração do PDF"),
-                     ("send_report_email", "envio do e-mail")):
+                     ("_enviar_relatorio_insistindo", "envio do e-mail")):
     chk(f"falha fechada vem ANTES de: {_rot}", _src.index(_marca) > _i)
 _bloco = _src[_i:_src.index("_apply_moon_note", _i)]
 chk("responde 422, não 200", "422" in _bloco)
