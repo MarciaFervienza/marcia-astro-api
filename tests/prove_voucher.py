@@ -1046,6 +1046,44 @@ chk("a vigia nasce DESLIGADA: só liga com PAGBANK_VIGIAR=1",
 
 _app.PAGBANK_EMAIL, _app.PAGBANK_TOKEN = "", ""
 
+# O alerta do PagBank vai para AS DUAS (pedido da Márcia, 23/11): quem
+# decide e quem emite o acesso à mão. Um só destino dependia de recado.
+_alerta_orig, _avisar_orig = _app._ALERT_RECIPIENT, _app.PAGBANK_AVISAR
+_app._ALERT_RECIPIENT, _app.PAGBANK_AVISAR = "dona@exemplo.com", ""
+_n0 = len(_enviados)
+_app._pagbank_alerta("PagBank: teste de alerta", ["linha"])
+_dest = [d for _, _, d in _enviados[_n0:]]
+chk("o alerta do PagBank chega na Márcia E na Marcelle",
+    _dest == ["dona@exemplo.com", "executivo@marciafervienza.com"])
+chk("e diz onde emitir à mão", "/emitir" in _enviados[-1][1])
+_app.PAGBANK_AVISAR = "extra@exemplo.com, DONA@exemplo.com"
+chk("PAGBANK_AVISAR acrescenta, não substitui, e não repete endereço",
+    _app._pagbank_destinos() == ["dona@exemplo.com",
+                                 "executivo@marciafervienza.com",
+                                 "extra@exemplo.com"])
+_app._ALERT_RECIPIENT, _app.PAGBANK_AVISAR = (
+    "executivo@marciafervienza.com", "")
+chk("se os dois endereços forem o mesmo, manda um só",
+    _app._pagbank_destinos() == ["executivo@marciafervienza.com"])
+
+
+def _envio_que_quebra(assunto, texto, destino=None, **_k):
+    if destino == "dona@exemplo.com":
+        raise RuntimeError("caiu")
+    _enviados.append((assunto, texto, destino))
+    return True
+
+
+_envio_orig = _app._enviar_email_bruto
+_app._enviar_email_bruto = _envio_que_quebra
+_app._ALERT_RECIPIENT = "dona@exemplo.com"
+_n0 = len(_enviados)
+_app._pagbank_alerta("PagBank: teste de alerta", ["linha"])
+chk("se o envio para uma falha, a outra ainda recebe",
+    [d for _, _, d in _enviados[_n0:]] == ["executivo@marciafervienza.com"])
+_app._enviar_email_bruto = _envio_orig
+_app._ALERT_RECIPIENT, _app.PAGBANK_AVISAR = _alerta_orig, _avisar_orig
+
 # A busca por origem não pode depender de uma janela de N códigos.
 for _i in range(210):
     _v2.emitir(V.ALUNA, origem=f"enchimento:{_i}")

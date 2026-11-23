@@ -2025,9 +2025,33 @@ def equipe_emitir_pagina():
 # ----------------------------------------------------------------------
 PAGBANK_EMAIL = os.environ.get("PAGBANK_EMAIL", "").strip()
 PAGBANK_TOKEN = os.environ.get("PAGBANK_TOKEN", "").strip()
-# Para onde vai o alerta. Sem a variável, vai para o mesmo endereço dos
-# alertas de falha que o servidor já manda.
+# Para onde vai o alerta: para AS DUAS. A Márcia (o endereço dos alertas
+# de falha que o servidor já manda) e a Marcelle, que é quem emite o
+# acesso à mão quando o caminho automático não resolve. Um alerta que só
+# chega em uma delas depende de a outra ser avisada por fora. A variável
+# acrescenta endereços (separados por vírgula); não tira nenhum dos dois.
 PAGBANK_AVISAR = os.environ.get("PAGBANK_AVISAR", "").strip()
+_PAGBANK_EQUIPE = "executivo@marciafervienza.com"
+
+
+def _pagbank_destinos():
+    """Quem recebe o alerta do PagBank, sem repetir endereço."""
+    vistos, saida = set(), []
+    extras = [e.strip() for e in PAGBANK_AVISAR.split(",")]
+    for e in [_ALERT_RECIPIENT, _PAGBANK_EQUIPE] + extras:
+        if e and "@" in e and e.lower() not in vistos:
+            vistos.add(e.lower())
+            saida.append(e)
+    return saida
+
+
+def _pagbank_avisar(assunto, texto):
+    """Um envio por destino: se um falhar, o outro ainda chega."""
+    for destino in _pagbank_destinos():
+        try:
+            _enviar_email_bruto(assunto, texto, destino=destino)
+        except Exception as exc:                        # noqa: BLE001
+            logger.error("alerta do PagBank falhou: %s", exc)
 _PAGBANK_URL = ("https://ws.pagseguro.uol.com.br/v3/transactions/"
                 "notifications/")
 # 3 = paga (pode liberar o produto), 4 = disponível (mesma venda, dias
@@ -2068,8 +2092,7 @@ def _pagbank_alerta(assunto, linhas):
                 or "https://web-production-6c77f.up.railway.app")
         texto = "\n".join(linhas + [
             "", "Para emitir o acesso à mão, abra:", base + "/emitir"])
-        _enviar_email_bruto(assunto, texto,
-                            destino=PAGBANK_AVISAR or None)
+        _pagbank_avisar(assunto, texto)
     except Exception as exc:                            # noqa: BLE001
         logger.error("alerta do PagBank falhou: %s", exc)
 
@@ -2175,8 +2198,7 @@ def _pagbank_observar(corpo, cabecalhos):
             "Cabeçalhos:", json.dumps(cab, ensure_ascii=False, indent=1), "",
             "Corpo:", json.dumps(_pagbank_retrato(corpo), ensure_ascii=False,
                                  indent=1)[:6000]])
-        _enviar_email_bruto("PagBank: retrato de um aviso", texto,
-                            destino=PAGBANK_AVISAR or None)
+        _pagbank_avisar("PagBank: retrato de um aviso", texto)
     except Exception as exc:                            # noqa: BLE001
         logger.error("retrato do PagBank falhou: %s", exc)
 
