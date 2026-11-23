@@ -241,7 +241,15 @@ def _rp_quebra(*a, **k):
 
 
 _app._receber_pedido = _rp_quebra
+# As duas quebras provocadas abaixo (aqui e na seção G) fazem o servidor
+# registrar a exceção com o rastro completo, que é o comportamento certo.
+# O gate lê "Traceback" na saída como prova quebrada, então o registro
+# fica calado só durante a provocação.
+import logging
+_log_app = logging.getLogger("natal-api")
+_log_app.disabled = True
 _j = _envia(_bom()).get_json()
+_log_app.disabled = False
 chk("exceção ao receber: mensagem geral, sem campo, com o contato",
     _j.get("ok") is False and _j.get("campo") == ""
     and "executivo@marciafervienza.com" in _j.get("mensagem", ""), str(_j))
@@ -334,9 +342,11 @@ def _geracao_explode(body, ctx=None):
 
 
 _app.executar_geracao = _geracao_explode
+_log_app.disabled = True
 _th = _segundo_plano_real({"name": "Pessoa Exemplo",
                            "email": "cliente@exemplo.com"}, {"ip": "x"})
 _th.join(5)
+_log_app.disabled = False
 chk("exceção na thread não derruba o servidor e AVISA a equipe",
     not _th.is_alive() and _alertas == ["geracao_segundo_plano"],
     str(_alertas))
