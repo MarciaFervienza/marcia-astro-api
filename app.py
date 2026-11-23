@@ -1358,6 +1358,57 @@ _ULTIMAS_GERACOES = _deque(maxlen=25)
 _geracoes_lock = _Lock()
 
 
+# Esperas entre as tentativas de envio do relatório, em segundos. Somam
+# pouco mais de 3 minutos: cobre a instabilidade passageira do SendGrid
+# (o 503 de 23/11 foi isso) sem prender o pedido para sempre.
+_EMAIL_RELATORIO_ESPERAS = (5, 20, 60, 120)
+
+
+def _envio_vale_repetir(erro):
+    """Falha passageira (vale tentar de novo) ou definitiva?
+
+    5xx, limite de taxa e erro de rede passam com o tempo. Um 4xx é o
+    SendGrid dizendo que o pedido está errado (endereço inválido,
+    remetente não verificado): repetir só repete o erro.
+    """
+    import re
+    t = str(erro or "")
+    m = re.search(r"HTTP (\d{3})", t)
+    if m:
+        cod = int(m.group(1))
+        return cod >= 500 or cod == 429
+    return True
+
+
+def _enviar_relatorio_insistindo(recipient, client_name, pdf_bytes,
+                                 birth_date, birth_place):
+    """Envia o relatório; em falha passageira, tenta de novo com espera.
+    Devolve True, ou o texto do último erro. Nunca levanta."""
+    ultimo = "envio não tentado"
+    esperas = (0,) + tuple(_EMAIL_RELATORIO_ESPERAS)
+    for i, espera in enumerate(esperas):
+        if espera:
+            _time.sleep(espera)
+        try:
+            r = send_report_email(
+                to_email=recipient, client_name=client_name,
+                pdf_bytes=pdf_bytes, birth_date=birth_date,
+                birth_place=birth_place)
+        except Exception as e:                          # noqa: BLE001
+            logger.exception("send_report_email raised unexpectedly")
+            r = f"unexpected error: {e}"
+        if r is True:
+            if i:
+                logger.info("relatório enviado na tentativa %d", i + 1)
+            return True
+        ultimo = r
+        logger.warning("envio do relatório falhou (tentativa %d de %d): %s",
+                       i + 1, len(esperas), str(r)[:200])
+        if not _envio_vale_repetir(r):
+            break
+    return ultimo
+
+
 def _registra_geracao(**kw):
     try:
         with _geracoes_lock:
@@ -5562,19 +5613,9 @@ def _nucleo_da_geracao(body, ctx=None):
         elif "@" not in recipient:
             email_error = f"invalid recipient email: {recipient!r}"
         else:
-            try:
-                send_result = send_report_email(
-                    to_email=recipient,
-                    client_name=result["name"],
-                    pdf_bytes=pdf_bytes,
-                    birth_date=birth_date_display,
-                    birth_place=birth_place,
-                )
-            except Exception as e:
-                # send_report_email is built to never raise, but belt-and-
-                # suspenders so a bug here can't 500 the whole report.
-                logger.exception("send_report_email raised unexpectedly")
-                send_result = f"unexpected error: {e}"
+            send_result = _enviar_relatorio_insistindo(
+                recipient, result["name"], pdf_bytes,
+                birth_date_display, birth_place)
             if send_result is True:
                 email_sent = True
                 # Registra do lado do SERVIDOR: sobrevive à desconexão do
@@ -5601,7 +5642,49 @@ def _nucleo_da_geracao(body, ctx=None):
                 logger.info("email sent to %s", recipient)
             else:
                 email_error = send_result
-                logger.warning("email to %s failed: %s", recipient, send_result)
+                logger.error("email to %s failed: %s", recipient, send_result)
+
+    # RELATÓRIO ESCRITO E NÃO ENTREGUE NÃO É SUCESSO (23/11).
+    #
+    # Aconteceu de verdade: a Marcelle pediu um mapa às 18h42, o relatório
+    # foi escrito, o SendGrid respondeu 503 no envio, e o servidor
+    # registrou um aviso no log e devolveu "success". Ninguém recebeu
+    # nada, ninguém foi avisado, e o código ficou gasto. A cliente teria
+    # esperado 24 horas por um e-mail que não existia.
+    #
+    # Agora: o envio insiste (ver `_enviar_relatorio_insistindo`), e se
+    # mesmo assim não sair, isto é FALHA. O 502 faz a casca devolver o
+    # código, e a equipe é avisada pelos dois canais, com o que fazer.
+    if recipient and not email_sent:
+        _registra_geracao(nome=body.get("name"), desfecho="email_falhou",
+                          email_enviado=False)
+        try:
+            _alerta_com_retry(
+                "Mapa Natal: relatório escrito e NÃO entregue",
+                "\n".join([
+                    "O relatório foi escrito, mas o e-mail para a cliente "
+                    "não saiu depois de várias tentativas.",
+                    "",
+                    f"Nome: {body.get('name')}",
+                    f"E-mail: {recipient}",
+                    f"Nascimento: {birth_date_display} | "
+                    f"{body.get('birth_city')}",
+                    f"Motivo: {str(email_error)[:300]}",
+                    "",
+                    "O código de acesso dela foi devolvido e continua "
+                    "valendo.",
+                    "O que fazer: preencher o formulário de novo com estes "
+                    "dados (com a senha da equipe ou com o código dela). "
+                    "Se o motivo acima falar de endereço inválido, "
+                    "confirme o e-mail com a cliente antes."]))
+        except Exception as _exc_al:                    # noqa: BLE001
+            logger.error("alerta de e-mail não entregue falhou: %s", _exc_al)
+        return ({
+            "status": "error", "code": "email_nao_enviado",
+            "message": ("O relatório foi escrito, mas o e-mail não pôde "
+                        "ser enviado. A equipe foi avisada."),
+            "meta": {"email_sent": False, "email_error": email_error},
+        }), 502
 
     return ({
         "status": "success",
