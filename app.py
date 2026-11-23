@@ -1408,7 +1408,11 @@ _PRODUTOS = {
     "preditivas": "Curso de Técnicas de Astrologia Preditiva",
     "combo": "Curso de Leitura de Mapa Natal e Curso de Técnicas de "
              "Astrologia Preditiva",
+    # A compra avulsa do relatório na loja do Wix. Não é curso: o e-mail
+    # não fala em inscrição nem em brinde, o relatório É a compra.
+    "mapa": "Mapa Natal",
 }
+_CURSOS = ("leitura", "preditivas", "combo")
 
 
 # --- frases do e-mail de boas-vindas: UMA fonte para texto e HTML ---------
@@ -1418,6 +1422,9 @@ _PRODUTOS = {
 _BV_BRINDE = ("E tem o seu brinde: um relatório com a leitura dos pontos "
               "mais importantes do seu mapa natal, escrito a partir do "
               "mesmo método usado em consulta.")
+_BV_MAPA = ("É um relatório com a leitura dos pontos mais importantes do "
+            "seu mapa natal, escrito a partir do mesmo método usado em "
+            "consulta.")
 _BV_CHAMADA = "Para receber, preencha seus dados de nascimento:"
 _BV_ONDE = ("No formulário, digite esse código no campo "
             "\"Código de acesso\". Ele vale para um relatório.")
@@ -1453,6 +1460,21 @@ def _primeiro_nome(nome):
     return n.capitalize() if (n.isupper() or n.islower()) else n
 
 
+def _frase_confirmacao(produto):
+    """A primeira frase depois do "Oi". Curso é inscrição; o relatório
+    avulso é compra."""
+    nome = _PRODUTOS.get(produto, produto)
+    if produto == "mapa":
+        return f"Sua compra do {nome} está confirmada."
+    return f"Sua inscrição no {nome} está confirmada."
+
+
+def assunto_boas_vindas(produto):
+    if produto == "mapa":
+        return "Seu Mapa Natal: próximo passo"
+    return f"Bem-vinda ao {_PRODUTOS[produto]}"
+
+
 def _bloco_formulario(codigo):
     """O que a pessoa precisa para receber o relatório, e ONDE usar.
 
@@ -1479,11 +1501,11 @@ def texto_boas_vindas(produto, nome=None, codigo_aluna=None,
     curso = _PRODUTOS.get(produto, produto)
     pn = _primeiro_nome(nome)
     saudacao = f"Oi, {pn}!" if pn else "Oi!"
-    partes = [saudacao, "",
-              f"Sua inscrição no {curso} está confirmada."]
+    partes = [saudacao, "", _frase_confirmacao(produto)]
     if acesso:
         partes += ["", acesso.strip()]
-    partes += ["", _BV_BRINDE, "", _BV_CHAMADA, "",
+    partes += ["", _BV_MAPA if produto == "mapa" else _BV_BRINDE, "",
+               _BV_CHAMADA, "",
                _bloco_formulario(codigo_aluna), "", _BV_PRAZO]
     if codigo_presente:
         partes += ["", _BV_COMBO, "", _BV_ENCAMINHE, "", "- - -", "",
@@ -1562,11 +1584,12 @@ def html_boas_vindas(produto, nome=None, codigo_aluna=None,
     corpo = ['<p style="margin:0 0 18px;font-family:%s;font-size:24px;'
              'color:%s">%s</p>' % (_FONTE_TITULO, _COR_NOITE,
                                    e(f"Oi, {pn}!" if pn else "Oi!")),
-             P % ("Sua inscrição no <strong>%s</strong> está confirmada."
-                  % e(curso))]
+             P % e(_frase_confirmacao(produto)).replace(
+                 e(curso), "<strong>%s</strong>" % e(curso), 1)]
     if acesso:
         corpo.append(P % e(acesso.strip()).replace("\n", "<br>"))
-    corpo += [P % e(_BV_BRINDE), P % e(_BV_CHAMADA),
+    corpo += [P % e(_BV_MAPA if produto == "mapa" else _BV_BRINDE),
+              P % e(_BV_CHAMADA),
               _html_cartao_codigo(codigo_aluna), P % e(_BV_PRAZO)]
 
     presente = ""
@@ -1649,6 +1672,7 @@ def emitir_acesso_endpoint():
     produto = (body.get("produto") or "").strip().lower()
     acesso = body.get("acesso") or ""
     enviar = body.get("enviar", True)
+    pedido = str(body.get("pedido") or "").strip()[:60]
 
     if "@" not in email:
         return jsonify({"status": "error",
@@ -1666,7 +1690,12 @@ def emitir_acesso_endpoint():
     import vouchers as _vm
 
     def _emitir_ou_reaproveitar(tipo):
-        origem = f"{produto}:{email}"
+        # O pedido entra na origem quando vem (compra pela loja do Wix).
+        # Sem ele, quem comprasse o relatório duas vezes com o mesmo
+        # e-mail, uma para si e outra para dar, receberia na segunda
+        # compra o MESMO código da primeira, e teria pago dois relatórios
+        # para gerar um.
+        origem = f"{produto}:{email}" + (f":{pedido}" if pedido else "")
         for linha in v.listar(limite=200):
             if linha["origem"] == origem and linha["tipo"] == tipo \
                     and linha["usado_em"] is None:
@@ -1680,7 +1709,7 @@ def emitir_acesso_endpoint():
 
     texto = texto_boas_vindas(produto, nome=nome, codigo_aluna=codigo_aluna,
                               codigo_presente=codigo_presente, acesso=acesso)
-    assunto = f"Bem-vinda ao {_PRODUTOS[produto]}"
+    assunto = assunto_boas_vindas(produto)
 
     enviado, detalhe = False, []
     if enviar:

@@ -493,6 +493,42 @@ chk("o endpoint manda ESTA versão, não o texto com parágrafos",
     "html=html_boas_vindas(" in _insp.getsource(_app.emitir_acesso_endpoint))
 
 print()
+print("=" * 68)
+print("M) COMPRA AVULSA DO MAPA NATAL NA LOJA TAMBÉM RECEBE CÓDIGO (23/11)")
+print("=" * 68)
+# O e-mail automático da loja não levava código. Com a exigência ligada,
+# quem pagou só pelo relatório seria justamente quem ficaria de fora.
+_tm = _app.texto_boas_vindas("mapa", nome="Rita", codigo_aluna="MF-2345-6789")
+_hmapa = _app.html_boas_vindas("mapa", nome="Rita",
+                               codigo_aluna="MF-2345-6789")
+chk("fala em COMPRA, não em inscrição",
+    "Sua compra do Mapa Natal está confirmada." in _tm
+    and "inscrição" not in _tm and "inscrição" not in _hmapa)
+chk("não chama de brinde o que a pessoa pagou",
+    "brinde" not in _tm and "brinde" not in _hmapa)
+chk("leva o código e o prazo de 24 horas",
+    "MF-2345-6789" in _tm and "em até 24 horas" in _tm
+    and "MF-2345-6789" in _hmapa)
+chk("assunto próprio, sem travessão",
+    _app.assunto_boas_vindas("mapa") == "Seu Mapa Natal: próximo passo")
+chk("o assunto dos cursos não mudou",
+    _app.assunto_boas_vindas("leitura")
+    == "Bem-vinda ao Curso de Leitura de Mapa Natal")
+_m1 = _emitir(email="rita@exemplo.com", nome="Rita", produto="mapa",
+              pedido="10001").get_json()
+_m1b = _emitir(email="rita@exemplo.com", nome="Rita", produto="mapa",
+               pedido="10001").get_json()
+_m2 = _emitir(email="rita@exemplo.com", nome="Rita", produto="mapa",
+              pedido="10002").get_json()
+chk("o mesmo pedido repetido reaproveita o código (clique duplo do Wix)",
+    _m1["codigo_aluna"] == _m1b["codigo_aluna"])
+chk("DOIS pedidos do mesmo e-mail são DOIS códigos",
+    _m1["codigo_aluna"] != _m2["codigo_aluna"],
+    f'{_m1["codigo_aluna"]} / {_m2["codigo_aluna"]}')
+chk("compra avulsa não ganha voucher de presente",
+    not _m1.get("codigo_presente"))
+
+print()
 if falhas:
     print(f">>> {falhas} FALHOU")
     raise SystemExit(1)
