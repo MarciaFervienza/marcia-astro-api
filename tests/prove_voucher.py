@@ -403,6 +403,55 @@ chk("o aviso nunca levanta — é caminho de recusa",
     "except Exception" in _aviso)
 
 print()
+print("=" * 68)
+print("K) CÓDIGO DE ADMIN, LINK CURTO E ONDE DIGITAR O CÓDIGO (23/11)")
+print("=" * 68)
+_geradas = []
+_app.executar_geracao = (
+    lambda body, ctx=None: (_geradas.append(dict(body)) or
+                            ({"status": "ok"}, 200)))
+_app.FILA_ASSINCRONA = False
+# As seções anteriores gastaram o limite por IP (4 em 24h) com recusas.
+# Zera aqui para que esta seção meça o código de admin, não o limite.
+_app._rate_ip_hits.clear()
+_app._rate_email_hits.clear()
+
+_app.CODIGO_ADMIN = ""
+_rk = _gerar("nina@exemplo.com", "ADMIN-TESTE-2026-XYZ")
+chk("sem CODIGO_ADMIN posto, não existe atalho", _rk.status_code == 403,
+    str(_rk.status_code))
+
+_app.CODIGO_ADMIN = "curto"
+_rk = _gerar("nina@exemplo.com", "curto")
+chk("código de admin com menos de 12 caracteres é IGNORADO",
+    _rk.status_code == 403, str(_rk.status_code))
+
+_app.CODIGO_ADMIN = "ADMIN-TESTE-2026-XYZ"
+_r1 = _gerar("nina@exemplo.com", "admin teste 2026 xyz")
+_r2 = _gerar("nina@exemplo.com", "ADMIN-TESTE-2026-XYZ")
+chk("o código de admin passa", _r1.status_code == 200, str(_r1.status_code))
+chk("e passa de novo: não é gasto", _r2.status_code == 200,
+    str(_r2.status_code))
+chk("não vira voucher a devolver (não entra no corpo)",
+    all("_voucher" not in g for g in _geradas[-2:]))
+_app._rate_email_hits.clear()
+_app._rate_ip_hits.clear()
+chk("um código quase igual NÃO passa",
+    _gerar("nina@exemplo.com","ADMIN-TESTE-2026-XYW").status_code == 403)
+_app.CODIGO_ADMIN = ""
+
+_bloco = _app._bloco_formulario("MF-2345-6789")
+chk("o e-mail diz EM QUE CAMPO o código entra",
+    'no campo "Código de acesso"' in _bloco)
+# A função está trocada por um dublê desde a seção J; lê do arquivo.
+_fonte_app = open(_app.__file__, encoding="utf-8").read()
+_i_env = _fonte_app.index("def _enviar_email_bruto(")
+_envio = _fonte_app[_i_env:_fonte_app.index("\ndef ", _i_env + 10)]
+chk("rastreamento de clique desligado: o link chega como é",
+    '"click_tracking"' in _envio and '"enable": False' in _envio
+    and '"enable_text": False' in _envio)
+
+print()
 if falhas:
     print(f">>> {falhas} FALHOU")
     raise SystemExit(1)

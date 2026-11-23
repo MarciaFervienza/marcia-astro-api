@@ -125,6 +125,18 @@ FILA_PARADA_SEGS = int(os.environ.get("FILA_PARADA_SEGS", "900"))
 VOUCHER_OBRIGATORIO = os.environ.get(
     "VOUCHER_OBRIGATORIO", "").strip().lower() in ("1", "true", "sim", "yes", "on")
 
+# CÓDIGO DE ADMIN (23/11) — a "senha fixa" da Márcia e da Marcelle.
+#
+# Um código que vale sempre e nunca é gasto, para as duas gerarem
+# relatórios de consulta e de teste sem emitir voucher para si mesmas.
+# Mora numa variável do Railway, não no banco: trocar o código é trocar a
+# variável, e ele não aparece em listagem nenhuma de vouchers.
+#
+# Menos de 12 caracteres é IGNORADO, de propósito. Um código de admin
+# curto seria a porta mais fraca do sistema inteiro, e é a única que não
+# conta usos.
+CODIGO_ADMIN = os.environ.get("CODIGO_ADMIN", "").strip()
+
 # SendGrid Web API (HTTPS) for emailing the PDF to the client. Railway
 # blocks outbound SMTP submission ports (both 587 and 465 time out at the
 # TCP layer, confirmed on this project), so any smtplib path — Gmail,
@@ -1400,10 +1412,17 @@ _PRODUTOS = {
 
 
 def _bloco_formulario(codigo):
-    """As três linhas que a pessoa precisa para receber o relatório."""
+    """O que a pessoa precisa para receber o relatório, e ONDE usar.
+
+    A frase final existe por causa do teste de 23/11: com o código logo
+    abaixo do link, a Márcia leu que ele era a senha da página. Código
+    sem endereço é um número solto; a frase diz em que campo ele entra.
+    """
     linhas = [f"Link: {FORM_URL}", f"Código de acesso: {codigo}"]
     if SENHA_PAGINA:
         linhas.insert(1, f"Senha da página: {SENHA_PAGINA}")
+    linhas += ["", "No formulário, digite esse código no campo "
+                   "\"Código de acesso\". Ele vale para um relatório."]
     return "\n".join(linhas)
 
 
@@ -3024,8 +3043,17 @@ def generate_report_endpoint():
             return jsonify({
                 "status": "error", "code": "voucher_ausente",
                 "message": _RECUSA_VOUCHER["ausente"]}), 403
-        _v_ok, _v_motivo = _v.consumir(_voucher_bruto, email=_email_norm,
-                                       nome=body.get("name"))
+        import vouchers as _vmod
+        _adm = _vmod.normalizar(CODIGO_ADMIN)
+        if len(_adm) >= 12 and hmac.compare_digest(
+                _vmod.normalizar(_voucher_bruto).encode(), _adm.encode()):
+            # Nada a reservar e nada a devolver: o código de admin não é
+            # linha de tabela. Por isso NÃO entra em body["_voucher"].
+            logger.info("VOUCHER de admin usado email=%r", _email_norm[:60])
+            _v_ok, _v_motivo, _voucher_bruto = True, "admin", ""
+        else:
+            _v_ok, _v_motivo = _v.consumir(_voucher_bruto, email=_email_norm,
+                                           nome=body.get("name"))
         if not _v_ok:
             logger.warning("VOUCHER recusado (%s) email=%r ip=%s",
                            _v_motivo, _email_norm[:60], _client_ip)
@@ -3038,7 +3066,8 @@ def generate_report_endpoint():
         # Viaja no corpo porque o corpo é o que a fila persiste: no
         # caminho assíncrono quem devolve é o worker, minutos depois e em
         # outro processo, e só o payload atravessa essa fronteira.
-        body["_voucher"] = _voucher_bruto
+        if _voucher_bruto:
+            body["_voucher"] = _voucher_bruto
         logger.info("VOUCHER aceito email=%r", _email_norm[:60])
 
     # ==================================================================
@@ -4178,6 +4207,14 @@ def _enviar_email_bruto(assunto, texto, destino=None, detalhe_out=None,
                 "content": ([{"type": "text/plain", "value": texto}]
                             + ([{"type": "text/html", "value": html}]
                                if html else [])),
+                # RASTREAMENTO DE CLIQUE DESLIGADO (23/11). Ligado, o
+                # SendGrid troca cada link por um endereço dele com mais
+                # de 400 caracteres, e foi isso que a Márcia viu no lugar
+                # de marciafervienza.com. Link que a cliente não
+                # reconhece é link em que ela não clica.
+                "tracking_settings": {
+                    "click_tracking": {"enable": False,
+                                       "enable_text": False}},
             },
             headers={"Authorization": f"Bearer {SENDGRID_API_KEY}",
                      "Content-Type": "application/json"},
