@@ -372,15 +372,22 @@ chk("e a cliente recebe um e-mail", len(_enviados) == 1
 _assunto, _corpo, _dest = _enviados[0] if _enviados else ("", "", "")
 chk("o e-mail diz o MOTIVO (já foi usado)", "já foi usado" in _corpo)
 chk("diz que o relatório não foi gerado",
-    "não consegui gerar o seu Mapa Natal" in _corpo)
+    "não conseguimos gerar o seu Mapa Natal" in _corpo)
 chk("manda para a Marcelle, no executivo@",
     "Marcelle" in _corpo and "executivo@marciafervienza.com" in _corpo)
 chk("pede 'por favor, entre em contato'",
     "por favor, entre em contato com a Marcelle" in _corpo)
-chk("o aviso vai também em HTML, com parágrafos",
-    bool(_htmls and _htmls[0]) and _htmls[0].count("<p>") >= 4)
-chk("fecha com a despedida da Márcia",
-    _corpo.rstrip().endswith("Atenciosamente e obrigada!\n\nMárcia"))
+# 23/11: o aviso chegou à Márcia em texto corrido, no mesmo dia em que o
+# e-mail de boas-vindas ganhou cara. Os dois vão para a mesma pessoa.
+chk("o aviso vai na MESMA moldura do e-mail de boas-vindas",
+    bool(_htmls and _htmls[0]) and "Astrologia e Astroterapia" in _htmls[0]
+    and _htmls[0].count("<p ") >= 4 and "já foi usado" in _htmls[0])
+chk("no HTML, o executivo@ é um link",
+    'href="mailto:executivo@marciafervienza.com"' in (_htmls[0] or ""))
+chk("quem assina é a EQUIPE, no texto e no HTML",
+    _corpo.rstrip().endswith("Um abraço\nEquipe da Márcia Fervienza")
+    and "Equipe da Márcia Fervienza" in _htmls[0]
+    and "Atenciosamente" not in _corpo)
 chk("chama pelo primeiro nome", _corpo.startswith("Oi, Dora!"))
 chk("sem travessão", "—" not in _corpo and "—" not in _assunto)
 _novos = list(_app._ULTIMAS_GERACOES)[_antes:]
@@ -390,7 +397,7 @@ chk("a recusa aparece no painel, com o motivo no desfecho",
 
 _rj2 = _gerar("dora@exemplo.com", "MF-ZZZZ-ZZZZ")
 chk("código inexistente também avisa", _rj2.status_code == 403
-    and len(_enviados) == 2 and "Não encontrei esse código" in _enviados[1][1])
+    and len(_enviados) == 2 and "Não encontramos esse código" in _enviados[1][1])
 
 # Três recusas seguidas: sem o estorno, a terceira seria 429 (o limite
 # por e-mail é 2 em 24h) e a cliente ficaria travada tendo gerado zero.

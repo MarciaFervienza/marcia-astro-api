@@ -1637,6 +1637,26 @@ def html_boas_vindas(produto, nome=None, codigo_aluna=None,
              P % e(_BV_PRESENTE), P % e(_BV_CHAMADA),
              _html_cartao_codigo(codigo_presente), P % e(_BV_PRAZO))
 
+    return _html_moldura("".join(corpo), presente)
+
+
+def _html_paragrafo(texto_ja_escapado):
+    return ('<p style="margin:0 0 16px;font-family:%s;font-size:16px;'
+            'line-height:1.65;color:%s">%s</p>'
+            % (_FONTE_TEXTO, _COR_TEXTO, texto_ja_escapado))
+
+
+def _html_moldura(corpo, linhas_extras="", com_duvida=True):
+    """A moldura de TODO e-mail que a cliente recebe: cabeçalho azul da
+    noite com o nome em ouro, corpo, despedida da equipe.
+
+    UMA moldura, e por isso uma função. Em 23/11 o e-mail de boas-vindas
+    ganhou cara e o de recusa continuou em texto corrido: a Márcia recebeu
+    os dois no mesmo dia e o segundo parecia vir de outra empresa.
+    """
+    import html as _h
+    e = _h.escape
+    duvida = _html_paragrafo(e(_BV_DUVIDA)) if com_duvida else ""
     return (
         '<table role="presentation" width="100%%" cellpadding="0" '
         'cellspacing="0" border="0" bgcolor="%(papel)s"><tr>'
@@ -1652,7 +1672,7 @@ def html_boas_vindas(produto, nome=None, codigo_aluna=None,
         'text-transform:uppercase;color:#a9b3cc;padding-top:8px">'
         'Astrologia e Astroterapia</div></td></tr>'
         '<tr><td style="padding:32px 32px 12px">%(corpo)s</td></tr>'
-        '%(presente)s'
+        '%(extras)s'
         '<tr><td style="padding:0 32px 30px">%(duvida)s'
         '<p style="margin:0;font-family:%(ft)s;font-size:16px;'
         'line-height:1.65;color:%(texto)s">%(abraco)s<br>'
@@ -1662,10 +1682,26 @@ def html_boas_vindas(produto, nome=None, codigo_aluna=None,
         'font-size:0">&nbsp;</td></tr>'
         '</table></td></tr></table>'
     ) % {"papel": _COR_PAPEL, "noite": _COR_NOITE, "ouro": _COR_OURO,
-         "ft": _FONTE_TITULO, "corpo": "".join(corpo),
-         "presente": presente, "duvida": P % e(_BV_DUVIDA),
-         "texto": _COR_TEXTO, "abraco": e(_BV_ABRACO),
+         "ft": _FONTE_TITULO, "corpo": corpo, "extras": linhas_extras,
+         "duvida": duvida, "texto": _COR_TEXTO, "abraco": e(_BV_ABRACO),
          "assina": e(_BV_ASSINATURA)}
+
+
+def html_aviso(saudacao, paragrafos):
+    """Um aviso curto (recusa de código, por exemplo) na moldura da casa.
+    Endereços de e-mail viram link; todo o resto passa escapado."""
+    import html as _h
+    import re as _re
+    corpo = ['<p style="margin:0 0 18px;font-family:%s;font-size:24px;'
+             'color:%s">%s</p>' % (_FONTE_TITULO, _COR_NOITE,
+                                   _h.escape(saudacao))]
+    for par in paragrafos:
+        seguro = _re.sub(
+            r"([A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,})",
+            r'<a href="mailto:\1" style="color:%s">\1</a>' % _COR_OURO_ESCURO,
+            _h.escape(par))
+        corpo.append(_html_paragrafo(seguro))
+    return _html_moldura("".join(corpo), com_duvida=False)
 
 
 @app.route("/emitir-acesso", methods=["POST"])
@@ -1810,7 +1846,7 @@ def _vouchers_ou_erro():
 _CONTATO_RECUSA = ("por favor, entre em contato com a Marcelle pelo email "
                    "executivo@marciafervienza.com")
 _RECUSA_VOUCHER = {
-    "inexistente": ("Não encontrei esse código. Confira se ele foi digitado "
+    "inexistente": ("Não encontramos esse código. Confira se ele foi digitado "
                     "igual ao que está no seu email. Se o problema "
                     f"continuar, {_CONTATO_RECUSA}."),
     "ja_usado": ("Esse código já foi usado. Cada código só pode ser usado "
@@ -1822,6 +1858,10 @@ _RECUSA_VOUCHER = {
                 "boas-vindas, no formato MF-0000-0000. Se você não "
                 f"encontrar, {_CONTATO_RECUSA}."),
 }
+
+
+_AVISO_RECUSA_ABERTURA = ("Recebemos os seus dados de nascimento, mas não "
+                          "conseguimos gerar o seu Mapa Natal.")
 
 
 def _devolver_voucher(codigo, por_que):
@@ -1883,18 +1923,19 @@ def _avisar_recusa_voucher(email, nome, motivo):
     enviado = False
     try:
         if email and "@" in email:
-            saudacao = f"Oi, {nome.split()[0]}!" if nome else "Oi!"
-            texto = "\n".join([
-                saudacao, "",
-                "Recebi os seus dados de nascimento, mas não consegui "
-                "gerar o seu Mapa Natal.", "",
-                _RECUSA_VOUCHER.get(motivo, _RECUSA_VOUCHER["inexistente"]),
-                "",
-                "Atenciosamente e obrigada!", "",
-                "Márcia"])
+            pn = _primeiro_nome(nome)
+            saudacao = f"Oi, {pn}!" if pn else "Oi!"
+            paragrafos = [
+                _AVISO_RECUSA_ABERTURA,
+                _RECUSA_VOUCHER.get(motivo, _RECUSA_VOUCHER["inexistente"])]
+            # Quem assina é a equipe, como no e-mail de boas-vindas
+            # (decisão da Márcia, 23/11): os dois chegam à mesma pessoa.
+            texto = "\n\n".join([saudacao] + paragrafos) + (
+                f"\n\n{_BV_ABRACO}\n{_BV_ASSINATURA}")
             enviado = _enviar_email_bruto(
                 "Seu Mapa Natal: o código de acesso não funcionou",
-                texto, destino=email, html=html_de_texto(texto))
+                texto, destino=email,
+                html=html_aviso(saudacao, paragrafos))
     except Exception as exc:                            # noqa: BLE001
         logger.error("aviso de recusa de voucher falhou: %s", exc)
     _registra_geracao(nome=nome or "(sem nome)",
