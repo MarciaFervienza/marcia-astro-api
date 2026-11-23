@@ -3709,7 +3709,8 @@ def formulario_enviar():
         return _nao(problema[0], problema[1])
     try:
         resp = _receber_pedido(pedido, "formulario",
-                               avisar_recusa_por_email=False)
+                               avisar_recusa_por_email=False,
+                               em_segundo_plano=True)
         corpo, http = resp[0], resp[1]
         dados = corpo.get_json(silent=True) if hasattr(corpo, "get_json") \
             else (corpo if isinstance(corpo, dict) else {})
@@ -4453,7 +4454,8 @@ def generate_report_endpoint():
         body, "header" if request.headers.get("X-API-Key") else "body")
 
 
-def _receber_pedido(body, _key_via="?", avisar_recusa_por_email=True):
+def _receber_pedido(body, _key_via="?", avisar_recusa_por_email=True,
+                    em_segundo_plano=False):
     """O pedido DEPOIS da porta: rate limit, voucher, fila ou geração.
 
     Dois caminhos chegam aqui (23/11): a API com chave (automação do Wix,
@@ -4656,8 +4658,56 @@ def _receber_pedido(body, _key_via="?", avisar_recusa_por_email=True):
                         "minutos e chega por e-mail quando ficar pronto."),
         }), 202
 
+    if em_segundo_plano:
+        _gerar_em_segundo_plano(body, {"ip": _client_ip, "ua": _ua})
+        return jsonify({
+            "status": "accepted",
+            "message": ("Recebemos o seu pedido. O relatório leva alguns "
+                        "minutos e chega por e-mail quando ficar pronto."),
+        }), 202
+
     _corpo, _http = executar_geracao(body, {"ip": _client_ip, "ua": _ua})
     return jsonify(_corpo), _http
+
+
+def _gerar_em_segundo_plano(body, ctx):
+    """Roda a geração fora da requisição, para a página responder na hora.
+
+    POR QUE EXISTE (23/11). Com a fila desligada a geração acontece dentro
+    da própria requisição: 2 a 4 minutos e meio. A automação do Wix
+    escondia essa espera da cliente; o formulário próprio não esconde, e
+    ninguém fica 4 minutos olhando "Enviando...". Aqui o pedido é aceito
+    (código já reservado) e a geração segue numa thread.
+
+    É o MESMO trabalho, com as mesmas garantias: `executar_geracao`
+    devolve o código em toda falha e o núcleo manda os alertas. O que a
+    thread não tem a mais do que a requisição tinha: se o processo for
+    reiniciado no meio (um deploy), o trabalho se perde, como já se
+    perdia. Quem resolve isso é a fila (FILA_ASSINCRONA), não esta função.
+
+    Não é daemon: num reinício educado, o servidor espera a thread pelo
+    tempo que tiver.
+    """
+    import threading
+
+    def _roda():
+        try:
+            with app.app_context():
+                executar_geracao(body, ctx)
+        except BaseException as exc:                    # noqa: BLE001
+            logger.exception("geração em segundo plano falhou")
+            try:
+                _send_failure_alert("geracao_segundo_plano", exc, {
+                    "name": body.get("name"), "email": body.get("email"),
+                    "birth_city": body.get("birth_city"),
+                    "ip": (ctx or {}).get("ip"), "ua": (ctx or {}).get("ua")})
+            except Exception:                           # noqa: BLE001
+                pass
+
+    t = threading.Thread(target=_roda, name="geracao-formulario",
+                         daemon=False)
+    t.start()
+    return t
 
 
 @app.route("/status/<tid>", methods=["GET"])

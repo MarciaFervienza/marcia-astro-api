@@ -62,6 +62,12 @@ def _geracao_falsa(body, ctx=None):
 
 
 _app.executar_geracao = _geracao_falsa
+# A geração do formulário roda numa thread. Para as provas de A a F ela
+# roda na hora, no mesmo lugar, para dar para olhar o que chegou ao
+# gerador. A thread de verdade é provada na seção G.
+_segundo_plano_real = _app._gerar_em_segundo_plano
+_app._gerar_em_segundo_plano = (
+    lambda body, ctx: _app.executar_geracao(body, ctx))
 _cli = _app.app.test_client()
 
 
@@ -221,11 +227,25 @@ print("=" * 68)
 _resposta_geracao[0] = ({"status": "error", "message": "x"}, 500)
 _d = _bom()
 _j = _envia(_d).get_json()
-chk("falha interna: mensagem geral, sem campo, e o código volta",
-    _j.get("ok") is False and _j.get("campo") == ""
-    and "executivo@marciafervienza.com" in _j.get("mensagem", "")
+chk("a geração falha DEPOIS de aceito: a página já disse 'recebemos', "
+    "e o código volta",
+    _j == {"ok": True}
     and _v.consultar(_d["codigo"])["usado_em"] is None, str(_j))
 _resposta_geracao[0] = ({"status": "ok"}, 200)
+
+_rp_orig = _app._receber_pedido
+
+
+def _rp_quebra(*a, **k):
+    raise RuntimeError("quebrou na porta")
+
+
+_app._receber_pedido = _rp_quebra
+_j = _envia(_bom()).get_json()
+chk("exceção ao receber: mensagem geral, sem campo, com o contato",
+    _j.get("ok") is False and _j.get("campo") == ""
+    and "executivo@marciafervienza.com" in _j.get("mensagem", ""), str(_j))
+_app._receber_pedido = _rp_orig
 
 _app.FILA_ASSINCRONA = True
 _fila_orig = _app._fila_ou_erro
@@ -267,6 +287,62 @@ chk("o formulário próprio NÃO aceita pedido sem passar pela validação",
     _cli.post("/formulario/enviar", json={
         "name": "x", "email": "a@b.co", "birth_city": RS,
         "codigo": _v.emitir(V.ALUNA)}).get_json().get("ok") is False)
+
+print()
+print("=" * 68)
+print("G) A PÁGINA NÃO ESPERA A GERAÇÃO")
+print("=" * 68)
+# Em produção a fila está desligada e a geração leva de 2 a 4 minutos e
+# meio. A automação do Wix escondia essa espera; o formulário não.
+import threading
+import time
+_app._gerar_em_segundo_plano = _segundo_plano_real
+_solta = threading.Event()
+_fez = []
+
+
+def _geracao_lenta(body, ctx=None):
+    _solta.wait(10)
+    _fez.append(dict(body))
+    return {"status": "ok"}, 200
+
+
+_app.executar_geracao = _geracao_lenta
+_t0 = time.time()
+_d = _bom()
+_j = _envia(_d).get_json()
+_dt = time.time() - _t0
+chk("responde 'recebemos' SEM esperar a geração terminar",
+    _j == {"ok": True} and _dt < 3 and _fez == [], f"{_dt:.1f}s {_j}")
+chk("o código já está reservado quando a página responde",
+    _v.consultar(_d["codigo"])["usado_em"] is not None)
+_solta.set()
+for _ in range(50):
+    if _fez:
+        break
+    time.sleep(0.1)
+chk("e a geração acontece em seguida, com os mesmos dados",
+    len(_fez) == 1 and _fez[0].get("name") == "Pessoa Exemplo"
+    and _fez[0].get("_voucher") == _d["codigo"], str(_fez))
+
+_alertas = []
+_app._send_failure_alert = lambda *a, **k: _alertas.append(a[0])
+
+
+def _geracao_explode(body, ctx=None):
+    raise RuntimeError("explodiu no meio")
+
+
+_app.executar_geracao = _geracao_explode
+_th = _segundo_plano_real({"name": "Pessoa Exemplo",
+                           "email": "cliente@exemplo.com"}, {"ip": "x"})
+_th.join(5)
+chk("exceção na thread não derruba o servidor e AVISA a equipe",
+    not _th.is_alive() and _alertas == ["geracao_segundo_plano"],
+    str(_alertas))
+chk("a thread não é daemon: num reinício educado ela termina o trabalho",
+    _th.daemon is False)
+_app.executar_geracao = _geracao_falsa
 
 print()
 if falhas:
