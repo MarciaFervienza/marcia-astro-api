@@ -2685,16 +2685,23 @@ def _devolver_voucher(codigo, por_que):
 # `executar_geracao` devolve em todo retorno que não é 200), e o e-mail
 # diz isso, porque é a primeira pergunta de quem pagou.
 _RECUSA_IDADE_ASSUNTO = "Seu Mapa Natal: não foi possível gerar o relatório"
+# REDAÇÃO DA MÁRCIA (23/11), palavra por palavra. Não reescrever.
 _RECUSA_IDADE = (
-    "Recebemos os dados de nascimento que você enviou, mas não vamos gerar "
-    "este Mapa Natal.",
+    "Recebemos os dados de nascimento que você enviou, mas infelizmente "
+    "não podemos gerar este Mapa Natal.",
     "O relatório é uma leitura de autoconhecimento escrita para adultos, e "
-    "por isso só é feito para pessoas com 18 anos ou mais.",
-    "O seu código de acesso não foi gasto. Ele continua valendo e pode ser "
-    "usado para o mapa de uma pessoa adulta.",
-    "Se a data de nascimento foi digitada errada, é só preencher o "
-    "formulário de novo com o mesmo código. Se preferir o reembolso, "
-    f"{_CONTATO_RECUSA}.",
+    "por isso só é feito para pessoas com 18 anos ou mais. Para leituras "
+    "de menores de 12 anos, o mais recomendado é agendar uma consulta com "
+    "a Márcia, para que ela possa interpretar o mapa com o cuidado que se "
+    "faz necessário.",
+    "A boa notícia é que o código que você recebeu continua disponível "
+    "para a sua utilização e pode ser usado para o mapa de uma pessoa "
+    "adulta.",
+    "Se você estiver recebendo esse email porque a data de nascimento foi "
+    "digitada errada, é só preencher o formulário novamente com a data "
+    "correta e utilizar o mesmo código.",
+    "Qualquer outra dúvida, é só entrar em contato por email "
+    "(executivo@marciafervienza.com).",
 )
 
 

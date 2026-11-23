@@ -1101,8 +1101,8 @@ chk("recusa por idade manda e-mail para quem preencheu",
     _app._avisar_recusa_idade("mae@exemplo.com") is True
     and _enviados[-1][2] == "mae@exemplo.com" and len(_enviados) == _n0 + 1)
 _ti = _enviados[-1][1]
-chk("o e-mail diz o motivo e que o código NÃO foi gasto",
-    "18 anos" in _ti and "não foi gasto" in _ti)
+chk("o e-mail diz o motivo e que o código continua disponível",
+    "18 anos" in _ti and "continua disponível" in _ti)
 chk("manda para a Marcelle e é assinado pela equipe",
     "executivo@marciafervienza.com" in _ti
     and _ti.rstrip().endswith(_app._BV_ASSINATURA))
