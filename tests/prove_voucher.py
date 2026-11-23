@@ -323,6 +323,61 @@ chk("com SENHA_PAGINA posta, a senha entra",
 _app.SENHA_PAGINA = ""
 
 print()
+print("=" * 68)
+print("J) A RECUSA NÃO É SILENCIOSA — a cliente é avisada e o painel vê")
+print("=" * 68)
+# Em 23/11 a Márcia usou o mesmo código duas vezes. A segunda foi
+# recusada, a página de obrigado disse "está sendo escrito" igual, e a
+# recusa só pôde ser inferida pela AUSÊNCIA de uma geração no painel.
+_enviados = []
+_app._enviar_email_bruto = (
+    lambda assunto, texto, destino=None, detalhe_out=None:
+    (_enviados.append((assunto, texto, destino)) or True))
+_app._missing_required_keys = lambda: []
+_app.chaves_malformadas = lambda: []
+
+
+def _gerar(email, voucher):
+    return _cli.post("/generate-report", headers=_CH, json={
+        "name": "Dora Lima", "email": email, "gender": "feminino",
+        "birth_date": "1990-05-08", "birth_time": "14:20",
+        "birth_city": "Fortaleza, CE, Brasil", "voucher": voucher})
+
+
+_usado = _v2.emitir(V.ALUNA, origem="leitura:dora@exemplo.com")
+_v2.consumir(_usado, email="dora@exemplo.com")
+_antes = len(_app._ULTIMAS_GERACOES)
+_rj = _gerar("dora@exemplo.com", _usado)
+chk("código já usado devolve 403", _rj.status_code == 403,
+    str(_rj.status_code))
+chk("e a cliente recebe um e-mail", len(_enviados) == 1
+    and _enviados[0][2] == "dora@exemplo.com", str(len(_enviados)))
+_assunto, _corpo, _dest = _enviados[0] if _enviados else ("", "", "")
+chk("o e-mail diz o MOTIVO (já foi usado)", "já foi usado" in _corpo)
+chk("diz que nenhum relatório foi gerado",
+    "Nenhum relatório foi gerado" in _corpo)
+chk("chama pelo primeiro nome", _corpo.startswith("Oi, Dora!"))
+chk("sem travessão", "—" not in _corpo and "—" not in _assunto)
+_novos = list(_app._ULTIMAS_GERACOES)[_antes:]
+chk("a recusa aparece no painel, com o motivo no desfecho",
+    any(g.get("desfecho") == "voucher_ja_usado" for g in _novos),
+    str([g.get("desfecho") for g in _novos]))
+
+_rj2 = _gerar("dora@exemplo.com", "MF-ZZZZ-ZZZZ")
+chk("código inexistente também avisa", _rj2.status_code == 403
+    and len(_enviados) == 2 and "Não encontrei esse código" in _enviados[1][1])
+
+# Três recusas seguidas: sem o estorno, a terceira seria 429 (o limite
+# por e-mail é 2 em 24h) e a cliente ficaria travada tendo gerado zero.
+_rj3 = _gerar("dora@exemplo.com", "MF-YYYY-YYYY")
+chk("errar o código NÃO gasta o limite de taxa da cliente",
+    _rj3.status_code == 403, f"devolveu {_rj3.status_code}")
+
+_aviso = _insp.getsource(_app._avisar_recusa_voucher)
+chk("o aviso nunca levanta — é caminho de recusa",
+    "except Exception" in _aviso)
+
+print()
 if falhas:
     print(f">>> {falhas} FALHOU")
     raise SystemExit(1)

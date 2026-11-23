@@ -1598,6 +1598,69 @@ def _devolver_voucher(codigo, por_que):
         logger.error("não consegui devolver o voucher %s: %s", codigo, exc)
 
 
+def _rate_estornar_email(email_norm):
+    """Devolve à cliente a tentativa que o limite de taxa contou.
+
+    O limite por e-mail é 2 em 24h e é contado ANTES do voucher. Sem o
+    estorno, quem digitasse o código errado duas vezes ficaria travada
+    um dia inteiro tendo gerado zero relatórios. O estorno é só do
+    e-mail: a contagem por IP fica, e é ela que impede alguém de usar o
+    formulário para disparar avisos de recusa em série.
+    """
+    try:
+        with _rate_lock:
+            dq = _rate_email_hits.get(email_norm)
+            if dq:
+                dq.pop()
+    except Exception:                                   # noqa: BLE001
+        pass
+
+
+def _avisar_recusa_voucher(email, nome, motivo):
+    """Avisa a CLIENTE que o código não valeu, e deixa rastro no painel.
+
+    POR QUE EXISTE (23/11). O formulário do Wix manda a pessoa para a
+    página de obrigado antes de o servidor responder, e a página diz "seu
+    Mapa Natal está sendo escrito" de qualquer jeito. No teste de 23/11 a
+    Márcia usou o mesmo código duas vezes: a segunda foi recusada, a
+    página disse a mesma frase, e nada no mundo contou a ela que não
+    viria relatório. Recusa silenciosa é uma pessoa esperando 24 horas
+    por algo que não vem.
+
+    O e-mail é o único canal que alcança a cliente sem Velo no site. E o
+    registro no painel é o que permite à Márcia ver a recusa: até aqui
+    ela só era inferida pela AUSÊNCIA de uma geração.
+
+    O limite de taxa roda ANTES da checagem do voucher, então este aviso
+    herda o teto dele: ninguém usa o formulário para disparar e-mails em
+    série para o endereço de um terceiro.
+
+    Nunca levanta: é caminho de recusa, e uma exceção aqui trocaria um
+    403 legível por um 500.
+    """
+    enviado = False
+    try:
+        if email and "@" in email:
+            saudacao = f"Oi, {nome.split()[0]}!" if nome else "Oi!"
+            texto = "\n".join([
+                saudacao, "",
+                "Recebi os seus dados de nascimento, mas não consegui "
+                "começar o seu Mapa Natal.", "",
+                _RECUSA_VOUCHER.get(motivo, _RECUSA_VOUCHER["inexistente"]),
+                "",
+                "Nenhum relatório foi gerado com esse envio.", "",
+                "Márcia"])
+            enviado = _enviar_email_bruto(
+                "Seu Mapa Natal: o código de acesso não funcionou",
+                texto, destino=email)
+    except Exception as exc:                            # noqa: BLE001
+        logger.error("aviso de recusa de voucher falhou: %s", exc)
+    _registra_geracao(nome=nome or "(sem nome)",
+                      desfecho=f"voucher_{motivo}",
+                      email_enviado=enviado)
+    return enviado
+
+
 @app.route("/diag-fila", methods=["POST"])
 def diag_fila_endpoint():
     """Roda as asserções da fila contra o BANCO REAL, de dentro do servidor.
@@ -2948,6 +3011,8 @@ def generate_report_endpoint():
             return _v_err
         if not _voucher_bruto:
             logger.warning("VOUCHER ausente email=%r", _email_norm[:60])
+            _rate_estornar_email(_email_norm)
+            _avisar_recusa_voucher(_email_norm, body.get("name"), "ausente")
             return jsonify({
                 "status": "error", "code": "voucher_ausente",
                 "message": _RECUSA_VOUCHER["ausente"]}), 403
@@ -2956,6 +3021,8 @@ def generate_report_endpoint():
         if not _v_ok:
             logger.warning("VOUCHER recusado (%s) email=%r ip=%s",
                            _v_motivo, _email_norm[:60], _client_ip)
+            _rate_estornar_email(_email_norm)
+            _avisar_recusa_voucher(_email_norm, body.get("name"), _v_motivo)
             return jsonify({
                 "status": "error", "code": f"voucher_{_v_motivo}",
                 "message": _RECUSA_VOUCHER.get(
