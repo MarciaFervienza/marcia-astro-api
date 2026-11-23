@@ -209,7 +209,11 @@ import time as _time
 
 _RATE_WINDOW_SECS = 24 * 3600
 _RATE_MAX_PER_EMAIL = 2
-_RATE_MAX_PER_IP = 4
+# 8, e não 4 (23/11): desde que pedido ACEITO deixou de contar, este teto
+# só conta tentativa recusada. Quatro erros de digitação do código não
+# podem trancar por um dia quem pagou; oito tentativas por dia continuam
+# longe de adivinhar um código de oito caracteres.
+_RATE_MAX_PER_IP = 8
 _RATE_EXEMPT_EMAILS = {
     "marcia.fervienza@gmail.com",
     "executivo@marciafervienza.com",
@@ -252,9 +256,23 @@ def _rate_check(email_norm, ip):
     return None
 
 
+def _rate_estornar_ip(ip):
+    """Devolve ao IP a tentativa que o limite contou, quando o pedido foi
+    ACEITO (código válido). Recusa não é devolvida: é ela que o teto
+    existe para contar."""
+    try:
+        with _rate_lock:
+            dq = _rate_ip_hits.get(ip)
+            if dq:
+                dq.pop()
+    except Exception:                                   # noqa: BLE001
+        pass
+
+
 _RATE_LIMIT_MESSAGE_PT = (
-    "Limite de relatórios atingido. Escreva para "
-    "executivo@marciafervienza.com se precisar de ajuda."
+    "Muitas tentativas sem um código válido a partir desta conexão. Por "
+    "segurança, novos envios ficam bloqueados por 24 horas. Se precisar "
+    "de ajuda, escreva para executivo@marciafervienza.com."
 )
 
 
@@ -4688,6 +4706,13 @@ def _receber_pedido(body, _key_via="?", avisar_recusa_por_email=True,
         # relatório de quem comprou três com o mesmo e-mail. Quem limita
         # aqui é o próprio código, que vale uma vez.
         _rate_estornar_email(_email_norm)
+        # O MESMO VALE PARA O IP (23/11). O teto de 4 por IP nunca era
+        # devolvido. Com o formulário próprio o IP passou a ser o da
+        # própria pessoa, e a Marcelle, refazendo mapas de clientes, bateu
+        # no teto com códigos válidos na mão. O teto existe para segurar
+        # quem tenta ADIVINHAR código: pedido recusado continua contando,
+        # pedido aceito não.
+        _rate_estornar_ip(_client_ip)
         logger.info("VOUCHER aceito email=%r", _email_norm[:60])
 
     # ==================================================================

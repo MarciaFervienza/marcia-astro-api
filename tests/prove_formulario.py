@@ -298,6 +298,49 @@ chk("o formulário próprio NÃO aceita pedido sem passar pela validação",
 
 print()
 print("=" * 68)
+print("F2) O TETO POR CONEXÃO CONTA RECUSA, NÃO PEDIDO ACEITO")
+print("=" * 68)
+# 23/11: a Marcelle, refazendo mapas com código válido, bateu no teto de
+# 4 por IP, que contava pedido aceito e nunca era devolvido.
+_app._rate_ip_hits.clear()
+_app._rate_email_hits.clear()
+_H = {"X-Forwarded-For": "203.0.113.50"}
+_oks = [_cli.post("/formulario/enviar", json=_bom(email=f"c{i}@exemplo.com"),
+                  headers=_H).get_json().get("ok")
+        for i in range(_app._RATE_MAX_PER_IP + 6)]
+chk("muitos pedidos ACEITOS da mesma conexão passam todos",
+    all(o is True for o in _oks), str(_oks))
+_mesmo = [_cli.post("/formulario/enviar", json=_bom(), headers=_H)
+          .get_json().get("ok") for _ in range(5)]
+chk("e o mesmo e-mail pode pedir vários mapas, cada um com o seu código",
+    all(o is True for o in _mesmo), str(_mesmo))
+_app.CODIGO_ADMIN = "EQUIPE-TESTE-2026-ABC"
+_eq = [_cli.post("/formulario/enviar",
+                 json=_bom(codigo="EQUIPE-TESTE-2026-ABC"), headers=_H)
+       .get_json().get("ok") for _ in range(_app._RATE_MAX_PER_IP + 3)]
+chk("a senha da equipe não bate em teto nenhum", all(o is True for o in _eq))
+_app.CODIGO_ADMIN = ""
+_H2 = {"X-Forwarded-For": "203.0.113.51"}
+_ruins = [_cli.post("/formulario/enviar",
+                    json=_bom(codigo="MF-ZZZZ-ZZZ%d" % (i % 8 + 2)),
+                    headers=_H2).get_json()
+          for i in range(_app._RATE_MAX_PER_IP + 1)]
+chk("código errado conta: depois do teto, a conexão é bloqueada",
+    all(j.get("campo") == "codigo" for j in _ruins[:-1])
+    and _ruins[-1].get("campo") == ""
+    and "bloqueados por 24 horas" in _ruins[-1].get("mensagem", ""),
+    str(_ruins[-1]))
+chk("bloqueada, nem código válido passa (é o que segura a adivinhação)",
+    _cli.post("/formulario/enviar", json=_bom(), headers=_H2)
+    .get_json().get("ok") is False)
+chk("e a outra conexão segue livre",
+    _cli.post("/formulario/enviar", json=_bom(), headers=_H)
+    .get_json().get("ok") is True)
+_app._rate_ip_hits.clear()
+_app._rate_email_hits.clear()
+
+print()
+print("=" * 68)
 print("G) A PÁGINA NÃO ESPERA A GERAÇÃO")
 print("=" * 68)
 # Em produção a fila está desligada e a geração leva de 2 a 4 minutos e
