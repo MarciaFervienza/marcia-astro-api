@@ -2227,40 +2227,199 @@ def pagbank_notificacao_endpoint():
 
     logger.info("PAGBANK tx=%s status=%s itens=%r", tx["codigo"],
                 tx["status"], tx["itens"])
-    if tx["status"] not in _PAGBANK_PAGO:
-        return jsonify({"status": "ignorado", "motivo": "nao_pago"}), 200
+    resultado = _pagbank_tratar_venda(tx)
+    return jsonify(resultado), 200
 
-    produto = _pagbank_produto(tx["itens"])
+
+# ----------------------------------------------------------------------
+# DE QUE CURSO É A VENDA — pelo LINK, não pela descrição.
+#
+# O diagnóstico de 23/11 mostrou o que o PagBank manda de verdade: toda
+# venda feita por link de pagamento vem com `reference = LINK_PAGAE=<id>`,
+# onde <id> é o final do endereço pag.ae do botão. E toda mensalidade de
+# assinatura vem com `reference = SUBS_...` e a descrição "Valor da
+# assinatura (subsequent)", igual para todos os planos.
+#
+# Então o link é a identidade da venda: o botão "ME INSCREVER" do Curso
+# de Leitura só vende o Curso de Leitura. E a mensalidade, que NÃO é
+# matrícula nova, nunca tem LINK_PAGAE: quem já é aluna não recebe
+# "bem-vinda" todo mês.
+#
+# Os ids abaixo são os botões que estavam nas páginas de venda em 23/11.
+# Link novo entra por PAGBANK_LINKS no Railway ("id=produto,id=produto"),
+# sem deploy.
+# ----------------------------------------------------------------------
+_PAGBANK_LINKS_PADRAO = {
+    "82mC8D7HH": "leitura", "82mCB6JnM": "leitura",
+    "82mCgHm12": "preditivas", "82mChcVnH": "preditivas",
+    "82mCBBeM2": "combo", "82mCiKF12": "combo", "82mCieoB2": "combo",
+    "82mChHdHM": "combo",
+}
+
+
+def _pagbank_links():
+    mapa = dict(_PAGBANK_LINKS_PADRAO)
+    for par in os.environ.get("PAGBANK_LINKS", "").split(","):
+        if "=" in par:
+            k, v = par.split("=", 1)
+            if v.strip().lower() in _CURSOS:
+                mapa[k.strip()] = v.strip().lower()
+    return mapa
+
+
+def _pagbank_id_do_link(referencia):
+    r = (referencia or "").strip()
+    return r.split("=", 1)[1].strip() if r.startswith("LINK_PAGAE=") else ""
+
+
+def _pagbank_produto_da_venda(tx):
+    """O curso desta venda, ou None. O link decide; a descrição só entra
+    quando a venda veio por um link que eu não conheço."""
+    ref = tx.get("referencia") or ""
+    if ref.startswith("SUBS_"):
+        return None                      # mensalidade de quem já é aluna
+    return (_pagbank_links().get(_pagbank_id_do_link(ref))
+            or _pagbank_produto(tx.get("itens") or []))
+
+
+def _pagbank_tratar_venda(tx):
+    """Uma venda já CONSULTADA no PagBank: decide e, se for curso pago e
+    ainda não tratado, emite. Um caminho só para o aviso e para a vigia.
+
+    A venda é reivindicada no banco antes de emitir. Reivindicar é uma
+    inserção atômica: se o aviso e a vigia (ou dois servidores, na troca
+    de versão) pegarem a mesma venda ao mesmo tempo, só um consegue, e a
+    aluna recebe um e-mail só.
+    """
+    if tx["status"] not in _PAGBANK_PAGO:
+        return {"status": "ignorado", "motivo": "nao_pago"}
+    produto = _pagbank_produto_da_venda(tx)
     if not produto:
-        # Outra coisa que a conta recebe (consulta, live). Não é erro e
-        # não merece alerta a cada venda: fica no log.
-        return jsonify({"status": "ignorado", "motivo": "nao_e_curso"}), 200
-    if "@" not in tx["email"] or not tx["codigo"]:
+        # Outra coisa que a conta recebe (consulta, mensalidade, Céu do
+        # Dia). Não é erro e não merece alerta: fica no log.
+        return {"status": "ignorado", "motivo": "nao_e_curso"}
+    if not tx["codigo"]:
+        return {"status": "ignorado", "motivo": "sem_codigo"}
+
+    import vouchers as _vm
+    v = _vm.abrir()
+    if not v.reivindicar("pb-" + tx["codigo"]):
+        return {"status": "ok", "produto": produto, "ja_entregue": True}
+
+    if "@" not in tx["email"]:
         _pagbank_alerta(
             "PagBank: venda de curso sem email de quem comprou",
             [f"Curso: {_PRODUTOS[produto]}", f"Comprador: {tx['nome']}",
              f"Transação: {tx['codigo']}", f"Valor: {tx['valor']}",
              "", "O PagBank não informou um email válido, então o acesso "
              "não foi enviado."])
-        return jsonify({"status": "alerta", "motivo": "sem_email"}), 200
+        return {"status": "alerta", "motivo": "sem_email"}
 
     resp, http = _emitir_acesso_nucleo({
         "email": tx["email"], "nome": tx["nome"], "produto": produto,
         "pedido": "pb-" + tx["codigo"], "enviar": True})
     d = resp.get_json() or {}
     if http != 200:
+        # A venda fica reivindicada: soltar faria a vigia tentar de novo a
+        # cada rodada e mandar este alerta a cada cinco minutos. Um alerta,
+        # e a equipe resolve pela página /emitir.
         _pagbank_alerta(
             "PagBank: venda de curso paga, mas o email de acesso não saiu",
             [f"Curso: {_PRODUTOS[produto]}", f"Comprador: {tx['nome']}",
              f"Contato: {tx['email']}", f"Transação: {tx['codigo']}",
              "", f"Motivo: {d.get('message') or d.get('detalhe_email')}"])
-        return jsonify({"status": "error"}), 502
+        return {"status": "alerta", "motivo": "email_nao_saiu"}
     _registra_geracao(nome=tx["nome"] or "(sem nome)",
-                      desfecho="pagbank_ja_entregue" if d.get("ja_entregue")
-                      else f"pagbank_{produto}",
+                      desfecho=f"pagbank_{produto}",
                       email_enviado=bool(d.get("email_enviado")))
-    return jsonify({"status": "ok", "produto": produto,
-                    "ja_entregue": bool(d.get("ja_entregue"))}), 200
+    return {"status": "ok", "produto": produto, "ja_entregue": False}
+
+
+# ----------------------------------------------------------------------
+# A VIGIA — o servidor vai ao PagBank olhar as vendas, de tempos em tempos.
+#
+# Existe porque as duas telas do PagBank onde se cadastra um aviso estão
+# fechadas para a conta da Márcia (23/11): uma recusa sem dizer por quê,
+# a outra é bloqueada fora do Brasil. Perguntar só depende do token.
+#
+# Liga com PAGBANK_VIGIAR=1. A janela olha as últimas 48 horas a cada
+# rodada, de propósito bem maior que o intervalo: se o servidor ficar
+# fora do ar por uma noite, a venda da madrugada ainda está na janela
+# quando ele voltar. Quem impede o e-mail repetido não é a janela, é a
+# reivindicação.
+# ----------------------------------------------------------------------
+PAGBANK_VIGIA_SEGUNDOS = 300
+PAGBANK_VIGIA_HORAS = 48
+
+
+def pagbank_vigiar_uma_vez(horas=None):
+    """Uma rodada. Devolve um resumo; nunca levanta."""
+    resumo = {"olhadas": 0, "emitidas": 0, "erro": None}
+    try:
+        txs, erro = _pagbank_buscar(horas=horas or PAGBANK_VIGIA_HORAS)
+        if erro:
+            resumo["erro"] = erro
+            return resumo
+        for t in txs:
+            # A busca já traz status e referência: mensalidade (SUBS_) e
+            # venda não paga saem aqui, sem gastar uma consulta cada.
+            if t["status"] not in _PAGBANK_PAGO:
+                continue
+            if not t.get("referencia", "").startswith("LINK_PAGAE="):
+                continue
+            resumo["olhadas"] += 1
+            if _pagbank_id_do_link(t["referencia"]) not in _pagbank_links():
+                continue                 # link de consulta, Céu do Dia etc.
+            try:
+                r = _pagbank_tratar_venda(_pagbank_detalhar(t["codigo"]))
+                if r.get("status") == "ok" and not r.get("ja_entregue"):
+                    resumo["emitidas"] += 1
+            except Exception as exc:                    # noqa: BLE001
+                logger.error("VIGIA venda %s falhou: %s", t["codigo"], exc)
+    except Exception as exc:                            # noqa: BLE001
+        resumo["erro"] = str(exc)[:160]
+    return resumo
+
+
+def _pagbank_vigia_laco():
+    logger.info("VIGIA do PagBank ligada: a cada %ss, janela de %sh",
+                PAGBANK_VIGIA_SEGUNDOS, PAGBANK_VIGIA_HORAS)
+    falhas_seguidas = 0
+    while True:
+        try:
+            with app.app_context():
+                r = pagbank_vigiar_uma_vez()
+            if r["erro"]:
+                falhas_seguidas += 1
+                logger.error("VIGIA rodada com erro: %s", r["erro"])
+                # Uma falha isolada é a internet. Doze seguidas (uma hora)
+                # é a vigia cega, e alguém precisa saber.
+                if falhas_seguidas == 12:
+                    _pagbank_alerta(
+                        "PagBank: a vigia das vendas está sem conseguir "
+                        "consultar há uma hora",
+                        [f"Último erro: {r['erro']}", "",
+                         "Enquanto isso, vendas de curso pelo PagBank não "
+                         "recebem o email de acesso sozinhas."])
+            else:
+                falhas_seguidas = 0
+                if r["emitidas"]:
+                    logger.info("VIGIA emitiu %s acesso(s)", r["emitidas"])
+        except Exception as exc:                        # noqa: BLE001
+            logger.error("VIGIA laço: %s", exc)
+        _time.sleep(PAGBANK_VIGIA_SEGUNDOS)
+
+
+def _pagbank_ligar_vigia():
+    if os.environ.get("PAGBANK_VIGIAR", "").strip() != "1":
+        return False
+    if not (PAGBANK_EMAIL and PAGBANK_TOKEN):
+        logger.error("PAGBANK_VIGIAR=1, mas faltam PAGBANK_EMAIL/TOKEN")
+        return False
+    import threading
+    threading.Thread(target=_pagbank_vigia_laco, name="vigia-pagbank",
+                     daemon=True).start()
+    return True
 
 
 _PAGBANK_BUSCA = "https://ws.pagseguro.uol.com.br/v3/transactions"
@@ -2299,6 +2458,7 @@ def _pagbank_buscar(horas=72, limite=100):
             "status": (t.findtext("status") or "").strip(),
             "valor": (t.findtext("grossAmount") or "").strip(),
             "meio": (t.findtext("paymentMethod/type") or "").strip(),
+            "referencia": (t.findtext("reference") or "").strip(),
         })
     return saida, None
 
@@ -2379,7 +2539,9 @@ def pagbank_diag_endpoint():
             or not hmac.compare_digest(presented, API_SECRET_KEY):
         return jsonify({"status": "error", "message": "unauthorized"}), 401
     saida = {"tem_email": bool(PAGBANK_EMAIL), "tem_token": bool(PAGBANK_TOKEN),
-             "tamanho_token": len(PAGBANK_TOKEN)}
+             "tamanho_token": len(PAGBANK_TOKEN),
+             "vigia_ligada": os.environ.get("PAGBANK_VIGIAR", "") == "1",
+             "links": _pagbank_links()}
     if not (PAGBANK_EMAIL and PAGBANK_TOKEN):
         return jsonify(dict(saida, status="sem_credenciais")), 200
     try:
@@ -2402,7 +2564,8 @@ def pagbank_diag_endpoint():
             d = _pagbank_detalhar(tx["codigo"])
             linha["itens"] = d["itens"]
             linha["tem_email"] = "@" in d["email"]
-            linha["curso"] = _pagbank_produto(d["itens"])
+            linha["curso"] = _pagbank_produto_da_venda(d)
+            linha["link"] = _pagbank_id_do_link(d["referencia"])
             linha["tipo"] = d["tipo"]
             linha["tem_referencia"] = bool(d["referencia"])
             # Uma amostra da FORMA de cada tipo de venda diferente: é
@@ -5298,6 +5461,10 @@ def root():
         "service": "natal-report-generator",
         "endpoints": ["GET /health", "POST /generate-report"],
     }), 200
+
+
+# A vigia sobe junto com o servidor, se PAGBANK_VIGIAR=1.
+_pagbank_ligar_vigia()
 
 
 if __name__ == "__main__":

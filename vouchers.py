@@ -67,6 +67,14 @@ _ESQUEMA = [
     )
     """,
     "CREATE INDEX IF NOT EXISTS idx_vouchers_origem ON vouchers (origem)",
+    # Vendas já tratadas pelo caminho automático (PagBank). A chave
+    # primária é a trava: ver `reivindicar`.
+    """
+    CREATE TABLE IF NOT EXISTS vendas_vistas (
+        chave   TEXT PRIMARY KEY,
+        quando  DOUBLE PRECISION NOT NULL
+    )
+    """,
 ]
 
 # Motivos de recusa. São strings estáveis porque viram mensagem para a
@@ -264,6 +272,42 @@ class Vouchers(_Banco):
         campos = ("codigo", "tipo", "origem", "criado_em", "expira_em",
                   "usado_em", "usado_por", "nome_gerado")
         return [dict(zip(campos, l)) for l in cur.fetchall()]
+
+    # ------------------------------------------------- vendas já tratadas
+    def reivindicar(self, chave, agora=None):
+        """Marca uma venda como MINHA. True só para quem chegou primeiro.
+
+        ATÔMICO PELO MESMO MOTIVO de `consumir`: a decisão inteira é uma
+        instrução só. "Olhar se já tratei e depois marcar" tem uma janela
+        entre as duas, e nela a vigia e o aviso (ou dois servidores, na
+        troca de versão) passam os dois e a aluna recebe dois e-mails. A
+        chave primária não deixa a segunda inserção acontecer.
+        """
+        if not chave:
+            return False
+        con = self.con()
+        cur = con.cursor()
+        try:
+            cur.execute(self._q(
+                "INSERT INTO vendas_vistas (chave, quando) VALUES (%s, %s) "
+                "ON CONFLICT (chave) DO NOTHING"),
+                (str(chave), agora if agora is not None else time.time()))
+            ganhou = cur.rowcount == 1
+            if self.postgres:
+                con.commit()
+            return ganhou
+        except Exception:                               # noqa: BLE001
+            if self.postgres:
+                con.rollback()
+            raise
+
+    def soltar(self, chave):
+        """Desfaz a reivindicação (a venda volta a poder ser tratada)."""
+        con = self.con()
+        con.cursor().execute(self._q(
+            "DELETE FROM vendas_vistas WHERE chave=%s"), (str(chave),))
+        if self.postgres:
+            con.commit()
 
     def listar(self, limite=50):
         cur = self.con().cursor()

@@ -925,6 +925,125 @@ chk("token que o PagBank recusa aparece como recusa, não como 'zero vendas'",
     _dg2["status"] == "pagbank_recusou" and "401" in _dg2["detalhe"])
 _pb_resposta["busca_http"] = 200
 
+# --- o LINK é a identidade da venda (dados reais de 23/11) ----------------
+# Toda venda por link vem com reference = LINK_PAGAE=<id>. Toda
+# mensalidade vem com SUBS_... e a MESMA descrição para todos os planos.
+_L = "82mC8D7HH"          # botão do Curso de Leitura na página de vendas
+chk("o link decide o curso, mesmo com descrição que não diz nada",
+    _app._pagbank_produto_da_venda(
+        {"referencia": "LINK_PAGAE=" + _L,
+         "itens": ["Valor da assinatura"]}) == "leitura")
+chk("MENSALIDADE (SUBS_) nunca é matrícula, nem com 'curso' na descrição",
+    _app._pagbank_produto_da_venda(
+        {"referencia": "SUBS_BF1F7120-A2C4",
+         "itens": ["Curso de Leitura de Mapa Natal"]}) is None)
+chk("link de consulta não vira curso",
+    _app._pagbank_produto_da_venda(
+        {"referencia": "LINK_PAGAE=81MuiEwcM",
+         "itens": ["Consulta de Mapa Natal VIP"]}) is None)
+os.environ["PAGBANK_LINKS"] = "ZZnovo123=preditivas, lixo, x=naoexiste"
+chk("link novo entra por PAGBANK_LINKS, sem deploy; produto inválido não",
+    _app._pagbank_links().get("ZZnovo123") == "preditivas"
+    and "x" not in _app._pagbank_links()
+    and _app._pagbank_links()[_L] == "leitura")
+os.environ["PAGBANK_LINKS"] = ""
+
+# --- reivindicar: a trava contra o e-mail em dobro ------------------------
+chk("a primeira reivindicação ganha, a segunda perde",
+    _v2.reivindicar("pb-TESTE-1") is True
+    and _v2.reivindicar("pb-TESTE-1") is False)
+_v2.soltar("pb-TESTE-1")
+chk("soltar devolve a venda", _v2.reivindicar("pb-TESTE-1") is True)
+import threading as _th
+_ganhos = []
+
+
+def _disputa():
+    try:
+        _ganhos.append(V.abrir(os.environ["DATABASE_URL"]).reivindicar(
+            "pb-DISPUTA"))
+    except Exception:                                   # noqa: BLE001
+        _ganhos.append(False)
+
+
+_ts = [_th.Thread(target=_disputa) for _ in range(12)]
+[t.start() for t in _ts]
+[t.join() for t in _ts]
+chk("12 ao mesmo tempo na MESMA venda: exatamente 1 ganha",
+    _ganhos.count(True) == 1, str(_ganhos))
+
+# --- a vigia: o servidor vai olhar, e cada venda vira UM e-mail -----------
+_VIG_BUSCA = ("<transactionSearchResult><transactions>"
+              # matrícula nova pelo botão do Curso de Leitura
+              "<transaction><code>TX-V1</code><status>3</status>"
+              "<reference>LINK_PAGAE=%s</reference>"
+              "<grossAmount>449.99</grossAmount></transaction>"
+              # mensalidade de quem já é aluna
+              "<transaction><code>TX-V2</code><status>3</status>"
+              "<reference>SUBS_AAAA-BBBB</reference>"
+              "<grossAmount>509.12</grossAmount></transaction>"
+              # consulta paga por outro link
+              "<transaction><code>TX-V3</code><status>3</status>"
+              "<reference>LINK_PAGAE=81MuiEwcM</reference>"
+              "<grossAmount>780.00</grossAmount></transaction>"
+              # matrícula ainda não paga
+              "<transaction><code>TX-V4</code><status>1</status>"
+              "<reference>LINK_PAGAE=%s</reference>"
+              "<grossAmount>449.99</grossAmount></transaction>"
+              "</transactions></transactionSearchResult>") % (_L, _L)
+
+
+def _xml_v(codigo, ref, desc, email):
+    return _xml_pb(codigo, "3", desc, email=email, nome="NARA Luz").replace(
+        "<status>", "<reference>%s</reference><status>" % ref)
+
+
+_vig_det = {"TX-V1": _xml_v("TX-V1", "LINK_PAGAE=" + _L,
+                            "Valor da assinatura", "nara@exemplo.com")}
+_vig_detalhadas = []
+
+
+def _pb_get4(url, params=None, headers=None, timeout=None):
+    if url.rstrip("/").endswith("/transactions"):
+        return _RespPB(200, _VIG_BUSCA)
+    cod = url.rsplit("/", 1)[1]
+    _vig_detalhadas.append(cod)
+    return _RespPB(200, _vig_det[cod])
+
+
+_app.requests.get = _pb_get4
+_app.PAGBANK_EMAIL, _app.PAGBANK_TOKEN = "conta@teste.com", "token-de-teste"
+_nv = len(_enviados)
+with _app.app.app_context():
+    _rv1 = _app.pagbank_vigiar_uma_vez()
+chk("1ª rodada: a matrícula nova vira UM e-mail de boas-vindas",
+    _rv1["emitidas"] == 1 and len(_enviados) == _nv + 1
+    and _enviados[-1][2] == "nara@exemplo.com"
+    and "Curso de Leitura de Mapa Natal está confirmada" in _enviados[-1][1],
+    str(_rv1))
+chk("mensalidade, consulta e venda não paga nem são consultadas",
+    _vig_detalhadas == ["TX-V1"], str(_vig_detalhadas))
+with _app.app.app_context():
+    _rv2 = _app.pagbank_vigiar_uma_vez()
+    _rv3 = _app.pagbank_vigiar_uma_vez()
+chk("2ª e 3ª rodadas veem a MESMA venda e não mandam mais nada",
+    _rv2["emitidas"] == 0 and _rv3["emitidas"] == 0
+    and len(_enviados) == _nv + 1, f"{_rv2} {_rv3}")
+
+
+def _pb_get5(url, params=None, headers=None, timeout=None):
+    return _RespPB(503, "fora do ar")
+
+
+_app.requests.get = _pb_get5
+with _app.app.app_context():
+    _rv4 = _app.pagbank_vigiar_uma_vez()
+chk("PagBank fora do ar: a rodada registra o erro e NÃO levanta",
+    _rv4["erro"] == "HTTP 503" and _rv4["emitidas"] == 0)
+os.environ["PAGBANK_VIGIAR"] = ""
+chk("a vigia nasce DESLIGADA: só liga com PAGBANK_VIGIAR=1",
+    _app._pagbank_ligar_vigia() is False)
+
 _app.PAGBANK_EMAIL, _app.PAGBANK_TOKEN = "", ""
 
 # A busca por origem não pode depender de uma janela de N códigos.

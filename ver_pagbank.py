@@ -71,6 +71,12 @@ if s == "pagbank_recusou":
     sys.exit("HTTP 401 quer dizer que esse token não vale para consultas "
              "(pode ser uma credencial só do Wix).")
 
+print(f"vigia das vendas ligada:    "
+      f"{'sim' if d.get('vigia_ligada') else 'NÃO'}")
+if d.get("links"):
+    print("\nlinks de curso que o servidor conhece:")
+    for k, v in sorted(d["links"].items(), key=lambda kv: kv[1]):
+        print(f"    pag.ae/{k}  ->  {v}")
 print(f"\nO token SERVE. Vendas nas últimas {d.get('horas')} horas: "
       f"{d.get('total')}")
 print("-" * 74)
@@ -83,7 +89,8 @@ for v in d.get("vendas") or []:
     for it in v.get("itens") or ["(sem descrição)"]:
         print(f"    item: {it}")
     print(f"    veio com e-mail: {'sim' if v.get('tem_email') else 'NÃO'}"
-          f"    reconhecido como: {v.get('curso') or 'não é curso'}")
+          f"    reconhecido como: {v.get('curso') or 'não é curso'}"
+          + (f"    link: {v['link']}" if v.get("link") else ""))
 
 if d.get("resumo"):
     print("=" * 74)
