@@ -204,6 +204,46 @@ chk("e o código fica marcado como usado uma vez só",
     va.consultar(atomico)["usado_em"] is not None)
 
 print()
+print("=" * 68)
+print("H) A LIGAÇÃO COM A GERAÇÃO — reserva antes, devolve se falhar")
+print("=" * 68)
+import app as _app
+
+_end = _insp.getsource(_app.generate_report_endpoint)
+chk("o endpoint tira o código do corpo com pop (não vaza para o chart)",
+    'body.pop("voucher"' in _end)
+chk("aceita o apelido 'codigo' do formulário", 'body.pop("codigo"' in _end)
+chk("consome ANTES de enfileirar — código ruim não ganha vaga na fila",
+    _end.index("consumir(") < _end.index("enfileirar("))
+chk("consome ANTES de gerar", _end.index("consumir(")
+    < _end.index("executar_geracao("))
+chk("banco fora do ar NÃO vira 'passou sem conferir'",
+    "_vouchers_ou_erro()" in _end and "return _v_err" in _end)
+chk("recusa com 403 e com código de erro legível",
+    "403" in _end and "voucher_" in _end)
+chk("o código viaja no corpo, que é o que a fila persiste",
+    'body["_voucher"]' in _end)
+
+_casca = _insp.getsource(_app.executar_geracao)
+chk("executar_geracao virou casca sobre o núcleo",
+    "_nucleo_da_geracao(" in _casca)
+chk("a casca tira o código do corpo", '.pop("_voucher"' in _casca)
+chk("devolve quando o núcleo levanta", "except BaseException" in _casca
+    and _casca.count("_devolver_voucher(") >= 2)
+chk("devolve quando o núcleo recusa (http != 200)", "http != 200" in _casca)
+chk("o worker também passa pela casca",
+    "executar_geracao(" in _insp.getsource(_app.executar_geracao_para_fila))
+
+_dev = _insp.getsource(_app._devolver_voucher)
+chk("devolver nunca levanta — é caminho de falha", "except Exception" in _dev)
+
+chk("as três recusas têm mensagem para a CLIENTE",
+    all(m in _app._RECUSA_VOUCHER for m in ("inexistente", "ja_usado",
+                                            "expirado", "ausente")))
+chk("o interruptor nasce DESLIGADO — o campo do Wix vem antes da exigência",
+    _app.VOUCHER_OBRIGATORIO is False)
+
+print()
 if falhas:
     print(f">>> {falhas} FALHOU")
     raise SystemExit(1)

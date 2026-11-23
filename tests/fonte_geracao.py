@@ -19,7 +19,14 @@ pode deixar o worker chamando função inexistente.
 """
 import inspect
 
-_PARTES = ("generate_report_endpoint", "executar_geracao")
+# 18/11: a geração foi repartida de novo. `executar_geracao` virou a
+# casca que devolve o voucher em qualquer falha, e o núcleo passou a se
+# chamar `_nucleo_da_geracao`. O nome antigo continuou existindo, então a
+# guarda abaixo NÃO levantou — ela pega função que sumiu, não caminho que
+# esvaziou. Quem avisou foram as três suítes, falhando juntas de novo:
+# prove_palavra, prove_cidade e prove_fila.
+_PARTES = ("generate_report_endpoint", "executar_geracao",
+           "_nucleo_da_geracao")
 
 
 def fonte(app_mod=None):

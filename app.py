@@ -112,6 +112,19 @@ SEGUNDA_TENTATIVA = os.environ.get(
 # alerta viraria ruído, e alerta que vira ruído é alerta que se ignora.
 FILA_PARADA_SEGS = int(os.environ.get("FILA_PARADA_SEGS", "900"))
 
+# VOUCHER OBRIGATÓRIO (18/11). Desligado por padrão, e a ordem importa:
+# se subisse exigindo o código ANTES de o campo existir no formulário do
+# Wix, toda submissão passaria a falhar — o formulário não tem o que
+# mandar. Então sobe desligado, o campo entra no Wix, e só aí
+# VOUCHER_OBRIGATORIO=1 fecha a porta. Desligar volta ao comportamento de
+# hoje sem push, mesma disciplina do FILA_ASSINCRONA.
+#
+# Com ele desligado o código AINDA é consumido quando vem: quem mandar um
+# voucher válido gasta o voucher. O interruptor decide se a AUSÊNCIA do
+# código recusa, não se o código vale.
+VOUCHER_OBRIGATORIO = os.environ.get(
+    "VOUCHER_OBRIGATORIO", "").strip().lower() in ("1", "true", "sim", "yes", "on")
+
 # SendGrid Web API (HTTPS) for emailing the PDF to the client. Railway
 # blocks outbound SMTP submission ports (both 587 and 465 time out at the
 # TCP layer, confirmed on this project), so any smtplib path — Gmail,
@@ -1366,6 +1379,56 @@ def _fila_ou_erro():
         return None, (jsonify({
             "status": "error", "code": "fila_indisponivel",
             "message": f"A fila persistida não está disponível: {exc}"}), 503)
+
+
+def _vouchers_ou_erro():
+    """Os vouchers, ou (None, resposta de erro). Falha ALTA, nunca silenciosa.
+
+    Mesma forma do `_fila_ou_erro`, e pelo mesmo motivo: banco fora do ar
+    não pode virar "passou sem conferir". Se a tranca não abre, ninguém
+    entra — o contrário transformaria "o código vale uma vez" numa frase
+    falsa exatamente no dia em que o banco piscar.
+    """
+    try:
+        import vouchers as _v
+        return _v.abrir(), None
+    except Exception as exc:                            # noqa: BLE001
+        logger.error("vouchers indisponíveis: %s", exc)
+        return None, (jsonify({
+            "status": "error", "code": "vouchers_indisponiveis",
+            "message": f"A tabela de vouchers não está disponível: {exc}"}), 503)
+
+
+# Mensagens de recusa do voucher. Ficam aqui, num lugar só, porque são o
+# que a CLIENTE lê — e porque cada uma pede uma ação diferente dela.
+_RECUSA_VOUCHER = {
+    "inexistente": ("Não encontrei esse código. Confira se digitou igual ao "
+                    "que está no seu e-mail, ou responda o e-mail que a "
+                    "Márcia te mandou."),
+    "ja_usado": ("Esse código já foi usado. Cada código vale um relatório. "
+                 "Se você acha que houve engano, responda o e-mail que a "
+                 "Márcia te mandou."),
+    "expirado": ("Esse código expirou. Responda o e-mail que a Márcia te "
+                 "mandou e ela emite outro."),
+    "ausente": ("Falta o código de acesso. Ele está no e-mail que a Márcia "
+                "te mandou, no formato MF-0000-0000."),
+}
+
+
+def _devolver_voucher(codigo, por_que):
+    """Devolve o código reservado. Nunca levanta: é caminho de falha.
+
+    Uma exceção aqui dentro cairia EM CIMA da falha que trouxe a gente
+    até aqui e esconderia a original — defeito que este projeto já viu.
+    """
+    if not codigo:
+        return
+    try:
+        v, err = _vouchers_ou_erro()
+        if v and v.devolver(codigo):
+            logger.info("VOUCHER devolvido (%s): %s", por_que, codigo)
+    except Exception as exc:                            # noqa: BLE001
+        logger.error("não consegui devolver o voucher %s: %s", codigo, exc)
 
 
 @app.route("/diag-fila", methods=["POST"])
@@ -2695,6 +2758,48 @@ def generate_report_endpoint():
         }), 429
 
     # ==================================================================
+    # VOUCHER — a tranca de uso único (18/11).
+    #
+    # AQUI, e não lá dentro: antes do enfileiramento e antes de qualquer
+    # trabalho. Um código inválido não merece uma vaga na fila nem quatro
+    # minutos de geração, e a cliente merece saber na hora.
+    #
+    # RESERVA AGORA, DEVOLVE SE FALHAR. `consumir` marca o código como
+    # usado neste instante, porque duas submissões simultâneas do mesmo
+    # código precisam que exatamente uma passe — e isso só é verdade se a
+    # decisão for atômica e anterior ao trabalho. O par disto é o
+    # `_devolver_voucher` no `executar_geracao`, que roda em TODA falha.
+    #
+    # O código sai do corpo com pop: ele não é dado do mapa e não pode
+    # vazar para o `chart` que a fila guarda.
+    _voucher_campo = body.pop("voucher", "")
+    _voucher_alias = body.pop("codigo", "")
+    _voucher_bruto = str(_voucher_campo or _voucher_alias or "").strip()
+    if _voucher_bruto or VOUCHER_OBRIGATORIO:
+        _v, _v_err = _vouchers_ou_erro()
+        if _v_err:
+            return _v_err
+        if not _voucher_bruto:
+            logger.warning("VOUCHER ausente email=%r", _email_norm[:60])
+            return jsonify({
+                "status": "error", "code": "voucher_ausente",
+                "message": _RECUSA_VOUCHER["ausente"]}), 403
+        _v_ok, _v_motivo = _v.consumir(_voucher_bruto, email=_email_norm,
+                                       nome=body.get("name"))
+        if not _v_ok:
+            logger.warning("VOUCHER recusado (%s) email=%r ip=%s",
+                           _v_motivo, _email_norm[:60], _client_ip)
+            return jsonify({
+                "status": "error", "code": f"voucher_{_v_motivo}",
+                "message": _RECUSA_VOUCHER.get(
+                    _v_motivo, _RECUSA_VOUCHER["inexistente"])}), 403
+        # Viaja no corpo porque o corpo é o que a fila persiste: no
+        # caminho assíncrono quem devolve é o worker, minutos depois e em
+        # outro processo, e só o payload atravessa essa fronteira.
+        body["_voucher"] = _voucher_bruto
+        logger.info("VOUCHER aceito email=%r", _email_norm[:60])
+
+    # ==================================================================
     # CAMINHO ASSÍNCRONO — 202 + fila, em vez de segurar a conexão.
     #
     # Por que existe: a geração mediu 129s mínimo, 216s mediana, 272s
@@ -2804,6 +2909,36 @@ def status_trabalho_endpoint(tid):
 
 
 def executar_geracao(body, ctx=None):
+    """Casca fina sobre o núcleo: DEVOLVE O VOUCHER em qualquer falha.
+
+    POR QUE UMA CASCA, e não um `devolver` em cada saída. O núcleo tem
+    mais de vinte pontos de retorno — erro de data, cidade não achada,
+    falha fechada de língua, exceção no PDF — e vai ganhar outros. Espalhar
+    a devolução por eles seria garantir que o próximo `return` escrito
+    daqui a seis meses esqueça dela, e um código queimado sem relatório é
+    justamente o defeito que a cliente sente e a Márcia atende.
+
+    Aqui há um ponto só, e ele cobre todo retorno que ainda nem existe.
+
+    Vale para os DOIS caminhos: o worker também chega por aqui, via
+    `executar_geracao_para_fila`. É por isso que o código viaja dentro do
+    corpo, e não numa variável do pedido HTTP.
+    """
+    codigo = (body or {}).pop("_voucher", None)
+    try:
+        corpo, http = _nucleo_da_geracao(body, ctx)
+    except BaseException:
+        # BaseException de propósito: um KeyboardInterrupt ou um
+        # SystemExit no meio da geração também deixa a cliente sem
+        # relatório, e também não pode custar o código dela.
+        _devolver_voucher(codigo, "excecao na geracao")
+        raise
+    if http != 200:
+        _devolver_voucher(codigo, f"geracao devolveu HTTP {http}")
+    return corpo, http
+
+
+def _nucleo_da_geracao(body, ctx=None):
     """NÚCLEO DA GERAÇÃO — a ÚNICA implementação, chamada por dois caminhos.
 
     Extraído do endpoint em 19/07. Motivo: o worker da fila e o

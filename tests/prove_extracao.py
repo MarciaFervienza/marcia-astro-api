@@ -42,11 +42,21 @@ checa("1b. executar_geracao definida UMA vez",
       _defs.count("executar_geracao") == 1,
       f"{_defs.count('executar_geracao')} definição(ões)")
 
+# 18/11: `executar_geracao` virou CASCA (devolve o voucher em qualquer
+# falha) e o núcleo passou a se chamar `_nucleo_da_geracao`. As asserções
+# 2 e 3 miram o NÚCLEO de propósito: apontadas para a casca elas passariam
+# sozinhas — a casca tem um return só e nenhum uso de `request` — e os
+# dois detectores morreriam sem ninguém notar. Detector que passa porque
+# está olhando para o lugar errado é a pior espécie.
+checa("1c. o núcleo existe e é UM só",
+      _defs.count("_nucleo_da_geracao") == 1,
+      f"{_defs.count('_nucleo_da_geracao')} definição(ões)")
+
 # ---------------------------------------------------------------- 2
 # O núcleo não toca no request HTTP. Se tocasse, funcionaria no endpoint
 # e levantaria no worker — onde não há contexto de requisição.
 _fn = next(n for n in _t.body
-           if isinstance(n, ast.FunctionDef) and n.name == "executar_geracao")
+           if isinstance(n, ast.FunctionDef) and n.name == "_nucleo_da_geracao")
 _PROIBIDO = {"request", "jsonify", "abort", "session", "key_from_body"}
 _achados = sorted({n.id for n in ast.walk(_fn)
                    if isinstance(n, ast.Name) and n.id in _PROIBIDO})
