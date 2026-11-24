@@ -222,6 +222,18 @@ checa("9d. na capa, o nome dela é MAIOR que o 'Interpretado por'",
       "size='14'>\"\n        \"Márcia Fervienza</font>"
       in _insp9.getsource(pg._cover_flowables))
 
+# ------------------------------------------------------------------ 9e
+# AVISO DE DIREITOS AUTORAIS NO PDF ENTREGUE (24/11). Procura no texto
+# renderizado, não na constante: constante certa e peça que não sai foi
+# exatamente o defeito da tabela de aspectos em 11/08.
+checa("9e. o aviso de direitos autorais está no PDF entregue",
+      "Todos os direitos reservados" in _plano
+      and "proibida a reprodução" in _plano
+      and "9.610/1998" in _plano)
+checa("9f. e vem DEPOIS da nota de procedência, no fim",
+      _plano.rfind("Todos os direitos reservados")
+      > _plano.rfind("inteligência artificial") > len(_plano) * 0.5)
+
 # ------------------------------------------------------------------ 10
 # PAINEL DE ELEMENTOS NA PÁGINA DA MANDALA (24/11). O teste 4 só provava
 # que os quatro elementos ficavam JUNTOS — e ficavam, juntos e sozinhos

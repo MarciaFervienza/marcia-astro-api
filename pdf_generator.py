@@ -420,6 +420,18 @@ def _styles():
             leading=18,
             spaceBefore=6,
         ),
+        # Aviso de direitos autorais (24/11). NÃO é o "footnote": aquele
+        # é 7pt itálico cinza, e a Márcia já disse que letra pequena e
+        # clara não se lê. Este precisa ser lido, então sai reto, a 10pt,
+        # em grafite, centralizado sob a assinatura.
+        "direitos": ParagraphStyle(
+            name="direitos",
+            fontName="EBGaramond-Regular",
+            fontSize=10,
+            textColor=COLOR_CHARCOAL,
+            alignment=TA_CENTER,
+            leading=14,
+        ),
         "footnote": ParagraphStyle(
             name="footnote",
             fontName="EBGaramond-Italic",
@@ -1561,6 +1573,16 @@ NOTA_FINAL = ("Este relatório foi produzido com base no banco de dados que "
               "construí ao longo de 18 anos de atendimento, com a ajuda de "
               "inteligência artificial.")
 
+# DIREITOS AUTORAIS (24/11, pedido da Márcia: o relatório carrega
+# propriedade intelectual dela, construída em 18 anos de atendimento).
+# Fica junto da nota de procedência, no fim: é a mesma família de
+# informação, sobre o documento e não sobre o mapa.
+DIREITOS = ("© Márcia Fervienza. Todos os direitos reservados. Este relatório "
+            "é de uso pessoal de quem o recebeu. É proibida a reprodução, "
+            "total ou parcial, a distribuição, a publicação ou o uso comercial "
+            "do seu conteúdo, por qualquer meio, sem autorização prévia e por "
+            "escrito da autora (Lei nº 9.610/1998).")
+
 
 def _nota_final_flowables(styles):
     """A nota fecha o relatório, depois da última seção, sem página própria
@@ -1575,6 +1597,8 @@ def _nota_final_flowables(styles):
         Paragraph(_escape(NOTA_FINAL), styles["nota_final"]),
         Paragraph("<font face='EBGaramond-Italic' size='13'>"
                   "Márcia Fervienza</font>", styles["nota_final"]),
+        Spacer(1, 0.5 * cm),
+        Paragraph(_escape(DIREITOS), styles["direitos"]),
     ])]
 
 
