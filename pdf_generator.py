@@ -207,6 +207,9 @@ COLOR_TABLE_GRID = HexColor("#E6DFCE")  # ivory-toned hairline
 # 17/07). Agora é constante nomeada e os bancos importam DAQUI: um número,
 # um dono (regra R3 do ESTADO aplicada à tipografia).
 WHEEL_SIZE_CM = 18.0   # decisão da Márcia, 17/07 (era 14.5)
+# Corpo do painel de elementos, no topo da página da mandala (24/11; era
+# 8.5pt embaixo da mandala, e caía sozinho na página seguinte).
+PAINEL_ELEMENTOS_PT = 10.0
 
 PAGE_W, PAGE_H = A4
 # Generous margins — the whole point of the redesign is white space.
@@ -772,7 +775,11 @@ def _aspects_table(in_sign_aspects: list, styles, show_row_separators: bool = Fa
       - Column widths sized to content, not equidistant: aspect column
         widest to fit 'sesquiquadratura' comfortably in italic serif.
     """
-    header = ["Planeta", "Aspecto", "Planeta", "Orbe"]
+    # SEM COLUNA DE ORBE (24/11, pedido da Márcia em 23/11: "não precisa
+    # mostrar os orbes dos aspectos para o cliente"). O orbe é instrumento
+    # de quem interpreta, não informação para quem lê. Ele continua
+    # decidindo a ORDEM da tabela (mais apertados no topo), só não aparece.
+    header = ["Planeta", "Aspecto", "Planeta"]
 
     # Ordena por orbe crescente — mais apertados = mais importantes = topo
     sorted_asp = sorted(
@@ -788,21 +795,15 @@ def _aspects_table(in_sign_aspects: list, styles, show_row_separators: bool = Fa
             a.get("type_pt")
             or ASPECT_LABEL_PT.get(a.get("type", ""), a.get("type", ""))
         )
-        try:
-            orb = float(a.get("orb", 0.0))
-        except (TypeError, ValueError):
-            orb = 0.0
-        rows.append([pa, asp, pb, f"{orb:.1f}°"])
+        rows.append([pa, asp, pb])
 
     # Larguras proporcionais ao conteúdo real, não fatias iguais:
     #   Planeta (esq): 2.8 cm — cobre "Nodo Norte" em Garamond 10pt sem apertar.
     #   Aspecto:       4.2 cm — cobre "sesquiquadratura" em italic serif.
     #   Planeta (dir): 2.8 cm — igual à coluna esquerda para simetria visual.
-    #   Orbe:          1.6 cm — só precisa caber "N.N°"; deixa a coluna
-    #                          visualmente distinta como coluna numérica.
     table = Table(
         rows,
-        colWidths=[2.8 * cm, 4.2 * cm, 2.8 * cm, 1.6 * cm],
+        colWidths=[2.8 * cm, 4.2 * cm, 2.8 * cm],
         repeatRows=1,
         hAlign="CENTER",
     )
@@ -816,7 +817,6 @@ def _aspects_table(in_sign_aspects: list, styles, show_row_separators: bool = Fa
         ("ALIGN",         (0, 0), (0, 0),  "LEFT"),
         ("ALIGN",         (1, 0), (1, 0),  "CENTER"),
         ("ALIGN",         (2, 0), (2, 0),  "LEFT"),
-        ("ALIGN",         (3, 0), (3, 0),  "RIGHT"),
         ("BOTTOMPADDING", (0, 0), (-1, 0), 12),
         ("TOPPADDING",    (0, 0), (-1, 0), 8),
 
@@ -824,19 +824,11 @@ def _aspects_table(in_sign_aspects: list, styles, show_row_separators: bool = Fa
         ("FONTNAME",      (0, 1), (0, -1), "EBGaramond-Regular"),
         ("FONTNAME",      (2, 1), (2, -1), "EBGaramond-Regular"),
         ("FONTNAME",      (1, 1), (1, -1), "EBGaramond-Italic"),
-        # Coluna do ORBE em EB Garamond como as demais (pedido antigo da
-        # Márcia, reaplicado 17/07 depois da leitura da Marcelle — tinha
-        # ficado em Inter). EB Garamond tem algarismos de largura uniforme
-        # nas TTFs que usamos, então a coluna alinha à direita sem variante
-        # tabular; se algum dia desalinhar, trocar por EBGaramond-Regular
-        # com <font features="tnum"> ou padding fixo.
-        ("FONTNAME",      (3, 1), (3, -1), "EBGaramond-Regular"),
         ("FONTSIZE",      (0, 1), (-1, -1), 10),
         ("TEXTCOLOR",     (0, 1), (-1, -1), COLOR_CHARCOAL),
         ("ALIGN",         (0, 1), (0, -1),  "LEFT"),
         ("ALIGN",         (1, 1), (1, -1),  "CENTER"),
         ("ALIGN",         (2, 1), (2, -1),  "LEFT"),
-        ("ALIGN",         (3, 1), (3, -1),  "RIGHT"),
         ("LEFTPADDING",   (0, 0), (-1, -1), 10),
         ("RIGHTPADDING",  (0, 0), (-1, -1), 10),
         # Padding vertical bem apertado (2pt) — densidade de tabela de
@@ -882,8 +874,9 @@ def _wheel_page_flowables(
     # dourado ainda menor. Como Frame + Story alinha à esquerda por padrão
     # do ParagraphStyle, "canto superior esquerdo" = topo do frame,
     # esquerda do texto.
+    _meta = []
     if client_name:
-        flow.append(Paragraph(_escape(client_name), styles["wheel_meta_name"]))
+        _meta.append(Paragraph(_escape(client_name), styles["wheel_meta_name"]))
     _lines = []
     if birth_date:
         _lines.append(_escape(birth_date))
@@ -900,12 +893,59 @@ def _wheel_page_flowables(
         except (TypeError, ValueError):
             pass
     for _line in _lines:
-        flow.append(Paragraph(_line, styles["wheel_meta_line"]))
+        _meta.append(Paragraph(_line, styles["wheel_meta_line"]))
     # Referência técnica: sistema zodiacal + sistema de casas
-    flow.append(Paragraph(
+    _meta.append(Paragraph(
         "Zodíaco Tropical · Placidus",
         styles["wheel_meta_tech"],
     ))
+
+    # PAINEL DE ELEMENTOS E MODALIDADES AO LADO DOS DADOS, NO TOPO (24/11).
+    #
+    # Ficava ABAIXO da mandala. Com a mandala a 18cm não cabia: o
+    # KeepTogether (que evitava o "Água 2" órfão) jogava o painel INTEIRO
+    # para a página seguinte, onde ele aparecia sozinho, pequeno, numa
+    # página quase vazia. Medido no PDF da prova do artefato: mandala na
+    # p.3, painel sozinho na p.4. A Márcia reclamou disso em 23/11.
+    #
+    # O canto superior direito, ao lado do bloco de dados, estava vazio.
+    # O painel vai para lá, na MESMA altura que os dados já ocupavam: não
+    # rouba nenhum centímetro da mandala. E sobe de 8.5pt para 10pt, que
+    # era a outra queixa ("letras tão pequenas").
+    _pan = None
+    if points:
+        try:
+            import positions_table as _pt
+            _rows = _pt.read_positions_from_points(points)
+            if _rows:
+                _el, _mo = _pt.count_elements_modalities(_rows)
+                _pan = _pt.elements_panel_flowable(
+                    _el, _mo, styles, PAINEL_ELEMENTOS_PT,
+                    col_widths=[1.25 * cm, 0.75 * cm, 0.5 * cm,
+                                1.65 * cm, 0.75 * cm])
+                _pan.hAlign = "RIGHT"
+        except Exception as e:
+            logger.warning("painel de elementos falhou: %s", e)
+            _pan = None
+
+    if _pan is not None:
+        _larg = PAGE_W - 2 * SIDE_MARGIN
+        _wpan = 4.9 * cm
+        _topo = Table([[_meta, _pan]], colWidths=[_larg - _wpan, _wpan],
+                      hAlign="LEFT")
+        _topo.setStyle(TableStyle([
+            ("VALIGN", (0, 0), (-1, -1), "TOP"),
+            ("ALIGN", (1, 0), (1, 0), "RIGHT"),
+            ("LEFTPADDING", (0, 0), (-1, -1), 0),
+            ("RIGHTPADDING", (0, 0), (-1, -1), 0),
+            ("TOPPADDING", (0, 0), (-1, -1), 0),
+            ("BOTTOMPADDING", (0, 0), (-1, -1), 0),
+        ]))
+        flow.append(_topo)
+        if emitido_out is not None:
+            emitido_out.append("elementos")
+    else:
+        flow.extend(_meta)
 
     # Respiro entre bloco de dados e mandala
     flow.append(Spacer(1, 1.2 * cm))
@@ -930,31 +970,6 @@ def _wheel_page_flowables(
     )
     if img is not None:
         flow.append(img)
-
-    # PAINEL DE ELEMENTOS E MODALIDADES — abaixo da mandala, alinhado à
-    # ESQUERDA (escolha da Márcia, 17/07: "lateral, não no centro").
-    # Respiro de 0.15cm: medido empiricamente como o MAIOR que ainda mantém
-    # tudo em uma página com a mandala a 18cm (0.20 já joga para a segunda).
-    if points:
-        try:
-            import positions_table as _pt
-            _rows = _pt.read_positions_from_points(points)
-            if _rows:
-                _el, _mo = _pt.count_elements_modalities(_rows)
-                _pan = _pt.elements_panel_flowable(_el, _mo, styles, 8.5)
-                _pan.hAlign = "LEFT"
-                # INDIVISÍVEL (11/08, leitura da Marcelle). O painel é uma
-                # Table, e Table quebra POR LINHA: com a mandala ocupando
-                # quase a página, sobrava espaço para três linhas e a
-                # quarta ia sozinha para a página seguinte — "Água 2"
-                # órfã na p.5. Contagem partida ao meio não é contagem.
-                # Mesma família da pull-quote: KeepTogether joga o bloco
-                # INTEIRO adiante em vez de rachá-lo.
-                flow.append(KeepTogether([Spacer(1, 0.15 * cm), _pan]))
-                if emitido_out is not None:
-                    emitido_out.append("elementos")
-        except Exception as e:
-            logger.warning("painel de elementos falhou: %s", e)
 
     flow.append(PageBreak())
     return flow
@@ -1045,7 +1060,9 @@ def _positions_page_flowables(points, aspects, styles, emitido_out=None):
         return flow
 
     _CW = [0.6 * cm, 2.2 * cm, 0.6 * cm, 2.3 * cm, 0.8 * cm]
-    _AW = [1.9 * cm, 2.0 * cm, 1.9 * cm, 1.0 * cm]
+    # Três colunas desde 24/11 (sem orbe): o espaço da antiga coluna do
+    # orbe volta para os nomes, que a 8.5pt ficavam no limite.
+    _AW = [2.3 * cm, 2.6 * cm, 2.3 * cm]
     _COL = 7.6 * cm
 
     def _par(a, b):

@@ -915,7 +915,7 @@ e o arquivo onde vive. Ao mudar o código, atualizar aqui no mesmo commit.
 |---|---|
 | planeta A / planeta B | `EBGaramond-Regular` |
 | aspecto | `EBGaramond-Italic` |
-| **orbe** | `EBGaramond-Regular` (era Inter — reaplicado 17/07, 3ª vez pedido) |
+| **orbe** | **coluna removida em 24/11** (pedido da Márcia em 23/11: o cliente não precisa ver os orbes). O orbe continua decidindo a ordem. |
 | cabeçalho | `Inter-Medium` 8.5pt — **único elemento em sans; não confirmado pela Márcia** |
 | corpo | 10pt |
 | padding vertical | 2pt (densidade de tabela técnica) |
@@ -975,11 +975,15 @@ já dão). Duas colunas, EB Garamond 8.5pt, sem separadores.
 Conta 10 planetas tradicionais + Ascendente + MC = 12 (sem asteroides, nodos,
 Lilith ou Quíron). Property test: soma 12 nos dois eixos, cada corpo no
 elemento/modalidade certo; mordida provada (incluir Ceres faz virar 13).
-- Posição: **abaixo da mandala, alinhado à ESQUERDA** (escolha da Márcia).
-- Largura 4.04cm — medida com `stringWidth`, era 6.60cm com ~3.2cm de vazio.
-- Respiro de **0.15cm** entre mandala e painel: é o MAIOR que ainda mantém
-  uma página com o wheel a 18cm (0.20 já joga para a segunda). Medido no
-  build, não estimado.
+- Posição: **no topo da página da mandala, à DIREITA, ao lado do bloco de
+  dados de nascimento** (24/11). Antes ficava abaixo da mandala, à esquerda;
+  com o wheel a 18cm não cabia, e o KeepTogether jogava o painel inteiro
+  para a página seguinte, sozinho. A Márcia viu isso em 23/11. No topo ele
+  usa uma altura que os dados já ocupavam e não tira nada da mandala.
+- Corpo **10pt** (`PAINEL_ELEMENTOS_PT`; era 8.5pt), largura 4.9cm.
+- Prova no artefato: `prove_artefato` 10a compara a página do painel com a
+  página da mandala no PDF renderizado, não só se os quatro elementos
+  estão juntos (estavam, juntos e sozinhos na página errada).
 
 **Nodo Sul DESENHADO** na mandala. Ele já era calculado e usado em `points`,
 nos aspectos manuais e no texto — faltava só em `ACTIVE_POINTS`, que é o que

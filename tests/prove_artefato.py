@@ -222,6 +222,45 @@ checa("9d. na capa, o nome dela é MAIOR que o 'Interpretado por'",
       "size='14'>\"\n        \"Márcia Fervienza</font>"
       in _insp9.getsource(pg._cover_flowables))
 
+# ------------------------------------------------------------------ 10
+# PAINEL DE ELEMENTOS NA PÁGINA DA MANDALA (24/11). O teste 4 só provava
+# que os quatro elementos ficavam JUNTOS — e ficavam, juntos e sozinhos
+# na página seguinte à mandala. Prova verde, defeito à vista: foi o que a
+# Márcia viu em 23/11. Aqui a página do painel é comparada com a página
+# da mandala (a que traz "Zodíaco Tropical", o rodapé técnico dela).
+_pag_mandala = [i for i, p in enumerate(_paginas) if "Zodíaco Tropical" in p]
+_pag_painel = [i for i, p in enumerate(_paginas)
+               if all(re.search(rf"\b{e}\b", p) for e in _ELEM)]
+checa("10a. o painel de elementos está NA PÁGINA DA MANDALA",
+      bool(_pag_mandala) and _pag_painel == _pag_mandala,
+      f"mandala na(s) p. {[i + 1 for i in _pag_mandala]}, painel na(s) "
+      f"p. {[i + 1 for i in _pag_painel]}")
+checa("10b. e nenhuma página traz SÓ o painel",
+      not any(len(p.split()) < 40 and "Elementos" in p
+              and "Zodíaco Tropical" not in p for p in _paginas))
+checa("10c. o painel sai a 10pt, não mais a 8.5pt",
+      pg.PAINEL_ELEMENTOS_PT >= 10)
+
+# ------------------------------------------------------------------ 11
+# SEM ORBES PARA A CLIENTE (24/11, pedido de 23/11). A tabela continua
+# ORDENADA pelo orbe; só o número não aparece. Procura no texto do PDF
+# o cabeçalho e o padrão "N.N°" que a coluna imprimia.
+_pag_asp = [p for p in _paginas if "Aspectos" in p and "Planeta" in p]
+checa("11a. a tabela de aspectos não tem coluna 'Orbe'",
+      bool(_pag_asp) and not any("Orbe" in p for p in _pag_asp))
+checa("11b. nenhum valor de orbe ('N.N°') impresso na tabela",
+      bool(_pag_asp) and not any(re.search(r"\b\d{1,2}\.\d°", p)
+                                 for p in _pag_asp),
+      str([re.findall(r"\b\d{1,2}\.\d°", p)[:3] for p in _pag_asp]))
+_t11 = pg._aspects_table(
+    [{"planet_a": "Sun", "planet_b": "Moon", "type": "trine", "orb": 3.0},
+     {"planet_a": "Mars", "planet_b": "Venus", "type": "square", "orb": 0.5}],
+    pg._styles())
+checa("11c. a ordem continua sendo do orbe (mais apertado no topo)",
+      len(_t11._cellvalues[0]) == 3
+      and _t11._cellvalues[1][0] in ("Marte", "Mars"),
+      str(_t11._cellvalues))
+
 print()
 if falhas:
     print(f">>> {len(falhas)} FALHOU: {falhas}")
