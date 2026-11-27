@@ -1550,3 +1550,39 @@ Duas correções de desenho, as duas provadas por reinjeção:
 
 `POST /diag-telegram` prova o canal sem esperar um defeito real: canal só
 exercitado quando algo quebra é canal nunca exercitado.
+
+## Corpo no signo errado — detector NOVO, estrito (27/11, decisão da Márcia)
+
+**O buraco.** Nenhum detector conferia o signo de um corpo contra o mapa.
+Cúspide, casa, aspecto, ângulo e regência eram conferidos; o signo do
+planeta, não. O glossário de adjetivos só confere a GRAFIA ("virgiliana"),
+então "Lua escorpiana" — bem escrito — passava.
+
+**Caso real.** Susana (26/11): Lua em Virgem na casa 8; a tríade dizia "o
+que a Lua escorpiana está carregando por baixo". O modelo misturou a Lua
+com a casa natural de Escorpião. Entregue assim. A outra geração do mesmo
+mapa (Marcelle, 17:24) não tinha o erro — 55 afirmações explícitas de
+signo conferidas, todas certas.
+
+**Decisão da Márcia, nas palavras dela:** "Prefiro ter que liberar
+manualmente os mapas do que o cliente receber uma leitura de um
+posicionamento errado do seu mapa." Por isso o detector é ESTRITO e fecha
+o relatório (`fato:signo_errado`, regenera a seção; se persistir, falha
+fechada e ela remonta com `remontar_frase.py`). Ao contrário dos consertos
+de falso alarme (si mesmo / Nodo Norte, que ficaram para depois de 30/11),
+este APERTA a guarda — o risco que ele traz é falso alarme, que ela aceita.
+
+**O que confere** (`_detect_sign_claims`, preso ao corpo por proximidade):
+  · explícita: "Lua em Escorpião", "Sua Lua está em…", "Saturno,
+    retrógrado, em Leão", "Ascendente em…", "Meio do Céu em…"
+  · adjetivo colado: "Lua escorpiana", "o Sol geminiano"
+**O que NÃO acusa:** forma genérica que abre a frase ou vem depois de
+"quem tem/pessoas com/alguém com" ("Uma Lua em Câncer pode…"); trânsito e
+progressão ("transita em", "progredida em" não casam). "Você tem uma Lua
+escorpiana" É conferido — fala dela.
+
+**Prova:** `tests/prove_signo.py` (no gate). Morde 9 formas erradas; poupa
+as 148 afirmações certas dos mapas reais da Helena e do Lucca; prova que o
+achado chega ao encanamento (não é flag-only/léxico/glossário). Dois
+canários novos. Conferido também contra os dois textos reais da Susana: 1
+achado no que tinha o erro, 0 no outro.

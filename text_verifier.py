@@ -2127,7 +2127,8 @@ def _detectar_tudo(text, chart):
         for v in _detect_false_no_aspect_claims(scan_text, chart):
             _add(v["kind"], v["match"], v["offset"], v["suggestion"])
         for fn in (_detect_house_inconsistency, _detect_angle_claims,
-                   _detect_rulership, _detect_asserted_aspect):
+                   _detect_rulership, _detect_asserted_aspect,
+                   _detect_sign_claims):
             for v in fn(scan_text, chart):
                 _add(v["kind"], v["match"], v["offset"], v["suggestion"])
     except Exception as e:
@@ -2610,6 +2611,115 @@ def _detect_house_inconsistency(text, chart):
                                        f"A CORRETA, pela tabela deste mapa, é a casa "
                                        f"{real}. Uniformizar para {real}; NUNCA para "
                                        f"outra das listadas.")})
+    return out
+
+
+# ---- CLASSE NOVA (27/11): corpo no SIGNO errado ------------------------
+# Até aqui NENHUM detector conferia o signo de um corpo contra o mapa. As
+# cúspides eram conferidas, as casas, os aspectos, os ângulos — o signo do
+# planeta, não. O glossário de adjetivos só confere a GRAFIA ("virgiliana"
+# por "virginiana"); "Lua escorpiana" está bem escrito e passava.
+#
+# Caso real (Susana, 26/11): Lua em Virgem na casa 8, e uma frase da tríade
+# dizia "o que a Lua escorpiana está carregando por baixo" — o modelo
+# misturou a Lua com a casa natural de Escorpião. O relatório foi entregue
+# com o erro. A Márcia decidiu na hora: prefere liberar mapas à mão a ver
+# um cliente receber um posicionamento errado do próprio mapa. Por isso
+# este detector é ESTRITO e fecha o relatório como os outros `fato:`.
+#
+# Duas formas, as duas presas ao corpo pela proximidade (nunca por um
+# corpo qualquer da frase — a lição do 18/07 em `_corpo_mais_proximo_antes`):
+#   1. explícita:  "Lua em Escorpião", "Sua Lua está em Escorpião",
+#                  "Saturno, retrógrado, em Leão"
+#   2. adjetivo:   "Lua escorpiana", "o Sol geminiano" (colado ao corpo)
+#
+# NÃO acusa a forma genérica com artigo indefinido — "uma Lua em Câncer
+# pode procurar…" fala de um tipo, não do mapa da pessoa. Nem trânsito ou
+# progressão: os verbos de movimento ("transita", "progredida") não estão
+# na lista do que pode ficar entre o corpo e o signo, então não casam.
+_SIGNO_PT_RE = (r"Áries|Aries|Touro|Gêmeos|Gemeos|Câncer|Cancer|Leão|Leao|"
+                r"Virgem|Libra|Escorpião|Escorpiao|Sagitário|Sagitario|"
+                r"Capricórnio|Capricornio|Aquário|Aquario|Peixes")
+_ADJ_PARA_SIGNO = {}
+for _raiz, _sg in (("arian", "Áries"), ("taurin", "Touro"),
+                   ("geminian", "Gêmeos"), ("cancerian", "Câncer"),
+                   ("leonin", "Leão"), ("virginian", "Virgem"),
+                   ("librian", "Libra"), ("escorpian", "Escorpião"),
+                   ("sagitarian", "Sagitário"), ("capricornian", "Capricórnio"),
+                   ("aquarian", "Aquário"), ("piscian", "Peixes")):
+    for _fim in ("a", "o", "as", "os"):
+        _ADJ_PARA_SIGNO[_raiz + _fim] = _sg
+_RAIZ_DO_SIGNO = {v: k[:-1] for k, v in _ADJ_PARA_SIGNO.items() if k.endswith("a")
+                  and not k.endswith("as")}
+_ADJ_SIGNO_RE = "|".join(sorted(_ADJ_PARA_SIGNO, key=len, reverse=True))
+_CORPO_OU_ANGULO_RE = (rf"{_CORPO_RE}|Ascendente|Meio[\s-]do[\s-]Céu")
+_ENTRE_CORPO_E_SIGNO = (r"(?:,?\s+(?:que\s+)?(?:está|esteja|estava|fica|ficou|"
+                        r"se\s+encontra|aparece|retrógrad[oa]|natal)\b)*,?\s+")
+
+
+def _signo_real_do(chart, nome):
+    """sign_pt do corpo ou ângulo no mapa, ou None se o mapa não diz."""
+    n = re.sub(r"[\s-]+", " ", nome.strip().lower())
+    ch = chart or {}
+    if n == "ascendente":
+        p = ch.get("ascendant")
+    elif n == "meio do céu":
+        p = ch.get("midheaven")
+    else:
+        key = _PT2KEY.get(n)
+        p = (ch.get("points") or {}).get(key) if key else None
+    s = (p or {}).get("sign_pt")
+    return _SIGN_CANON.get(s, s) if s else None
+
+
+def _detect_sign_claims(text, chart):
+    """Corpo afirmado num signo que não é o dele neste mapa."""
+    out = []
+    if not (chart or {}).get("points"):
+        return out
+
+    def _generico(pos):
+        # "Uma Lua em Câncer pode…", "quem tem um Saturno leonino…": tipo,
+        # não o mapa dela. ESTREITO de propósito: "você tem uma Lua
+        # escorpiana" fala DELA e tem de ser conferido — por isso o artigo
+        # sozinho não basta; precisa abrir a frase ou vir depois de
+        # "quem tem", "pessoas com", "alguém com".
+        antes = text[max(0, pos - 30):pos]
+        return re.search(r"(?:^|[.!?:;]\s*|\n\s*|\bquem\s+tem\s+|\bpessoas\s+com\s+|"
+                         r"\balguém\s+com\s+)(?:um|uma)\s+$", antes,
+                         flags=re.IGNORECASE) is not None
+
+    pat_expl = (rf"\b(?P<corpo>{_CORPO_OU_ANGULO_RE})\b{_ENTRE_CORPO_E_SIGNO}"
+                rf"em\s+(?P<signo>{_SIGNO_PT_RE})\b")
+    for m in re.finditer(pat_expl, text, flags=re.IGNORECASE):
+        if _generico(m.start()):
+            continue
+        real = _signo_real_do(chart, m.group("corpo"))
+        dito = _SIGN_CANON.get(m.group("signo").capitalize(), m.group("signo"))
+        if real and dito != real:
+            out.append({"kind": "fato:signo_errado", "match": m.group(0)[:70],
+                        "offset": m.start(),
+                        "suggestion": (f"o texto põe {m.group('corpo')} em {dito}, "
+                                       f"mas neste mapa {m.group('corpo')} está em "
+                                       f"{real}. Corrigir para {real}. Nunca "
+                                       f"manter {dito} para este corpo.")})
+
+    pat_adj = rf"\b(?P<corpo>{_CORPO_OU_ANGULO_RE})\s+(?P<adj>{_ADJ_SIGNO_RE})\b"
+    for m in re.finditer(pat_adj, text, flags=re.IGNORECASE):
+        if _generico(m.start()):
+            continue
+        real = _signo_real_do(chart, m.group("corpo"))
+        adj = m.group("adj").lower()
+        dito = _ADJ_PARA_SIGNO.get(adj)
+        if real and dito and dito != real:
+            _fim = re.search(r"(as|os|a|o)$", adj).group(1)
+            certo = _RAIZ_DO_SIGNO.get(real, "") + _fim
+            out.append({"kind": "fato:signo_errado", "match": m.group(0)[:70],
+                        "offset": m.start(),
+                        "suggestion": (f"'{m.group(0)}' diz que {m.group('corpo')} "
+                                       f"está em {dito}, mas neste mapa está em "
+                                       f"{real}. Trocar '{m.group('adj')}' por "
+                                       f"'{certo}'.")})
     return out
 
 
